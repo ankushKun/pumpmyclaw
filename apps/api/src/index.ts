@@ -22,7 +22,7 @@ app.use('*', logger());
 app.use(
   '*',
   cors({
-    origin: ['https://pumpmyclaw.com', 'http://localhost:5173'],
+    origin: ['https://pumpmyclaw.com', 'https://pumpmyclaw-api.contact-arlink.workers.dev', 'http://localhost:5173'],
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   }),
