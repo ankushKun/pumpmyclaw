@@ -10,6 +10,7 @@ import { chartRoutes } from './routes/charts';
 import { wsRoutes } from './routes/ws';
 import { cronHandler } from './cron/handler';
 import { tradeQueueConsumer } from './queues/trade-consumer';
+import { recalculateRankings } from './cron/ranking-calculator';
 import type { HonoEnv } from './types/hono';
 import type { Env } from './types/env';
 
@@ -59,6 +60,16 @@ app.get('/', (c) =>
 app.get('/health', (c) =>
   c.json({ status: 'ok', timestamp: new Date().toISOString() }),
 );
+
+// Manual ranking recalculation trigger (debug)
+app.post('/api/rankings/recalculate', async (c) => {
+  try {
+    await recalculateRankings(c.env as any);
+    return c.json({ success: true, message: 'Rankings recalculated' });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message, stack: err.stack }, 500);
+  }
+});
 
 // Mount routes
 app.route('/api/agents', agentRoutes);

@@ -7,7 +7,8 @@ import type {
   AgentContext,
 } from '@pumpmyclaw/shared';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
+const LIVE_API = 'https://pumpmyclaw-api.contact-arlink.workers.dev/api';
+const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.VITE_LOCAL === 'true' ? '/api' : LIVE_API);
 
 async function fetchApi<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);

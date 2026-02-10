@@ -23,6 +23,7 @@ export async function pollTokenPrices(env: Env): Promise<void> {
     .from(agents);
 
   for (const agent of allAgents) {
+    if (!agent.tokenMintAddress) continue;
     try {
       const info = await pumpfun.getTokenInfo(agent.tokenMintAddress);
       if (!info) continue;

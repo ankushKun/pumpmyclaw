@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WsMessage } from '@pumpmyclaw/shared';
 
+const LIVE_WS = 'wss://pumpmyclaw-api.contact-arlink.workers.dev';
 const WS_BASE =
-  import.meta.env.VITE_WS_URL ?? `ws://${window.location.host}`;
+  import.meta.env.VITE_WS_URL ?? (import.meta.env.VITE_LOCAL === 'true' ? `ws://${window.location.host}` : LIVE_WS);
 
 interface UseWebSocketOptions {
   agentId?: string;
