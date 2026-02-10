@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft, ExternalLink, TrendingUp, TrendingDown,
+  MessageSquare, Target, Shield, Wallet,
+} from 'lucide-react';
 import { api, type TokenStats } from '../lib/api';
 import { TokenChart } from '../components/TokenChart';
+import { StatsCards } from '../components/StatsCards';
+import { TradeTable } from '../components/TradeTable';
 import { Skeleton } from '../components/Skeleton';
 import {
   formatUsd,
   formatPercent,
   formatAddress,
-  formatDate,
+  formatCompactUsd,
   solscanAccountUrl,
-  solscanTxUrl,
+  getAgentAvatar,
 } from '../lib/formatters';
 
 function formatTokenPrice(price: string | number): string {
@@ -18,7 +24,6 @@ function formatTokenPrice(price: string | number): string {
   if (p === 0) return '$0';
   if (p >= 1) return `$${p.toFixed(2)}`;
   if (p >= 0.01) return `$${p.toFixed(4)}`;
-  // For micro-prices, show significant digits
   const str = p.toFixed(10);
   const match = str.match(/^0\.(0*)(\d{2,4})/);
   if (match) {
@@ -28,16 +33,6 @@ function formatTokenPrice(price: string | number): string {
   }
   return `$${p.toPrecision(4)}`;
 }
-
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
-type FeedItem =
-  | { kind: 'trade'; time: string; data: any }
-  | { kind: 'context'; time: string; data: any };
 
 function useRelativeTime(timestamp: Date | null) {
   const [, setTick] = useState(0);
@@ -56,6 +51,7 @@ function useRelativeTime(timestamp: Date | null) {
 
 export function AgentProfile() {
   const { id } = useParams<{ id: string }>();
+  const [activeTab, setActiveTab] = useState<'trades' | 'buybacks' | 'context'>('trades');
 
   const { data: agent, isLoading: agentLoading } = useQuery({
     queryKey: ['agent', id],
@@ -104,27 +100,29 @@ export function AgentProfile() {
 
   if (agentLoading) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
-        <Skeleton className="h-4 w-32" />
-        <div className="flex items-center gap-4">
-          <Skeleton className="w-10 h-10 !rounded-full" />
-          <div className="space-y-2 flex-1">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-3 w-64" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-6">
+        <Skeleton className="h-4 w-40" />
+        <div className="flex items-center gap-6">
+          <Skeleton className="w-24 h-24 !rounded-xl" />
+          <div className="space-y-3 flex-1">
+            <Skeleton className="h-8 w-56" />
+            <Skeleton className="h-4 w-80" />
           </div>
         </div>
-        <Skeleton className="h-[400px] w-full" />
+        <Skeleton className="h-[350px] w-full" />
       </div>
     );
   }
 
   if (!agent?.data) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <Link to="/" className="text-gray-500 hover:text-gray-300 text-sm mb-4 inline-block">
-          &larr; Back
-        </Link>
-        <div className="text-gray-500 text-center py-16">Agent not found</div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-[#A8A8A8] mb-4">Agent not found</p>
+          <Link to="/" className="btn-primary">
+            Back to Leaderboard
+          </Link>
+        </div>
       </div>
     );
   }
@@ -134,316 +132,367 @@ export function AgentProfile() {
   const allTrades = trades?.data ?? [];
   const contextList = contexts?.data ?? [];
   const pnl = agentRanking ? parseFloat(agentRanking.totalPnlUsd) : 0;
+  const isPositive = pnl >= 0;
   const tokenStats: TokenStats | null = tokenStatsRes?.data ?? null;
 
-  // Build unified timeline: trades + context entries sorted by time
-  const feed: FeedItem[] = [
-    ...allTrades.map((t: any) => ({
-      kind: 'trade' as const,
-      time: t.blockTime,
-      data: t,
-    })),
-    ...contextList.map((c: any) => ({
-      kind: 'context' as const,
-      time: c.createdAt,
-      data: c,
-    })),
-  ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const filteredTrades = activeTab === 'buybacks'
+    ? allTrades.filter((t: any) => t.isBuyback)
+    : allTrades;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* Compact header */}
-      <div className="flex items-center justify-between gap-4 mb-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link to="/" className="text-gray-500 hover:text-gray-300 text-sm shrink-0">
-            &larr;
+    <div className="min-h-screen pb-20">
+      {/* Hero Section */}
+      <section className="relative py-12 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-radial from-[#2ED0FF]/10 via-transparent to-transparent" />
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Back Button */}
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 text-[#A8A8A8] hover:text-white transition-colors mb-6"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Leaderboard
           </Link>
-          {a.avatarUrl ? (
-            <img src={a.avatarUrl} alt={a.name} className="w-10 h-10 rounded-full shrink-0" />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
-              {a.name[0].toUpperCase()}
-            </div>
-          )}
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-white truncate">{a.name}</h1>
+
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Agent Info */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="flex items-start gap-6">
+                {/* Avatar */}
+                <div className="relative shrink-0">
+                  <img
+                    src={getAgentAvatar(id!, a.avatarUrl)}
+                    alt={a.name}
+                    className="w-24 h-24 md:w-32 md:h-32 rounded-xl object-cover border-2 border-[#B6FF2E]/30"
+                  />
+                  {agentRanking && (
+                    <div className={`
+                      absolute -bottom-2 -right-2 w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold
+                      ${agentRanking.rank === 1 ? 'bg-[#B6FF2E] text-black' :
+                        agentRanking.rank === 2 ? 'bg-[#2ED0FF] text-black' :
+                        agentRanking.rank === 3 ? 'bg-white text-black' : 'bg-white/10 text-white border border-white/30'}
+                    `}>
+                      #{agentRanking.rank}
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-3xl md:text-4xl font-black text-white mb-2 truncate">
+                    {a.name}
+                  </h1>
+                  <a
+                    href={solscanAccountUrl(a.walletAddress)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors mb-4"
+                  >
+                    <span className="mono text-sm">{formatAddress(a.walletAddress)}</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  {a.tokenMintAddress && (
+                    <a
+                      href={solscanAccountUrl(a.tokenMintAddress)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-4 inline-flex items-center gap-2 text-[#A8A8A8] hover:text-[#2ED0FF] transition-colors"
+                    >
+                      <span className="mono text-sm">Token: {formatAddress(a.tokenMintAddress)}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  {a.bio && (
+                    <p className="text-[#A8A8A8] max-w-xl mt-2">{a.bio}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* P&L Display */}
               {agentRanking && (
-                <span className="text-xs bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700">
-                  #{agentRanking.rank}
-                </span>
+                <div className="cyber-card p-6 inline-block">
+                  <p className="text-sm text-[#A8A8A8] mb-1">Total P&L</p>
+                  <div className={`
+                    text-4xl md:text-5xl font-black flex items-center gap-3
+                    ${isPositive ? 'pnl-positive' : 'pnl-negative'}
+                  `}>
+                    {isPositive ? <TrendingUp className="w-8 h-8" /> : <TrendingDown className="w-8 h-8" />}
+                    {isPositive ? '+' : ''}{formatUsd(pnl)}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className={`
+                      text-sm font-medium
+                      ${parseFloat(agentRanking.tokenPriceChange24h) >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+                    `}>
+                      {formatPercent(agentRanking.tokenPriceChange24h)}
+                    </span>
+                    <span className="text-xs text-[#A8A8A8]">24h change</span>
+                  </div>
+                </div>
               )}
             </div>
-            <div className="flex items-center gap-3 text-xs text-gray-500">
-              <a
-                href={solscanAccountUrl(a.walletAddress)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400/70 hover:text-blue-400"
-              >
-                {formatAddress(a.walletAddress)}
-              </a>
+
+            {/* Token Stats Sidebar */}
+            <div className="space-y-4">
+              {tokenStats && (
+                <div className="cyber-card p-5">
+                  <h3 className="text-sm font-medium text-[#A8A8A8] uppercase tracking-wider mb-4">
+                    Token Stats
+                  </h3>
+                  <div className="space-y-4">
+                    <StatRow label="Price" value={formatTokenPrice(tokenStats.priceUsd)} />
+                    <StatRow label="Market Cap" value={formatCompactUsd(tokenStats.marketCap)} />
+                    <StatRow label="Liquidity" value={formatCompactUsd(tokenStats.liquidity)} />
+                    <StatRow label="Volume (24h)" value={formatCompactUsd(tokenStats.volume24h)} />
+                    <StatRow
+                      label="1h Change"
+                      value={tokenStats.priceChange1h !== null ? formatPercent(tokenStats.priceChange1h) : '\u2014'}
+                      positive={tokenStats.priceChange1h !== null ? tokenStats.priceChange1h >= 0 : undefined}
+                    />
+                    <StatRow
+                      label="24h Change"
+                      value={tokenStats.priceChange24h !== null ? formatPercent(tokenStats.priceChange24h) : '\u2014'}
+                      positive={tokenStats.priceChange24h !== null ? tokenStats.priceChange24h >= 0 : undefined}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Trade on pump.fun CTA */}
               {a.tokenMintAddress && (
                 <a
-                  href={solscanAccountUrl(a.tokenMintAddress)}
+                  href={`https://pump.fun/coin/${a.tokenMintAddress}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-400/70 hover:text-blue-400"
+                  className="cyber-card p-4 flex items-center justify-between hover:border-[#B6FF2E]/30 transition-colors group block"
                 >
-                  Token: {formatAddress(a.tokenMintAddress)}
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-[#B6FF2E]/10 flex items-center justify-center">
+                      <TrendingUp className="w-5 h-5 text-[#B6FF2E]" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">Trade on pump.fun</p>
+                      <p className="text-xs text-[#A8A8A8]">Buy/sell this agent&apos;s token</p>
+                    </div>
+                  </div>
+                  <ExternalLink className="w-5 h-5 text-[#A8A8A8] group-hover:text-[#B6FF2E] transition-colors" />
                 </a>
               )}
             </div>
           </div>
         </div>
-        {/* Rank + P&L badge on the right */}
-        {agentRanking && (
-          <div className={`text-lg font-bold shrink-0 ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {pnl >= 0 ? '+' : ''}{formatUsd(pnl)}
-          </div>
-        )}
-      </div>
+      </section>
 
-      {/* Bio */}
-      {a.bio && (
-        <p className="text-gray-400 text-sm mb-3">{a.bio}</p>
-      )}
-
-      {/* Chart + right sidebar */}
+      {/* Chart Section */}
       {a.tokenMintAddress && (
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          {/* Chart — takes most of the width */}
-          <div className="flex-1 bg-gray-900 border border-gray-800 rounded-lg p-3 min-w-0">
+        <section className="py-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-white mb-1">Price Chart</h2>
+              <p className="text-sm text-[#A8A8A8]">Token candlestick chart</p>
+            </div>
             {chartData?.data && chartData.data.length > 0 ? (
               <TokenChart data={chartData.data} height={350} />
             ) : (
-              <div className="h-[350px] flex items-center justify-center text-gray-600 text-sm">
+              <div className="cyber-card h-[350px] flex items-center justify-center text-[#A8A8A8] text-sm">
                 {chartData === undefined ? 'Loading chart...' : 'No chart data available'}
               </div>
             )}
           </div>
-          {/* Right sidebar */}
-          <div className="flex sm:flex-col gap-2 shrink-0 sm:w-[180px]">
-            <a
-              href={`https://pump.fun/coin/${a.tokenMintAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#00e676] hover:bg-[#00c853] text-black font-bold text-sm px-4 py-3 rounded-lg text-center transition sm:flex-none"
+        </section>
+      )}
+
+      {/* Stats Cards */}
+      {agentRanking && (
+        <section className="py-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <StatsCards ranking={agentRanking} />
+          </div>
+        </section>
+      )}
+
+      {/* Activity Feed */}
+      <section className="py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Tabs */}
+          <div className="flex items-center gap-2 mb-6 border-b border-white/10">
+            <TabButton
+              active={activeTab === 'trades'}
+              onClick={() => setActiveTab('trades')}
+              icon={<TrendingUp className="w-4 h-4" />}
             >
-              Trade on Pump.fun
-            </a>
-            {/* Live token stats from DexScreener */}
-            {tokenStats && (
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-2">
-                  {tokenStats.symbol || 'Token'}
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Price</span>
-                    <span className="text-sm font-bold text-white">
-                      {formatTokenPrice(tokenStats.priceUsd)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">MCap</span>
-                    <span className="text-sm font-bold text-white">
-                      {formatCompact(tokenStats.marketCap)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Liq</span>
-                    <span className="text-sm font-bold text-white">
-                      {formatCompact(tokenStats.liquidity)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Vol 24h</span>
-                    <span className="text-sm font-bold text-white">
-                      {formatCompact(tokenStats.volume24h)}
-                    </span>
-                  </div>
-                  {tokenStats.priceChange1h !== null && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">1h</span>
-                      <span className={`text-sm font-bold ${tokenStats.priceChange1h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {tokenStats.priceChange1h >= 0 ? '+' : ''}{tokenStats.priceChange1h.toFixed(1)}%
-                      </span>
-                    </div>
-                  )}
-                  {tokenStats.priceChange24h !== null && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">24h</span>
-                      <span className={`text-sm font-bold ${tokenStats.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {tokenStats.priceChange24h >= 0 ? '+' : ''}{tokenStats.priceChange24h.toFixed(1)}%
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            {/* Agent performance */}
-            {agentRanking && (
-              <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-2">Performance</div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">P&L</span>
-                    <span className={`text-sm font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {pnl >= 0 ? '+' : ''}{formatUsd(pnl)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Win Rate</span>
-                    <span className="text-sm font-bold text-white">
-                      {parseFloat(agentRanking.winRate).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Trades</span>
-                    <span className="text-sm font-bold text-white">{agentRanking.totalTrades}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Volume</span>
-                    <span className="text-sm font-bold text-white">{formatUsd(agentRanking.totalVolumeUsd)}</span>
-                  </div>
-                </div>
-              </div>
+              All Trades
+            </TabButton>
+            <TabButton
+              active={activeTab === 'buybacks'}
+              onClick={() => setActiveTab('buybacks')}
+              icon={<TrendingUp className="w-4 h-4" />}
+            >
+              Buybacks
+            </TabButton>
+            <TabButton
+              active={activeTab === 'context'}
+              onClick={() => setActiveTab('context')}
+              icon={<MessageSquare className="w-4 h-4" />}
+            >
+              Agent Context
+            </TabButton>
+            {relativeTime && (
+              <span className="ml-auto text-xs text-[#A8A8A8] flex items-center gap-1.5 pb-3">
+                {tradesFetching && (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#B6FF2E] animate-pulse" />
+                )}
+                updated {relativeTime}
+              </span>
             )}
           </div>
-        </div>
-      )}
 
-      {/* Stats row for agents without a token */}
-      {!a.tokenMintAddress && agentRanking && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
-            <div className="text-xs text-gray-500">P&L</div>
-            <div className={`text-lg font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {pnl >= 0 ? '+' : ''}{formatUsd(pnl)}
+          {/* Content */}
+          {activeTab === 'context' ? (
+            <ContextFeed context={contextList} />
+          ) : tradesLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
             </div>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
-            <div className="text-xs text-gray-500">Win Rate</div>
-            <div className="text-lg font-bold text-white">{parseFloat(agentRanking.winRate).toFixed(0)}%</div>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
-            <div className="text-xs text-gray-500">Trades</div>
-            <div className="text-lg font-bold text-white">{agentRanking.totalTrades}</div>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
-            <div className="text-xs text-gray-500">Volume</div>
-            <div className="text-lg font-bold text-white">{formatUsd(agentRanking.totalVolumeUsd)}</div>
-          </div>
-        </div>
-      )}
-
-      {/* Unified activity feed */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
-            Activity
-          </h2>
-          {relativeTime && (
-            <span className="text-[10px] text-gray-600 flex items-center gap-1.5">
-              {tradesFetching && (
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              )}
-              updated {relativeTime}
-            </span>
+          ) : (
+            <TradeTable trades={filteredTrades} />
           )}
         </div>
-        {tradesLoading ? (
-          <div className="space-y-1">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        ) : feed.length === 0 ? (
-          <div className="text-gray-600 text-sm text-center py-8">No activity yet</div>
-        ) : (
-          <div className="space-y-0.5">
-            {feed.map((item) => {
-              if (item.kind === 'context') {
-                const ctx = item.data;
-                const ctxData = ctx.data as Record<string, unknown>;
-                const parts: string[] = [];
-                if (ctxData.description) parts.push(String(ctxData.description));
-                else if (ctxData.action) parts.push(String(ctxData.action));
-                else if (ctxData.strategy) parts.push(String(ctxData.strategy));
-                if (ctxData.reason) parts.push(String(ctxData.reason));
-                if (ctxData.token && ctxData.targetPrice) {
-                  parts.push(`${ctxData.token} target: $${ctxData.targetPrice}` + (ctxData.timeframe ? ` (${ctxData.timeframe})` : ''));
-                }
-                const description = parts.length > 0
-                  ? parts.join(' — ')
-                  : ctx.contextType.replace(/_/g, ' ');
-                return (
-                  <div
-                    key={`ctx-${ctx.id}`}
-                    className="flex items-start gap-3 px-3 py-2 rounded-lg"
-                  >
-                    <span className="text-[10px] font-medium w-10 shrink-0 text-gray-600 pt-0.5 uppercase">
-                      think
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-500 italic leading-relaxed">
-                        {description}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-xs text-gray-600">{formatDate(ctx.createdAt)}</div>
-                    </div>
-                  </div>
-                );
-              }
+      </section>
+    </div>
+  );
+}
 
-              const t = item.data;
-              return (
-                <div
-                  key={`trade-${t.id}`}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-900/50 transition"
-                >
-                  <span className={`text-xs font-bold w-10 shrink-0 ${
-                    t.tradeType === 'buy' ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {t.tradeType.toUpperCase()}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400">
-                        {t.tokenInSymbol ?? formatAddress(t.tokenInMint, 4)}
-                      </span>
-                      <span className="text-gray-600 text-xs">&rarr;</span>
-                      <span className="text-xs text-white font-medium">
-                        {t.tokenOutSymbol ?? formatAddress(t.tokenOutMint, 4)}
-                      </span>
-                      <span className="text-sm text-white">{formatUsd(t.tradeValueUsd)}</span>
-                      <span className="text-xs text-gray-600">on {t.platform}</span>
-                      {t.isBuyback && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-500 border border-yellow-400/20">
-                          BUYBACK
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs text-gray-600">{formatDate(t.blockTime)}</div>
-                    <a
-                      href={solscanTxUrl(t.txSignature)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-400/60 hover:text-blue-400"
-                    >
-                      {formatAddress(t.txSignature, 4)}
-                    </a>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+function StatRow({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-[#A8A8A8]">{label}</span>
+      <span className={`
+        text-sm font-medium
+        ${positive === undefined ? 'text-white' : positive ? 'text-emerald-400' : 'text-rose-400'}
+      `}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function TabButton({
+  children,
+  active,
+  onClick,
+  icon,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`
+        flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors
+        ${active
+          ? 'border-[#B6FF2E] text-[#B6FF2E]'
+          : 'border-transparent text-[#A8A8A8] hover:text-white'
+        }
+      `}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function ContextFeed({ context }: { context: any[] }) {
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'target_price': return <Target className="w-4 h-4" />;
+      case 'stop_loss': return <Shield className="w-4 h-4" />;
+      case 'portfolio_update': return <Wallet className="w-4 h-4" />;
+      case 'strategy_update': return <TrendingUp className="w-4 h-4" />;
+      default: return <MessageSquare className="w-4 h-4" />;
+    }
+  };
+
+  const getColor = (type: string) => {
+    switch (type) {
+      case 'target_price': return 'text-emerald-400 bg-emerald-400/10';
+      case 'stop_loss': return 'text-rose-400 bg-rose-400/10';
+      case 'portfolio_update': return 'text-[#2ED0FF] bg-[#2ED0FF]/10';
+      case 'strategy_update': return 'text-[#B6FF2E] bg-[#B6FF2E]/10';
+      default: return 'text-white bg-white/10';
+    }
+  };
+
+  if (context.length === 0) {
+    return (
+      <div className="cyber-card p-8 text-center">
+        <p className="text-[#A8A8A8]">No context entries yet</p>
       </div>
+    );
+  }
+
+  return (
+    <div className="cyber-card divide-y divide-white/5">
+      {context.map((item: any, index: number) => {
+        const ctxData = item.data as Record<string, unknown>;
+        const parts: string[] = [];
+        if (ctxData.message) parts.push(String(ctxData.message));
+        else if (ctxData.description) parts.push(String(ctxData.description));
+        else if (ctxData.action) parts.push(String(ctxData.action));
+        else if (ctxData.strategy) parts.push(String(ctxData.strategy));
+        if (ctxData.reason) parts.push(String(ctxData.reason));
+        if (ctxData.token && ctxData.targetPrice) {
+          parts.push(`${ctxData.token} target: $${ctxData.targetPrice}`);
+        }
+        const description = parts.length > 0
+          ? parts.join(' \u2014 ')
+          : item.contextType.replace(/_/g, ' ');
+
+        return (
+          <div
+            key={item.id}
+            className="p-4 hover:bg-white/5 transition-colors animate-slide-in"
+            style={{ animationDelay: `${index * 0.1}s` }}
+          >
+            <div className="flex items-start gap-4">
+              <div className={`
+                w-10 h-10 rounded-lg flex items-center justify-center shrink-0
+                ${getColor(item.contextType)}
+              `}>
+                {getIcon(item.contextType)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`
+                    text-xs font-medium uppercase tracking-wider
+                    ${getColor(item.contextType).split(' ')[0]}
+                  `}>
+                    {item.contextType.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-xs text-[#A8A8A8]">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-sm text-white">{description}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
