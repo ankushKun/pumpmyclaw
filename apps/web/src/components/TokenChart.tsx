@@ -7,18 +7,11 @@ interface TokenChartProps {
   height?: number;
 }
 
-/**
- * Determine the number of decimal places needed to show meaningful price diffs.
- * For micro-cap tokens with prices like 0.000005, we need 8+ decimals.
- */
 function getPriceDecimals(data: CandlestickData[]): number {
   if (data.length === 0) return 2;
-
-  // Use the median close price to determine scale
   const prices = data.map((d) => d.close).filter((p) => p > 0).sort((a, b) => a - b);
   if (prices.length === 0) return 2;
   const median = prices[Math.floor(prices.length / 2)];
-
   if (median >= 1) return 2;
   if (median >= 0.01) return 4;
   if (median >= 0.0001) return 6;
@@ -29,14 +22,11 @@ function getPriceDecimals(data: CandlestickData[]): number {
 function formatPrice(price: number, decimals: number): string {
   if (price === 0) return '0';
   if (decimals <= 4) return price.toFixed(decimals);
-
-  // For very small numbers, use subscript notation: 0.0₅48
-  // Count leading zeros after decimal point
   const str = price.toFixed(decimals);
   const match = str.match(/^0\.(0+)(\d+)$/);
   if (match) {
     const zeroCount = match[1].length;
-    const significand = match[2].slice(0, 4); // show 4 significant digits
+    const significand = match[2].slice(0, 4);
     if (zeroCount >= 3) {
       return `0.0\u2080${subscriptDigit(zeroCount)}${significand}`;
     }
@@ -49,7 +39,7 @@ function subscriptDigit(n: number): string {
   return String(n).split('').map((d) => subscripts[parseInt(d)]).join('');
 }
 
-export function TokenChart({ data, height = 400 }: TokenChartProps) {
+export function TokenChart({ data, height = 350 }: TokenChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -62,19 +52,19 @@ export function TokenChart({ data, height = 400 }: TokenChartProps) {
       width: containerRef.current.clientWidth,
       height,
       layout: {
-        background: { color: '#0a0a0a' },
-        textColor: '#9ca3af',
+        background: { color: '#0B0B0B' },
+        textColor: '#A8A8A8',
       },
       grid: {
-        vertLines: { color: '#1f2937' },
-        horzLines: { color: '#1f2937' },
+        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
       },
       timeScale: {
-        borderColor: '#374151',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
         timeVisible: true,
       },
       rightPriceScale: {
-        borderColor: '#374151',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
       },
       localization: {
         priceFormatter: (price: number) => formatPrice(price, decimals),
@@ -82,12 +72,12 @@ export function TokenChart({ data, height = 400 }: TokenChartProps) {
     });
 
     const series = chart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderUpColor: '#10b981',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
+      upColor: '#10B981',
+      downColor: '#F43F5E',
+      borderUpColor: '#10B981',
+      borderDownColor: '#F43F5E',
+      wickUpColor: '#10B981',
+      wickDownColor: '#F43F5E',
       priceFormat: {
         type: 'price',
         precision: decimals,
@@ -95,8 +85,15 @@ export function TokenChart({ data, height = 400 }: TokenChartProps) {
       },
     });
 
+    // Deduplicate by time (keep last entry for each timestamp) and ensure ascending order
+    const deduped = new Map<number, CandlestickData>();
+    for (const d of data) {
+      deduped.set(d.time, d);
+    }
+    const sorted = Array.from(deduped.values()).sort((a, b) => a.time - b.time);
+
     series.setData(
-      data.map((d) => ({
+      sorted.map((d) => ({
         time: d.time as any,
         open: d.open,
         high: d.high,
@@ -121,5 +118,9 @@ export function TokenChart({ data, height = 400 }: TokenChartProps) {
     };
   }, [data, height]);
 
-  return <div ref={containerRef} />;
+  return (
+    <div className="cyber-card overflow-hidden">
+      <div ref={containerRef} />
+    </div>
+  );
 }

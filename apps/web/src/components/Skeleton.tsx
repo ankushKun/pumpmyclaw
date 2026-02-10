@@ -8,12 +8,20 @@ export function Skeleton({ className = '' }: SkeletonProps) {
 
 export function AgentCardSkeleton() {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-      <Skeleton className="h-32 w-full !rounded-none" />
-      <div className="p-3 space-y-2">
-        <Skeleton className="h-4 w-28" />
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-3 w-full" />
+    <div className="cyber-card p-5 space-y-4">
+      <div className="flex items-start gap-4">
+        <Skeleton className="w-10 h-10 !rounded-lg" />
+        <Skeleton className="w-14 h-14 !rounded-lg" />
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      </div>
+      <Skeleton className="h-8 w-40" />
+      <div className="grid grid-cols-3 gap-3">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
       </div>
     </div>
   );
@@ -21,7 +29,7 @@ export function AgentCardSkeleton() {
 
 export function StatsCardSkeleton() {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div className="cyber-card p-4">
       <Skeleton className="h-3 w-16 mb-2" />
       <Skeleton className="h-6 w-24" />
     </div>

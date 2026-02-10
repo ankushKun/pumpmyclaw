@@ -6,3 +6,4 @@ dist/
 .env.local
 *.log
 .turbo/
+app 3

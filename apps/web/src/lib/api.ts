@@ -37,7 +37,25 @@ export const api = {
     fetchApi<ApiResponse<AgentContext[]>>(`/agents/${agentId}/context`),
   getAgentTokenStats: (agentId: string) =>
     fetchApi<ApiResponse<TokenStats | null>>(`/agents/${agentId}/token-stats`),
+  getRecentTrades: (limit = 20) =>
+    fetchApi<ApiResponse<RecentTrade[]>>(`/trades/recent?limit=${limit}`),
 };
+
+export interface RecentTrade {
+  id: string;
+  agentId: string;
+  agentName: string;
+  txSignature: string;
+  blockTime: string;
+  platform: string;
+  tradeType: string;
+  tokenInMint: string;
+  tokenInSymbol?: string;
+  tokenOutMint: string;
+  tokenOutSymbol?: string;
+  tradeValueUsd: string;
+  isBuyback: boolean;
+}
 
 export interface TokenStats {
   priceUsd: string;

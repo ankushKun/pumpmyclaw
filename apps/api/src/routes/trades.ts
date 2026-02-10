@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
-import { trades, tradeAnnotations } from '../db/schema';
+import { trades, tradeAnnotations, agents } from '../db/schema';
 import { apiKeyAuth } from '../middleware/auth';
 import { resolveTokens } from '../services/token-resolver';
 import type { HonoEnv } from '../types/hono';
@@ -22,6 +22,37 @@ async function enrichTrades(db: any, tradeRows: any[]) {
     tokenOutName: tokenMap.get(t.tokenOutMint)?.name ?? undefined,
   }));
 }
+
+// GET /api/trades/recent — latest trades across all agents (for live feed backfill)
+tradeRoutes.get('/recent', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 50);
+  const db = c.get('db');
+
+  const rows = await db
+    .select({
+      id: trades.id,
+      agentId: trades.agentId,
+      agentName: agents.name,
+      txSignature: trades.txSignature,
+      blockTime: trades.blockTime,
+      platform: trades.platform,
+      tradeType: trades.tradeType,
+      tokenInMint: trades.tokenInMint,
+      tokenInAmount: trades.tokenInAmount,
+      tokenOutMint: trades.tokenOutMint,
+      tokenOutAmount: trades.tokenOutAmount,
+      tradeValueUsd: trades.tradeValueUsd,
+      isBuyback: trades.isBuyback,
+    })
+    .from(trades)
+    .innerJoin(agents, eq(trades.agentId, agents.id))
+    .orderBy(desc(trades.blockTime))
+    .limit(limit);
+
+  const enriched = await enrichTrades(db, rows);
+
+  return c.json({ success: true, data: enriched });
+});
 
 // GET /api/trades/agent/:agentId
 tradeRoutes.get('/agent/:agentId', async (c) => {

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { tokenMetadata } from '../db/schema';
 import type { Database } from '../db/client';
 
@@ -45,17 +45,15 @@ export async function resolveTokens(
   const toResolve = uniqueMints.filter((m) => m !== SOL_MINT);
   if (toResolve.length === 0) return result;
 
-  // Check DB cache
+  // Check DB cache — single batch query
   const cachedMap = new Map<string, TokenInfo>();
-  for (const mint of toResolve) {
+  if (toResolve.length > 0) {
     const rows = await db
       .select()
       .from(tokenMetadata)
-      .where(eq(tokenMetadata.mint, mint))
-      .limit(1);
-    if (rows.length > 0) {
-      const r = rows[0];
-      cachedMap.set(mint, {
+      .where(inArray(tokenMetadata.mint, toResolve));
+    for (const r of rows) {
+      cachedMap.set(r.mint, {
         mint: r.mint,
         name: r.name,
         symbol: r.symbol,
@@ -72,13 +70,30 @@ export async function resolveTokens(
     }
   }
 
-  // Resolve uncached or fallback-cached mints via APIs
+  // Resolve uncached or fallback-cached mints via APIs — in parallel
   const uncached = toResolve.filter((m) => !result.has(m));
-  for (const mint of uncached) {
-    const info = await fetchTokenInfo(mint);
-    if (info) {
-      result.set(mint, info);
-      // Upsert in DB cache (overwrite stale fallback entries)
+  if (uncached.length > 0) {
+    const resolved = await Promise.allSettled(
+      uncached.map((mint) => fetchTokenInfo(mint).then((info) => ({ mint, info }))),
+    );
+
+    const toUpsert: TokenInfo[] = [];
+    for (const r of resolved) {
+      if (r.status === 'fulfilled' && r.value.info) {
+        const { mint, info } = r.value;
+        result.set(mint, info);
+        toUpsert.push(info);
+      } else {
+        const mint = r.status === 'fulfilled' ? r.value.mint : '';
+        if (mint) {
+          const shortMint = mint.slice(0, 6) + '...' + mint.slice(-4);
+          result.set(mint, { mint, name: shortMint, symbol: shortMint, decimals: 6, logoUrl: null });
+        }
+      }
+    }
+
+    // Batch upsert resolved tokens into DB cache
+    for (const info of toUpsert) {
       try {
         await db
           .insert(tokenMetadata)
@@ -101,16 +116,6 @@ export async function resolveTokens(
       } catch {
         // Ignore cache write failures
       }
-    } else {
-      // Use truncated address as display fallback (don't cache it)
-      const shortMint = mint.slice(0, 6) + '...' + mint.slice(-4);
-      result.set(mint, {
-        mint,
-        name: shortMint,
-        symbol: shortMint,
-        decimals: 6,
-        logoUrl: null,
-      });
     }
   }
 

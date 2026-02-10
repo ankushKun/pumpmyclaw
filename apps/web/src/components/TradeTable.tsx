@@ -1,10 +1,6 @@
+import { ExternalLink, ArrowRightLeft, TrendingUp, TrendingDown } from 'lucide-react';
 import type { Trade } from '@pumpmyclaw/shared';
-import {
-  formatUsd,
-  formatDate,
-  formatAddress,
-  solscanTxUrl,
-} from '../lib/formatters';
+import { formatUsd, formatTimeAgo, formatAddress, solscanTxUrl } from '../lib/formatters';
 
 interface TradeTableProps {
   trades: Trade[];
@@ -13,74 +9,92 @@ interface TradeTableProps {
 export function TradeTable({ trades }: TradeTableProps) {
   if (trades.length === 0) {
     return (
-      <div className="text-gray-600 text-center py-10 text-sm">
-        No trades recorded yet
+      <div className="cyber-card p-8 text-center">
+        <p className="text-[#A8A8A8]">No trades found</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-gray-500 border-b border-gray-800 text-xs uppercase tracking-wide">
-            <th className="text-left py-2 px-2">Time</th>
-            <th className="text-left py-2 px-2">Type</th>
-            <th className="text-left py-2 px-2">Pair</th>
-            <th className="text-left py-2 px-2 hidden sm:table-cell">Platform</th>
-            <th className="text-right py-2 px-2">Value</th>
-            <th className="text-center py-2 px-2">Buyback</th>
-            <th className="text-right py-2 px-2">Tx</th>
-          </tr>
-        </thead>
-        <tbody>
-          {trades.map((t) => (
-            <tr
-              key={t.id}
-              className="border-b border-gray-800/50 hover:bg-gray-800/30"
-            >
-              <td className="py-2.5 px-2 text-gray-400 text-xs">
-                {formatDate(t.blockTime)}
-              </td>
-              <td
-                className={`py-2.5 px-2 font-semibold ${
-                  t.tradeType === 'buy' ? 'text-green-400' : 'text-red-400'
-                }`}
-              >
-                {t.tradeType.toUpperCase()}
-              </td>
-              <td className="py-2.5 px-2 text-gray-300 text-xs">
-                <span className="text-gray-400">{t.tokenInSymbol ?? formatAddress(t.tokenInMint, 4)}</span>
-                <span className="text-gray-600 mx-1">&rarr;</span>
-                <span className="text-white">{t.tokenOutSymbol ?? formatAddress(t.tokenOutMint, 4)}</span>
-              </td>
-              <td className="py-2.5 px-2 text-gray-500 hidden sm:table-cell">{t.platform}</td>
-              <td className="py-2.5 px-2 text-right text-white">
-                {formatUsd(t.tradeValueUsd)}
-              </td>
-              <td className="py-2.5 px-2 text-center">
-                {t.isBuyback ? (
-                  <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/20">
-                    BUYBACK
-                  </span>
-                ) : (
-                  <span className="text-gray-700">-</span>
-                )}
-              </td>
-              <td className="py-2.5 px-2 text-right">
-                <a
-                  href={solscanTxUrl(t.txSignature)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:underline text-xs"
-                >
-                  {formatAddress(t.txSignature, 6)}
-                </a>
-              </td>
+    <div className="cyber-card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/10 bg-white/5">
+              <th className="text-left py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Time</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Type</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Pair</th>
+              <th className="text-left py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider hidden sm:table-cell">Platform</th>
+              <th className="text-right py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Value</th>
+              <th className="text-center py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Status</th>
+              <th className="text-right py-3 px-4 text-xs font-medium text-[#A8A8A8] uppercase tracking-wider">Link</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {trades.map((trade, index) => (
+              <tr
+                key={trade.id}
+                className="border-b border-white/5 hover:bg-white/5 transition-colors animate-slide-in"
+                style={{ animationDelay: `${index * 0.05}s` }}
+              >
+                <td className="py-3 px-4">
+                  <span className="mono text-sm text-[#A8A8A8]">
+                    {formatTimeAgo(trade.blockTime)}
+                  </span>
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`
+                    inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
+                    ${trade.tradeType === 'buy' ? 'badge-buy' : 'badge-sell'}
+                  `}>
+                    {trade.tradeType === 'buy' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {trade.tradeType.toUpperCase()}
+                  </span>
+                </td>
+                <td className="py-3 px-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white">
+                      {trade.tokenInSymbol || formatAddress(trade.tokenInMint, 4)}
+                    </span>
+                    <ArrowRightLeft className="w-3 h-3 text-[#A8A8A8]" />
+                    <span className="text-sm font-medium text-white">
+                      {trade.tokenOutSymbol || formatAddress(trade.tokenOutMint, 4)}
+                    </span>
+                  </div>
+                </td>
+                <td className="py-3 px-4 hidden sm:table-cell">
+                  <span className="text-sm text-[#A8A8A8]">{trade.platform}</span>
+                </td>
+                <td className="py-3 px-4 text-right">
+                  <span className="text-sm font-medium text-white">
+                    {formatUsd(parseFloat(trade.tradeValueUsd))}
+                  </span>
+                </td>
+                <td className="py-3 px-4 text-center">
+                  {trade.isBuyback ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 bg-[#B6FF2E]/20 text-[#B6FF2E] rounded-full text-xs font-bold">
+                      BUYBACK
+                    </span>
+                  ) : (
+                    <span className="text-xs text-[#A8A8A8]">&mdash;</span>
+                  )}
+                </td>
+                <td className="py-3 px-4 text-right">
+                  <a
+                    href={solscanTxUrl(trade.txSignature)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

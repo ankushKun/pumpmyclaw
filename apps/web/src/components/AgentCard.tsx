@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { formatUsd, formatPercent, formatAddress } from '../lib/formatters';
+import { TrendingUp, TrendingDown, Activity, DollarSign, RotateCcw } from 'lucide-react';
+import { formatUsd, formatPercent, formatAddress, getAgentAvatar } from '../lib/formatters';
 
 interface AgentCardProps {
   ranking: {
@@ -18,96 +19,159 @@ interface AgentCardProps {
   isNew?: boolean;
 }
 
-const RANK_BADGES: Record<number, { label: string; color: string }> = {
-  1: { label: '#1', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-  2: { label: '#2', color: 'bg-gray-400/20 text-gray-300 border-gray-400/30' },
-  3: { label: '#3', color: 'bg-amber-600/20 text-amber-500 border-amber-600/30' },
-};
+export function AgentCard({ ranking, isNew = false }: AgentCardProps) {
+  const pnl = parseFloat(ranking.totalPnlUsd);
+  const rank = ranking.rank;
 
-export function AgentCard({ ranking: r, isNew = false }: AgentCardProps) {
-  const pnl = parseFloat(r.totalPnlUsd);
-  const priceChange = parseFloat(r.tokenPriceChange24h);
-  const badge = RANK_BADGES[r.rank];
+  const getRankBadgeClass = () => {
+    if (rank === 1) return 'rank-badge-1';
+    if (rank === 2) return 'rank-badge-2';
+    if (rank === 3) return 'rank-badge-3';
+    return 'rank-badge-other';
+  };
 
   return (
     <Link
-      to={`/agent/${r.agentId}`}
-      className={`bg-gray-900 border rounded-xl overflow-hidden hover:border-gray-700 hover:bg-gray-900/80 transition group ${
-        isNew ? 'animate-agent-shake border-green-500/50' : 'border-gray-800'
-      }`}
+      to={`/agent/${ranking.agentId}`}
+      className={`
+        cyber-card cyber-card-hover p-5 block relative overflow-hidden
+        ${isNew ? 'animate-shake' : ''}
+      `}
     >
-      {/* Card top: avatar area */}
-      <div className="relative h-32 bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-        {r.agentAvatarUrl ? (
+      {/* New Badge */}
+      {isNew && (
+        <div className="absolute top-3 right-3 px-2 py-1 bg-[#FF2E8C] text-white text-xs font-bold rounded-full animate-pulse">
+          NEW
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-start gap-4 mb-4">
+        {/* Rank Badge */}
+        <div className={`
+          w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0
+          ${getRankBadgeClass()}
+        `}>
+          {rank}
+        </div>
+
+        {/* Avatar */}
+        <div className="relative shrink-0">
           <img
-            src={r.agentAvatarUrl}
-            alt={r.agentName ?? ''}
-            className="w-full h-full object-cover"
+            src={getAgentAvatar(ranking.agentId, ranking.agentAvatarUrl)}
+            alt={ranking.agentName ?? ''}
+            className="w-14 h-14 rounded-lg object-cover border border-white/10"
           />
-        ) : (
-          <div className="text-5xl font-bold text-gray-700 group-hover:text-gray-600 transition">
-            {(r.agentName ?? '?')[0].toUpperCase()}
-          </div>
-        )}
-        {/* Rank badge */}
-        {badge && (
-          <span className={`absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded border ${badge.color}`}>
-            {badge.label}
-          </span>
-        )}
-        {!badge && (
-          <span className="absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded border bg-gray-800/80 text-gray-500 border-gray-700">
-            #{r.rank}
-          </span>
-        )}
-        {/* P&L change pill */}
-        <span className={`absolute top-2 right-2 text-xs font-bold px-2 py-0.5 rounded ${
-          pnl >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-        }`}>
-          {pnl >= 0 ? '+' : ''}{formatUsd(pnl)}
-        </span>
-        {isNew && (
-          <span className="absolute bottom-2 left-2 text-xs font-bold px-2 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse">
-            NEW
-          </span>
-        )}
+          {rank <= 3 && (
+            <div className={`
+              absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs
+              ${rank === 1 ? 'bg-[#B6FF2E]' : rank === 2 ? 'bg-[#2ED0FF]' : 'bg-white'}
+            `}>
+              {rank === 1 ? '\u{1F451}' : rank === 2 ? '\u{1F948}' : '\u{1F949}'}
+            </div>
+          )}
+        </div>
+
+        {/* Name & Address */}
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-white truncate text-lg">{ranking.agentName ?? 'Unknown'}</h3>
+          <p className="mono text-xs text-[#A8A8A8] truncate">
+            {formatAddress(ranking.agentWalletAddress || '')}
+          </p>
+        </div>
       </div>
 
-      {/* Card body */}
-      <div className="p-3">
-        <div className="flex items-start justify-between gap-2 mb-1">
-          <div className="min-w-0">
-            <h3 className="text-white font-semibold truncate text-sm">{r.agentName ?? 'Unknown'}</h3>
-            {r.agentWalletAddress && (
-              <div className="text-xs text-gray-600 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                {formatAddress(r.agentWalletAddress, 4)}
-              </div>
-            )}
-          </div>
-          <span className={`text-xs font-bold shrink-0 ${
-            priceChange >= 0 ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {formatPercent(priceChange)}
+      {/* P&L Display */}
+      <div className="mb-4">
+        <div className={`
+          text-2xl font-bold flex items-center gap-2
+          ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}
+        `}>
+          {pnl >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+          {pnl >= 0 ? '+' : ''}{formatUsd(pnl)}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={`
+            text-sm font-medium
+            ${parseFloat(ranking.tokenPriceChange24h) >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+          `}>
+            {formatPercent(ranking.tokenPriceChange24h)}
           </span>
+          <span className="text-xs text-[#A8A8A8]">24h change</span>
         </div>
+      </div>
 
-        {/* Stats row */}
-        <div className="flex items-center gap-2 text-xs text-gray-500 mt-2">
-          <span>Vol {formatUsd(r.totalVolumeUsd)}</span>
-          <span className="text-gray-700">&middot;</span>
-          <span>{r.totalTrades} trades</span>
-          <span className="text-gray-700">&middot;</span>
-          <span>WR {parseFloat(r.winRate).toFixed(0)}%</span>
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatItem
+          icon={<Activity className="w-3.5 h-3.5" />}
+          label="Win Rate"
+          value={`${parseFloat(ranking.winRate).toFixed(0)}%`}
+        />
+        <StatItem
+          icon={<DollarSign className="w-3.5 h-3.5" />}
+          label="Trades"
+          value={ranking.totalTrades.toString()}
+        />
+        <StatItem
+          icon={<RotateCcw className="w-3.5 h-3.5" />}
+          label="Volume"
+          value={formatUsd(parseFloat(ranking.totalVolumeUsd)).replace('$', '')}
+        />
+      </div>
 
-        {/* Buyback indicator */}
-        {parseFloat(r.buybackTotalSol) > 0 && (
-          <div className="mt-2 text-xs text-yellow-500/80">
-            {parseFloat(r.buybackTotalSol).toFixed(2)} SOL buyback
+      {/* Buyback Badge */}
+      {parseFloat(ranking.buybackTotalSol) > 0 && (
+        <div className="mt-4 pt-3 border-t border-white/5">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-2 py-1 bg-[#B6FF2E]/20 text-[#B6FF2E] rounded-full font-medium">
+              BUYBACK
+            </span>
+            <span className="text-[#A8A8A8]">
+              {parseFloat(ranking.buybackTotalSol).toFixed(2)} SOL
+            </span>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Sparkline Background */}
+      <div className="absolute bottom-0 left-0 right-0 h-16 opacity-10 pointer-events-none">
+        <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+          <path
+            d={generateSparklinePath()}
+            fill="none"
+            stroke={pnl >= 0 ? '#10B981' : '#F43F5E'}
+            strokeWidth="2"
+          />
+        </svg>
       </div>
     </Link>
   );
+}
+
+function StatItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="text-center">
+      <div className="flex items-center justify-center gap-1 text-[#A8A8A8] mb-1">
+        {icon}
+        <span className="text-xs">{label}</span>
+      </div>
+      <p className="font-semibold text-white text-sm">{value}</p>
+    </div>
+  );
+}
+
+function generateSparklinePath(): string {
+  const points = [];
+  const numPoints = 20;
+  let y = 50;
+
+  for (let i = 0; i < numPoints; i++) {
+    const x = (i / (numPoints - 1)) * 100;
+    y += (Math.random() - 0.5) * 20;
+    y = Math.max(10, Math.min(90, y));
+    points.push(`${x},${y}`);
+  }
+
+  return `M ${points.join(' L ')}`;
 }
