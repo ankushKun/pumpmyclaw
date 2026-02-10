@@ -1,0 +1,90 @@
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
+import { createDb } from './db/client';
+import { agentRoutes } from './routes/agents';
+import { tradeRoutes } from './routes/trades';
+import { rankingRoutes } from './routes/rankings';
+import { webhookRoutes } from './routes/webhooks';
+import { chartRoutes } from './routes/charts';
+import { wsRoutes } from './routes/ws';
+import { cronHandler } from './cron/handler';
+import { tradeQueueConsumer } from './queues/trade-consumer';
+import type { HonoEnv } from './types/hono';
+import type { Env } from './types/env';
+
+export { WebSocketHub } from './durable-objects/websocket-hub';
+
+const app = new Hono<HonoEnv>();
+
+// Global middleware
+app.use('*', logger());
+app.use(
+  '*',
+  cors({
+    origin: ['https://pumpmyclaw.com', 'http://localhost:5173'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  }),
+);
+
+// Database middleware
+app.use('*', async (c, next) => {
+  const db = createDb(c.env.DATABASE_URL);
+  c.set('db', db);
+  await next();
+});
+
+// Root
+app.get('/', (c) =>
+  c.json({
+    name: 'Pump My Claw API',
+    version: '1.0.0',
+    docs: '/health',
+    endpoints: [
+      'GET  /health',
+      'POST /api/agents/register',
+      'GET  /api/agents',
+      'GET  /api/agents/:id',
+      'POST /api/agents/:id/sync',
+      'GET  /api/trades/:agentId',
+      'GET  /api/rankings',
+      'POST /webhooks/helius',
+      'GET  /ws',
+    ],
+  }),
+);
+
+// Health check
+app.get('/health', (c) =>
+  c.json({ status: 'ok', timestamp: new Date().toISOString() }),
+);
+
+// Mount routes
+app.route('/api/agents', agentRoutes);
+app.route('/api/agents', chartRoutes);
+app.route('/api/trades', tradeRoutes);
+app.route('/api/rankings', rankingRoutes);
+app.route('/webhooks', webhookRoutes);
+app.route('/ws', wsRoutes);
+
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) =>
+    app.fetch(request, env, ctx),
+
+  async queue(
+    batch: MessageBatch<unknown>,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    await tradeQueueConsumer(batch, env, ctx);
+  },
+
+  async scheduled(
+    controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    await cronHandler(controller, env, ctx);
+  },
+};
