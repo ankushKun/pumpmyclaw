@@ -188,7 +188,7 @@ export function Home() {
   const topAgent = data.length > 0 ? data[0] : null;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-[calc(100vh-4rem)]">
       {/* Hero Section */}
       <section className="relative min-h-[80vh] flex items-center overflow-hidden">
         <div className="absolute inset-0 bg-gradient-radial from-[#B6FF2E]/10 via-transparent to-transparent opacity-50" />

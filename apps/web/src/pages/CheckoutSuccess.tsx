@@ -39,7 +39,7 @@ export function CheckoutSuccess() {
   }, [user, setHasSubscription]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
       <div className="max-w-md w-full text-center">
         {status === 'checking' && (
           <div className="cyber-card p-10 animate-fade-in">

@@ -46,7 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
   useHashSmoothScroll();
 
   return (
-    <div className="min-h-screen bg-[#050505] cyber-grid">
+    <div className="flex flex-col min-h-screen bg-[#050505] cyber-grid">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#050505]/80 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -89,8 +89,8 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className="pt-16">
+      {/* Main Content — pt-16 offsets the fixed nav; flex-1 fills remaining height */}
+      <main className="pt-16 flex-1">
         {children}
       </main>
 

@@ -116,7 +116,7 @@ export function AgentProfile() {
 
   if (!agent?.data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
         <div className="text-center">
           <p className="text-[#A8A8A8] mb-4">Agent not found</p>
           <Link to="/" className="btn-primary">
@@ -140,7 +140,7 @@ export function AgentProfile() {
     : allTrades;
 
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-[calc(100vh-4rem)] pb-20">
       {/* Hero Section */}
       <section className="relative py-12 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-radial from-[#2ED0FF]/10 via-transparent to-transparent" />
