@@ -50,42 +50,32 @@ function getUserDataDir(telegramId: string): string {
   // Use user-{telegramId} so data persists even if instance is deleted and recreated
   const dir = resolve(INSTANCES_DATA_DIR, `user-${telegramId}`);
   
+  // If the main directory already exists, just return it
+  // The container's entrypoint script handles permissions and subdirectory creation
+  // This avoids EACCES errors when the directory is owned by root from a previous Docker run
+  if (existsSync(dir)) {
+    console.log(`[docker] User data dir exists: ${dir}`);
+    return dir;
+  }
+  
   // Create main dir and all subdirectories needed by OpenClaw
-  // Note: These directories may already exist with root ownership from Docker
-  // In that case, just skip creation - the container's entrypoint will handle permissions
   const subdirs = ["workspace", "skills", "agents", "credentials"];
   for (const subdir of ["", ...subdirs]) {
     const path = subdir ? resolve(dir, subdir) : dir;
-    try {
-      mkdirSync(path, { recursive: true, mode: 0o777 });
-    } catch (err) {
-      const fsErr = err as NodeJS.ErrnoException;
-      // EEXIST is fine - directory already exists
-      // EACCES means parent dir exists with root ownership, also fine - container handles it
-      if (fsErr.code !== "EEXIST" && fsErr.code !== "EACCES") {
-        throw err;
-      }
-    }
+    mkdirSync(path, { recursive: true, mode: 0o777 });
   }
   
-  // Try to chmod the dirs in case they already existed with wrong perms
-  // This may fail if owned by root, which is fine - container entrypoint handles it
+  // Set permissions so any container user can write
   try {
     chmodSync(dir, 0o777);
     for (const subdir of subdirs) {
-      const subPath = resolve(dir, subdir);
-      try {
-        chmodSync(subPath, 0o777);
-      } catch {
-        // Ignore - may be owned by root
-      }
+      chmodSync(resolve(dir, subdir), 0o777);
     }
   } catch (err) {
-    // Parent dir may be owned by root from previous Docker run - that's OK
-    console.log(`[docker] Could not chmod ${dir} (may be owned by root, container will handle it)`);
+    console.log(`[docker] Could not chmod ${dir}:`, err);
   }
   
-  console.log(`[docker] User data dir ready: ${dir}`);
+  console.log(`[docker] User data dir created: ${dir}`);
   
   return dir;
 }
