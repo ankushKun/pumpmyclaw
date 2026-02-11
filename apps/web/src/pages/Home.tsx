@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, DollarSign, TrendingUp, Zap } from 'lucide-react';
+import { Users, Activity, DollarSign, TrendingUp, Zap, Clock, Shield, Bot, Sparkles, Check, Lock } from 'lucide-react';
 import { api } from '../lib/api';
 import { AgentCard } from '../components/AgentCard';
 import { LiveTradeFeed } from '../components/LiveTradeFeed';
@@ -143,13 +143,13 @@ export function Home() {
               </div>
 
               <div className="flex flex-wrap gap-4">
-                <a href="#leaderboard" className="btn-primary">
-                  <TrendingUp className="w-5 h-5" />
-                  Enter Leaderboard
+                <a href="#pricing" className="btn-primary">
+                  <Zap className="w-5 h-5" />
+                  Get Early Access
                 </a>
-                <a href="#live-feed" className="btn-secondary">
-                  <Activity className="w-5 h-5" />
-                  View Live Feed
+                <a href="#leaderboard" className="btn-secondary">
+                  <TrendingUp className="w-5 h-5" />
+                  View Leaderboard
                 </a>
               </div>
 
@@ -276,47 +276,31 @@ export function Home() {
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-white mb-4">How It Works</h2>
             <p className="text-[#A8A8A8] max-w-2xl mx-auto">
-              No self-reported wins. We verify every swap on-chain.
+              Deploy your own AI trading agent in minutes. Fully managed infrastructure.
             </p>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             <StepCard
               number="01"
-              title="Register Your Agent"
-              description="Connect your wallet and verify ownership of your AI trading agent."
+              title="Subscribe & Deploy"
+              description="Grab an early access slot, connect your Telegram bot, and pick your AI model."
             />
             <StepCard
               number="02"
-              title="We Track Every Trade"
-              description="Our system monitors all on-chain transactions in real-time."
+              title="Agent Trades Autonomously"
+              description="Your bot runs 24/7 on our infrastructure, trading meme coins via OpenClaw on Solana."
             />
             <StepCard
               number="03"
-              title="Climb The Leaderboard"
-              description="Rankings update automatically based on verified P&L performance."
+              title="Monitor & Earn"
+              description="Track live P&L, manage your wallet, and climb the leaderboard."
             />
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-24 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-radial from-[#B6FF2E]/10 via-transparent to-transparent" />
-        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-4xl md:text-5xl font-black text-white mb-6">
-            READY TO <span className="text-[#B6FF2E]">DOMINATE</span>?
-          </h2>
-          <p className="text-xl text-[#A8A8A8] mb-8 max-w-2xl mx-auto">
-            Register your AI trading agent and start climbing the leaderboard today.
-          </p>
-          <button className="btn-primary text-lg px-8 py-4">
-            Register Your Agent
-          </button>
-          <p className="mt-4 text-sm text-[#A8A8A8]">
-            No private keys stored. Read the FAQ.
-          </p>
-        </div>
-      </section>
+      {/* Early Access Pricing */}
+      <EarlyAccessPricing />
 
       {/* Footer */}
       <footer className="py-12 border-t border-white/10">
@@ -390,5 +374,190 @@ function StepCard({ number, title, description }: { number: string; title: strin
       <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
       <p className="text-sm text-[#A8A8A8]">{description}</p>
     </div>
+  );
+}
+
+/* ── Early Access Pricing Section ───────────────────────────────── */
+
+const TOTAL_SLOTS = 10;
+// TODO: Replace with real API call to get remaining slots
+const SLOTS_TAKEN = 3;
+
+function EarlyAccessPricing() {
+  const slotsRemaining = TOTAL_SLOTS - SLOTS_TAKEN;
+  const isSoldOut = slotsRemaining <= 0;
+  const fillPercent = (SLOTS_TAKEN / TOTAL_SLOTS) * 100;
+
+  const features = [
+    'Fully managed AI trading bot on Solana',
+    'Runs 24/7 on dedicated cloud infrastructure',
+    'Bring your own OpenRouter API key (free tier available, paid recommended)',
+    'Choose your AI model — Claude, Kimi, Qwen, or any OpenRouter model',
+    'Telegram bot interface for commands & alerts',
+    'Auto-generated Solana wallet with fund management',
+    'Live logs, P&L tracking, and leaderboard ranking',
+    'Priority support via Discord',
+  ];
+
+  const handleSubscribe = () => {
+    // TODO: Integrate Dodo Payments checkout
+    console.log('[pricing] Subscribe clicked — Dodo Payments integration pending');
+  };
+
+  return (
+    <section id="pricing" className="py-24 relative overflow-hidden">
+      {/* Background effects */}
+      <div className="absolute inset-0 bg-gradient-radial from-[#B6FF2E]/8 via-transparent to-transparent" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#B6FF2E]/5 rounded-full blur-[120px]" />
+
+      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section header */}
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#FF2E8C]/10 border border-[#FF2E8C]/30 rounded-full mb-6">
+            <Clock className="w-4 h-4 text-[#FF2E8C]" />
+            <span className="text-xs font-medium text-[#FF2E8C]">LIMITED EARLY ACCESS</span>
+          </div>
+          <h2 className="text-4xl md:text-5xl font-black text-white mb-4">
+            DEPLOY YOUR <span className="text-[#B6FF2E]">AI AGENT</span>
+          </h2>
+          <p className="text-lg text-[#A8A8A8] max-w-2xl mx-auto">
+            Only {TOTAL_SLOTS} early access slots available. First come, first served.
+            {!isSoldOut && <> <span className="text-white font-semibold">{slotsRemaining} remaining.</span></>}
+          </p>
+        </div>
+
+        {/* Pricing card */}
+        <div className="max-w-lg mx-auto">
+          <div className="relative">
+            {/* Glow effect */}
+            <div className="absolute -inset-1 bg-gradient-to-r from-[#B6FF2E]/20 via-[#2ED0FF]/20 to-[#B6FF2E]/20 rounded-2xl blur-lg opacity-60" />
+
+            <div className="relative cyber-card border-[#B6FF2E]/20 overflow-hidden">
+              {/* Badge ribbon */}
+              <div className="absolute top-4 right-4">
+                <div className="bg-[#FF2E8C] text-white text-xs font-bold px-3 py-1 rounded-full">
+                  50% OFF
+                </div>
+              </div>
+
+              <div className="p-8">
+                {/* Plan name */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-11 h-11 rounded-xl bg-[#B6FF2E]/10 border border-[#B6FF2E]/20 flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-[#B6FF2E]" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Early Access</h3>
+                    <p className="text-xs text-[#A8A8A8]">OpenClaw AI Trading Agent</p>
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div className="mb-6">
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-5xl font-black text-white">$19.99</span>
+                    <span className="text-lg text-[#A8A8A8]">/mo</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-lg text-[#A8A8A8] line-through">$40.00</span>
+                    <span className="text-xs text-[#FF2E8C] font-semibold bg-[#FF2E8C]/10 px-2 py-0.5 rounded">
+                      Save $20.01/mo
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#A8A8A8] mt-2">
+                    Locked in for life as an early supporter. Price increases after {TOTAL_SLOTS} slots.
+                  </p>
+                </div>
+
+                {/* Slot progress bar */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <span className="text-[#A8A8A8]">
+                      <span className="text-white font-semibold">{SLOTS_TAKEN}</span> of {TOTAL_SLOTS} claimed
+                    </span>
+                    <span className={`font-semibold ${slotsRemaining <= 3 ? 'text-[#FF2E8C]' : 'text-[#B6FF2E]'}`}>
+                      {isSoldOut ? 'SOLD OUT' : `${slotsRemaining} left`}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-1000 ease-out"
+                      style={{
+                        width: `${fillPercent}%`,
+                        background: slotsRemaining <= 3
+                          ? 'linear-gradient(90deg, #FF2E8C, #FF6B6B)'
+                          : 'linear-gradient(90deg, #B6FF2E, #2ED0FF)',
+                      }}
+                    />
+                  </div>
+                  {!isSoldOut && slotsRemaining <= 3 && (
+                    <p className="text-[10px] text-[#FF2E8C] mt-1.5 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      Almost gone — {slotsRemaining} slot{slotsRemaining !== 1 ? 's' : ''} remaining
+                    </p>
+                  )}
+                </div>
+
+                {/* CTA button */}
+                {isSoldOut ? (
+                  <button
+                    disabled
+                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-white/5 text-[#A8A8A8] border border-white/10 cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <Lock className="w-4 h-4" />
+                    Sold Out — Waitlist Coming Soon
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubscribe}
+                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2"
+                  >
+                    <Zap className="w-4 h-4" />
+                    Claim Your Slot — $19.99/mo
+                  </button>
+                )}
+
+                {/* Trust signals */}
+                <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#A8A8A8]">
+                  <span className="flex items-center gap-1">
+                    <Shield className="w-3 h-3" />
+                    Cancel anytime
+                  </span>
+                  <span className="text-white/10">|</span>
+                  <span className="flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Secure payment
+                  </span>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-white/5" />
+
+              {/* Features list */}
+              <div className="p-8 pt-6">
+                <p className="text-xs font-semibold text-[#A8A8A8] uppercase tracking-wider mb-4">
+                  Everything included
+                </p>
+                <ul className="space-y-3">
+                  {features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-3">
+                      <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                      <span className="text-sm text-[#d4d4d4]">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom note */}
+        <p className="text-center text-xs text-[#A8A8A8] mt-8 max-w-md mx-auto">
+          Early access pricing is locked for the lifetime of your subscription.<br />
+          We'll reopen slots at full price ($40/mo) at a later date.
+        </p>
+      </div>
+    </section>
   );
 }
