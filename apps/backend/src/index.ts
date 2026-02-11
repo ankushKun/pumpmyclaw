@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import authRoutes from "./routes/auth";
 import instanceRoutes from "./routes/instances";
 import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
@@ -92,6 +92,76 @@ app.get("/api/slots", async (c) => {
     taken: takenCount,
     remaining: Math.max(0, TOTAL_SLOTS - takenCount),
     soldOut: takenCount >= TOTAL_SLOTS,
+  });
+});
+
+// ── Admin: grant subscription (uses DB_PASS for auth) ──────────────
+app.post("/admin/grant-sub", async (c) => {
+  const adminPass = process.env.DB_PASS;
+  if (!adminPass) {
+    return c.json({ error: "Admin not configured (set DB_PASS)" }, 503);
+  }
+  const authHeader = c.req.header("Authorization");
+  if (authHeader !== `Bearer ${adminPass}`) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const identifier = body?.id || body?.telegramId;
+  if (!identifier) {
+    return c.json({ error: "Provide id or telegramId in body" }, 400);
+  }
+
+  // Find user by id or telegram_id
+  let user = await db.query.users.findFirst({
+    where: eq(users.id, Number(identifier)),
+  });
+  if (!user) {
+    user = await db.query.users.findFirst({
+      where: eq(users.telegramId, String(identifier)),
+    });
+  }
+  if (!user) {
+    return c.json({ error: `No user found matching "${identifier}"` }, 404);
+  }
+
+  // Check existing active subscription
+  const existing = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.userId, user.id),
+      eq(subscriptions.status, "active"),
+    ),
+  });
+  if (existing) {
+    return c.json({
+      message: `User ${user.id} (@${user.username || user.firstName}) already has an active subscription`,
+      subscription: existing,
+    });
+  }
+
+  // Count taken slots
+  const taken = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(subscriptions)
+    .where(sql`${subscriptions.status} IN ('active', 'pending')`);
+  const slotNumber = (taken[0]?.count ?? 0) + 1;
+
+  const now = new Date();
+  const [sub] = await db
+    .insert(subscriptions)
+    .values({
+      userId: user.id,
+      dodoSubscriptionId: `manual_grant_${user.id}_${Math.floor(now.getTime() / 1000)}`,
+      status: "active",
+      slotNumber: Math.min(slotNumber, 10),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning();
+
+  return c.json({
+    message: `Granted subscription to user ${user.id} (@${user.username || user.firstName}), slot #${slotNumber}`,
+    subscription: sub,
   });
 });
 

@@ -127,7 +127,10 @@ subscriptionRoutes.get("/subscription", async (c) => {
       status: sub.status,
       slotNumber: sub.slotNumber,
       dodoSubscriptionId: sub.dodoSubscriptionId,
+      dodoCustomerId: sub.dodoCustomerId,
+      currentPeriodEnd: sub.currentPeriodEnd,
       createdAt: sub.createdAt,
+      updatedAt: sub.updatedAt,
     },
   });
 });

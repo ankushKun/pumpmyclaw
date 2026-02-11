@@ -20,6 +20,9 @@ import {
   CircleDot,
   Send,
   Plug,
+  CreditCard,
+  CalendarDays,
+  Shield,
 } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
@@ -37,6 +40,7 @@ import {
   type InstanceStatus,
   type WalletToken,
   type WalletTransaction,
+  type SubscriptionInfo,
 } from "../lib/api";
 import { MODELS, CUSTOM_MODEL_ID, getModelName } from "../lib/models";
 import { ConfirmModal, AlertModal } from "../components/Modal";
@@ -76,6 +80,9 @@ export function Dashboard() {
     WalletTransaction[] | null
   >(null);
   const [copied, setCopied] = useState(false);
+
+  // Subscription
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
 
   // Fund wallet
   const { connection } = useConnection();
@@ -308,6 +315,20 @@ export function Dashboard() {
     const interval = setInterval(fetchWallet, 30000);
     return () => clearInterval(interval);
   }, [instance?.id]);
+
+  // Fetch subscription info
+  useEffect(() => {
+    if (!user) return;
+    const fetchSub = async () => {
+      try {
+        const res = await backend.getSubscription();
+        setSubscription(res.subscription);
+      } catch {
+        /* ignore */
+      }
+    };
+    fetchSub();
+  }, [user]);
 
   const handleLogsScroll = () => {
     if (!logsContainerRef.current) return;
@@ -817,6 +838,92 @@ export function Dashboard() {
                   <Send className="w-3.5 h-3.5" />
                   Chat with Bot
                 </a>
+              )}
+            </div>
+
+            {/* Subscription Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <CreditCard className="w-4 h-4 text-[#B6FF2E]" />
+                <h3 className="text-sm font-semibold">Subscription</h3>
+              </div>
+              {subscription ? (
+                <div className="space-y-3">
+                  <InfoRow
+                    label="Status"
+                    value={subscription.status === "active" ? "Active" : subscription.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    valueClass={
+                      subscription.status === "active"
+                        ? "text-[#34d399]"
+                        : subscription.status === "cancelled" || subscription.status === "expired"
+                          ? "text-[#FF2E8C]"
+                          : "text-[#FBBF24]"
+                    }
+                  />
+                  {subscription.slotNumber && (
+                    <InfoRow
+                      label="Slot"
+                      value={`#${subscription.slotNumber} of 10`}
+                      valueClass="text-[#B6FF2E]"
+                    />
+                  )}
+                  <InfoRow
+                    label="Subscribed"
+                    value={
+                      subscription.createdAt
+                        ? new Date(
+                            typeof subscription.createdAt === "string"
+                              ? subscription.createdAt
+                              : Number(subscription.createdAt) * 1000
+                          ).toLocaleDateString()
+                        : "N/A"
+                    }
+                  />
+                  {subscription.currentPeriodEnd && (
+                    <InfoRow
+                      label="Next Payment"
+                      value={new Date(
+                        typeof subscription.currentPeriodEnd === "string"
+                          ? subscription.currentPeriodEnd
+                          : Number(subscription.currentPeriodEnd) * 1000
+                      ).toLocaleDateString()}
+                    />
+                  )}
+                  {subscription.dodoSubscriptionId && !subscription.dodoSubscriptionId.startsWith("manual_grant") && (
+                    <InfoRow label="Payment" value="Dodo Payments" />
+                  )}
+                  {subscription.dodoSubscriptionId?.startsWith("manual_grant") && (
+                    <InfoRow label="Payment" value="Manually granted" valueClass="text-[#A8A8A8]" />
+                  )}
+                  {subscription.status === "active" && (
+                    <div className="mt-4 flex items-center gap-2 bg-[#34d399]/5 border border-[#34d399]/10 rounded-lg px-3 py-2">
+                      <Shield className="w-3.5 h-3.5 text-[#34d399] flex-shrink-0" />
+                      <span className="text-xs text-[#34d399]">
+                        Your subscription is active and in good standing.
+                      </span>
+                    </div>
+                  )}
+                  {(subscription.status === "on_hold" || subscription.status === "cancelled") && subscription.currentPeriodEnd && (
+                    <div className="mt-4 flex items-center gap-2 bg-[#FBBF24]/5 border border-[#FBBF24]/10 rounded-lg px-3 py-2">
+                      <CalendarDays className="w-3.5 h-3.5 text-[#FBBF24] flex-shrink-0" />
+                      <span className="text-xs text-[#FBBF24]">
+                        Access until{" "}
+                        {new Date(
+                          typeof subscription.currentPeriodEnd === "string"
+                            ? subscription.currentPeriodEnd
+                            : Number(subscription.currentPeriodEnd) * 1000
+                        ).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <CreditCard className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                  <p className="text-[#A8A8A8] text-xs">
+                    No subscription found.
+                  </p>
+                </div>
               )}
             </div>
 
