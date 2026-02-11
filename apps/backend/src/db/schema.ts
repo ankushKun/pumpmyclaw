@@ -46,6 +46,8 @@ export const subscriptions = sqliteTable("subscriptions", {
   status: text("status").notNull().default("pending"),
   /** Slot number 1-10 for early access */
   slotNumber: integer("slot_number"),
+  /** End of the current paid billing period (from Dodo next_billing_date) */
+  currentPeriodEnd: integer("current_period_end", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date()
   ),

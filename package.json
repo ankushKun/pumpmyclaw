@@ -9,7 +9,8 @@
     "db:migrate": "turbo db:migrate",
     "backend": "turbo dev --filter=@pumpmyclaw/backend",
     "test": "bash tests/run-all.sh",
-    "test:only": "npx tsx tests/run-all.ts"
+    "test:only": "npx tsx tests/run-all.ts",
+    "reset": "bun --filter=@pumpmyclaw/backend run reset"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

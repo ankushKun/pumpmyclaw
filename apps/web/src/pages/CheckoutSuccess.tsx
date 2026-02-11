@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth';
 import { backend } from '../lib/api';
 
 export function CheckoutSuccess() {
-  const { user } = useAuth();
+  const { user, setHasSubscription } = useAuth();
   const [status, setStatus] = useState<'checking' | 'active' | 'pending'>('checking');
 
   useEffect(() => {
@@ -18,6 +18,7 @@ export function CheckoutSuccess() {
       try {
         const { subscription } = await backend.getSubscription();
         if (subscription?.status === 'active') {
+          setHasSubscription(true);
           setStatus('active');
           return;
         }
@@ -35,7 +36,7 @@ export function CheckoutSuccess() {
     };
 
     poll();
-  }, [user]);
+  }, [user, setHasSubscription]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

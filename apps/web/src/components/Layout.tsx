@@ -1,10 +1,49 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { Zap, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
 
+/**
+ * Global handler: intercept clicks on hash links and smooth-scroll to
+ * the target element. Works even when the URL already contains the same
+ * hash (where the browser would otherwise do nothing).
+ */
+function useHashSmoothScroll() {
+  const { pathname, hash } = useLocation();
+
+  // Scroll on initial load / navigation when URL already has a hash
+  useEffect(() => {
+    if (!hash) return;
+    const el = document.querySelector(hash);
+    if (el) {
+      // Small delay so the page finishes rendering first
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 0);
+    }
+  }, [pathname, hash]);
+
+  // Intercept click on any <a href="#..."> so re-clicking the same hash works
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      const anchor = (e.target as HTMLElement).closest('a[href^="#"]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const id = anchor.getAttribute('href')!.slice(1);
+      const el = document.getElementById(id);
+      if (el) {
+        e.preventDefault();
+        el.scrollIntoView({ behavior: 'smooth' });
+        // Update URL hash without triggering a jump
+        window.history.pushState(null, '', `#${id}`);
+      }
+    }
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { user, telegramData, hasInstance } = useAuth();
+  useHashSmoothScroll();
 
   return (
     <div className="min-h-screen bg-[#050505] cyber-grid">

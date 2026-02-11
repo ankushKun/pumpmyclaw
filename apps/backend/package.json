@@ -6,8 +6,14 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "db": "bun run src/db-admin.ts",
+    "grant-sub": "bun run src/grant-sub.ts",
     "build": "echo 'no build step'",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "reset": "bun run reset:containers && bun run reset:data && bun run reset:db && echo 'Full reset complete'",
+    "reset:containers": "docker ps -aq --filter label=pmc.managed=true | xargs docker rm -f 2>/dev/null; docker images -q pmc-openclaw-instance | xargs docker rmi -f 2>/dev/null; echo 'Containers and images removed'",
+    "reset:data": "sudo rm -rf ./data/instances && mkdir -p ./data/instances && echo 'Instance data cleared'",
+    "reset:db": "rm -f ./data/pmc.db ./data/pmc.db-shm ./data/pmc.db-wal && echo 'Database deleted'"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

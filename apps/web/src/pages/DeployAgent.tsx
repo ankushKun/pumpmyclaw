@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut, Zap, Shield, Lock, Clock, Sparkles, Check } from 'lucide-react';
 import { MODELS, CUSTOM_MODEL_ID } from '../lib/models';
 import { useAuth } from '../lib/auth';
+import { backend } from '../lib/api';
 import botTokenVideo from '../assets/bot-token.mp4';
 import openrouterKeyVideo from '../assets/openrouter-key.mp4';
 
@@ -152,6 +154,65 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
   );
 }
 
+function usePreloadedVideo(src: string) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoke = '';
+    let cancelled = false;
+
+    fetch(src)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoke = url;
+        setBlobUrl(url);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [src]);
+
+  return blobUrl;
+}
+
+function VideoWithSkeleton({
+  src,
+  blobUrl,
+  className,
+}: {
+  src: string;
+  blobUrl: string | null;
+  className?: string;
+}) {
+  const [ready, setReady] = useState(false);
+  const videoSrc = blobUrl ?? src;
+
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      {!ready && (
+        <div className="absolute inset-0 skeleton rounded-lg" />
+      )}
+      <video
+        key={videoSrc}
+        src={videoSrc}
+        autoPlay
+        loop
+        muted
+        playsInline
+        onCanPlay={() => setReady(true)}
+        className={`w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
+          ready ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    </div>
+  );
+}
+
 function InstructionStep({ number, children }: { number: number; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2.5 mb-2.5">
@@ -167,7 +228,7 @@ function InstructionStep({ number, children }: { number: number; children: React
 
 export function DeployAgent() {
   const navigate = useNavigate();
-  const { user, telegramData, loading: authLoading, hasInstance, login, logout } = useAuth();
+  const { user, telegramData, loading: authLoading, hasInstance, hasSubscription, setHasSubscription, login, logout } = useAuth();
   const isLoggedIn = !!user;
 
   // Redirect authenticated users who already have an instance to the dashboard
@@ -176,6 +237,24 @@ export function DeployAgent() {
       navigate('/dashboard', { replace: true });
     }
   }, [authLoading, isLoggedIn, hasInstance, navigate]);
+
+  // Preload video files as blob URLs as soon as the page mounts (step 1)
+  const botTokenBlobUrl = usePreloadedVideo(botTokenVideo);
+  const openrouterKeyBlobUrl = usePreloadedVideo(openrouterKeyVideo);
+
+  // Subscription / checkout state
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const { data: slots } = useQuery({
+    queryKey: ['slots'],
+    queryFn: () => backend.getSlots(),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+  const totalSlots = slots?.total ?? 10;
+  const slotsTaken = slots?.taken ?? 0;
+  const slotsRemaining = slots?.remaining ?? 10;
+  const isSoldOut = slots?.soldOut ?? false;
+  const fillPercent = (slotsTaken / totalSlots) * 100;
 
   const [step, setStep] = useState(1);
   const [devTelegramId, setDevTelegramId] = useState("");
@@ -203,6 +282,10 @@ export function DeployAgent() {
     setError("");
     try {
       await login(tgUser);
+      try {
+        const { subscription } = await backend.getSubscription();
+        setHasSubscription(subscription?.status === 'active');
+      } catch { /* ignore */ }
     } catch {
       setError("Authentication failed. Please try again.");
     } finally {
@@ -226,10 +309,26 @@ export function DeployAgent() {
         auth_date: Math.floor(Date.now() / 1000),
         hash: "dev_bypass",
       });
+      try {
+        const { subscription } = await backend.getSubscription();
+        setHasSubscription(subscription?.status === 'active');
+      } catch { /* ignore */ }
     } catch {
       setError("Authentication failed. Is the backend running?");
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  const handleCheckout = async () => {
+    setError("");
+    setCheckoutLoading(true);
+    try {
+      const { checkoutUrl } = await backend.createCheckout();
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start checkout");
+      setCheckoutLoading(false);
     }
   };
 
@@ -313,6 +412,10 @@ export function DeployAgent() {
     if (step === 1) {
       if (!isLoggedIn) {
         setError("Please sign in with Telegram first");
+        return false;
+      }
+      if (!hasSubscription) {
+        setError("Please subscribe to Early Access before setting up your agent");
         return false;
       }
     }
@@ -415,19 +518,21 @@ export function DeployAgent() {
 
         {/* Card */}
         <div className="cyber-card p-6 sm:p-8">
-          {/* Step 1: Telegram Auth */}
+          {/* Step 1: Sign In & Subscribe */}
           {step === 1 && (
-            <div className="animate-fade-in">
-              <div className="flex items-center gap-3 mb-6">
+            <div className="animate-fade-in space-y-6">
+              {/* Section header */}
+              <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-[#2ED0FF]/20 flex items-center justify-center">
                   <User className="w-5 h-5 text-[#2ED0FF]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">Sign In with Telegram</h2>
-                  <p className="text-sm text-[#A8A8A8]">Connect your Telegram account to manage your agent</p>
+                  <h2 className="text-xl font-bold">Sign In & Subscribe</h2>
+                  <p className="text-sm text-[#A8A8A8]">Authenticate with Telegram, then claim your early access slot</p>
                 </div>
               </div>
 
+              {/* ── Auth section ── */}
               {isLoggedIn ? (
                 <div className="p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg flex items-center gap-4">
                   {telegramData?.photo_url ? (
@@ -471,14 +576,15 @@ export function DeployAgent() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {/* Telegram Widget */}
+                  <p className="text-xs text-[#A8A8A8] text-center">
+                    Sign in with Telegram to get started
+                  </p>
                   {TELEGRAM_BOT_NAME && (
                     <div>
                       <TelegramLoginWidget botName={TELEGRAM_BOT_NAME} onAuth={handleTelegramAuth} />
                     </div>
                   )}
 
-                  {/* Dev mode: paste Telegram ID */}
                   {IS_DEV && (
                     <div className="border-t border-white/10 pt-5">
                       <p className="text-xs text-[#A8A8A8] mb-3 uppercase tracking-wider font-semibold">
@@ -503,11 +609,130 @@ export function DeployAgent() {
                     </div>
                   )}
 
-                  {/* Fallback if no bot name configured and not in dev */}
                   {!TELEGRAM_BOT_NAME && !IS_DEV && (
                     <p className="text-sm text-[#FF2E8C]">
                       Telegram login not configured. Set VITE_TELEGRAM_BOT_NAME in your environment.
                     </p>
+                  )}
+                </div>
+              )}
+
+              {/* ── Subscription / Pricing section ── */}
+              {isLoggedIn && (
+                <div className="border-t border-white/10 pt-6">
+                  {hasSubscription ? (
+                    /* Already subscribed */
+                    <div className="p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
+                        <span className="font-semibold text-[#B6FF2E]">Early Access Active</span>
+                      </div>
+                      <p className="text-sm text-[#A8A8A8]">
+                        Your subscription is active. Click Next to set up your agent.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Not subscribed - show pricing card */
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-10 h-10 rounded-lg bg-[#B6FF2E]/10 flex items-center justify-center">
+                          <Bot className="w-5 h-5 text-[#B6FF2E]" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-white">Early Access — $19.99/mo</h3>
+                          <p className="text-xs text-[#A8A8A8]">
+                            <span className="line-through">$40.00</span>
+                            <span className="text-[#FF2E8C] font-semibold ml-1.5">50% OFF</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Slot progress */}
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5">
+                          <span className="text-[#A8A8A8]">
+                            <span className="text-white font-semibold">{slotsTaken}</span> of {totalSlots} claimed
+                          </span>
+                          <span className={`font-semibold ${slotsRemaining <= 3 ? 'text-[#FF2E8C]' : 'text-[#B6FF2E]'}`}>
+                            {isSoldOut ? 'SOLD OUT' : `${slotsRemaining} left`}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-1000 ease-out"
+                            style={{
+                              width: `${fillPercent}%`,
+                              background: slotsRemaining <= 3
+                                ? 'linear-gradient(90deg, #FF2E8C, #FF6B6B)'
+                                : 'linear-gradient(90deg, #B6FF2E, #2ED0FF)',
+                            }}
+                          />
+                        </div>
+                        {!isSoldOut && slotsRemaining <= 3 && (
+                          <p className="text-[10px] text-[#FF2E8C] mt-1 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" />
+                            Almost gone — {slotsRemaining} slot{slotsRemaining !== 1 ? 's' : ''} remaining
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Features summary */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {[
+                          '24/7 managed AI bot',
+                          'Bring your own AI model',
+                          'Telegram bot interface',
+                          'Live P&L tracking',
+                        ].map((f) => (
+                          <div key={f} className="flex items-center gap-1.5 text-[#d4d4d4]">
+                            <Check className="w-3 h-3 text-[#B6FF2E] flex-shrink-0" />
+                            {f}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Checkout button */}
+                      {isSoldOut ? (
+                        <button
+                          disabled
+                          className="w-full py-3 px-5 rounded-full text-sm font-bold bg-white/5 text-[#A8A8A8] border border-white/10 cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <Lock className="w-4 h-4" />
+                          Sold Out — Waitlist Coming Soon
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleCheckout}
+                          disabled={checkoutLoading}
+                          className="w-full py-3 px-5 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
+                        >
+                          {checkoutLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Redirecting to checkout...
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4" />
+                              Subscribe — $19.99/mo
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                      {/* Trust signals */}
+                      <div className="flex items-center justify-center gap-4 text-[10px] text-[#A8A8A8]">
+                        <span className="flex items-center gap-1">
+                          <Shield className="w-3 h-3" />
+                          Cancel anytime
+                        </span>
+                        <span className="text-white/10">|</span>
+                        <span className="flex items-center gap-1">
+                          <Lock className="w-3 h-3" />
+                          Secure payment
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -529,13 +754,10 @@ export function DeployAgent() {
 
               {/* Video tutorial */}
               <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 mb-6">
-                <video
+                <VideoWithSkeleton
                   src={botTokenVideo}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-full object-contain rounded-lg self-center"
+                  blobUrl={botTokenBlobUrl}
+                  className="self-center aspect-video"
                 />
 
                 {/* Instructions */}
@@ -621,13 +843,10 @@ export function DeployAgent() {
 
               {/* Video tutorial */}
               <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 mb-6">
-                <video
+                <VideoWithSkeleton
                   src={openrouterKeyVideo}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-full object-contain rounded-lg self-center"
+                  blobUrl={openrouterKeyBlobUrl}
+                  className="self-center aspect-video"
                 />
 
                 {/* Instructions */}

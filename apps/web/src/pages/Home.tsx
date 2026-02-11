@@ -1,13 +1,81 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, DollarSign, TrendingUp, Zap, Clock, Shield, Bot, Sparkles, Check, Lock, Loader2 } from 'lucide-react';
+import { Users, Activity, DollarSign, TrendingUp, Zap, Clock, Shield, Bot, Sparkles, Check, Lock, Loader2, CheckCircle, User, LogOut } from 'lucide-react';
 import { api, backend } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { AgentCard } from '../components/AgentCard';
 import { LiveTradeFeed } from '../components/LiveTradeFeed';
 import { AgentCardSkeleton } from '../components/Skeleton';
 import { formatUsd, formatNumber, formatCompactUsd, getAgentAvatar } from '../lib/formatters';
+
+const IS_DEV = import.meta.env.DEV;
+const TELEGRAM_BOT_NAME = import.meta.env.VITE_TELEGRAM_BOT_NAME;
+
+interface TelegramUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
+
+declare global {
+  interface Window {
+    onTelegramAuth?: (user: TelegramUser) => void;
+  }
+}
+
+function TelegramLoginWidgetHome({ botName, onAuth }: { botName: string; onAuth: (user: TelegramUser) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [widgetLoaded, setWidgetLoaded] = useState(false);
+
+  useEffect(() => {
+    window.onTelegramAuth = onAuth;
+
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.async = true;
+    script.setAttribute("data-telegram-login", botName);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+
+    ref.current?.appendChild(script);
+
+    const poll = setInterval(() => {
+      if (ref.current?.querySelector("iframe")) {
+        setWidgetLoaded(true);
+        clearInterval(poll);
+      }
+    }, 100);
+
+    return () => {
+      clearInterval(poll);
+      if (ref.current?.contains(script)) {
+        ref.current.removeChild(script);
+      }
+      delete window.onTelegramAuth;
+    };
+  }, [botName, onAuth]);
+
+  return (
+    <div className="flex justify-center min-h-[40px]">
+      {!widgetLoaded && (
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+          <span className="text-sm text-[#A8A8A8]">Loading Telegram...</span>
+        </div>
+      )}
+      <div
+        ref={ref}
+        className={widgetLoaded ? "flex justify-center" : "hidden"}
+      />
+    </div>
+  );
+}
 
 function useRelativeTime(timestamp: Date | null) {
   const [, setTick] = useState(0);
@@ -25,6 +93,8 @@ function useRelativeTime(timestamp: Date | null) {
 }
 
 export function Home() {
+  const { user, hasSubscription, hasInstance } = useAuth();
+
   const { data: rankings, isLoading: rankingsLoading, dataUpdatedAt, isFetching } = useQuery({
     queryKey: ['rankings'],
     queryFn: api.getRankings,
@@ -145,10 +215,17 @@ export function Home() {
               </div>
 
               <div className="flex flex-wrap gap-4">
-                <a href="#pricing" className="btn-primary">
-                  <Zap className="w-5 h-5" />
-                  Get Early Access
-                </a>
+                {user && hasSubscription ? (
+                  <Link to={hasInstance ? '/dashboard' : '/deploy'} className="btn-primary">
+                    <Zap className="w-5 h-5" />
+                    {hasInstance ? 'Go to Dashboard' : 'Deploy Your Agent'}
+                  </Link>
+                ) : (
+                  <a href="#pricing" className="btn-primary">
+                    <Zap className="w-5 h-5" />
+                    Get Early Access
+                  </a>
+                )}
                 <a href="#leaderboard" className="btn-secondary">
                   <TrendingUp className="w-5 h-5" />
                   View Leaderboard
@@ -382,10 +459,11 @@ function StepCard({ number, title, description }: { number: string; title: strin
 /* ── Early Access Pricing Section ───────────────────────────────── */
 
 function EarlyAccessPricing() {
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, telegramData, loading: authLoading, hasSubscription, hasInstance, setHasSubscription, login, logout } = useAuth();
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
   const [error, setError] = useState('');
+  const [devTelegramId, setDevTelegramId] = useState('');
 
   const { data: slots } = useQuery({
     queryKey: ['slots'],
@@ -411,25 +489,67 @@ function EarlyAccessPricing() {
     'Priority support via Telegram',
   ];
 
+  const handleTelegramAuth = useCallback(async (tgUser: TelegramUser) => {
+    setLoggingIn(true);
+    setError('');
+    try {
+      await login(tgUser);
+      // After login, check subscription
+      try {
+        const { subscription } = await backend.getSubscription();
+        setHasSubscription(subscription?.status === 'active');
+      } catch { /* ignore */ }
+    } catch {
+      setError('Authentication failed. Please try again.');
+    } finally {
+      setLoggingIn(false);
+    }
+  }, [login, setHasSubscription]);
+
+  const handleDevLogin = async () => {
+    const id = parseInt(devTelegramId);
+    if (isNaN(id) || id <= 0) {
+      setError('Enter a valid numeric Telegram ID');
+      return;
+    }
+    setLoggingIn(true);
+    setError('');
+    try {
+      await login({
+        id,
+        first_name: 'Dev',
+        username: 'dev_user',
+        auth_date: Math.floor(Date.now() / 1000),
+        hash: 'dev_bypass',
+      });
+      try {
+        const { subscription } = await backend.getSubscription();
+        setHasSubscription(subscription?.status === 'active');
+      } catch { /* ignore */ }
+    } catch {
+      setError('Authentication failed. Is the backend running?');
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
   const handleSubscribe = async () => {
     setError('');
 
-    // Must be logged in first
-    if (!user) {
-      navigate('/deploy');
-      return;
-    }
+    if (!user) return; // Should not happen since button is hidden when not logged in
 
     setCheckoutLoading(true);
     try {
       const { checkoutUrl } = await backend.createCheckout();
-      // Redirect to Dodo Payments hosted checkout
       window.location.href = checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start checkout');
       setCheckoutLoading(false);
     }
   };
+
+  // Determine CTA state
+  const isLoggedIn = !!user;
 
   return (
     <section id="pricing" className="py-24 relative overflow-hidden">
@@ -461,11 +581,13 @@ function EarlyAccessPricing() {
 
             <div className="relative cyber-card border-[#B6FF2E]/20 overflow-hidden">
               {/* Badge ribbon */}
-              <div className="absolute top-4 right-4">
-                <div className="bg-[#FF2E8C] text-white text-xs font-bold px-3 py-1 rounded-full">
-                  50% OFF
+              {!hasSubscription && (
+                <div className="absolute top-4 right-4">
+                  <div className="bg-[#FF2E8C] text-white text-xs font-bold px-3 py-1 rounded-full">
+                    50% OFF
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="p-8">
                 {/* Plan name */}
@@ -479,100 +601,195 @@ function EarlyAccessPricing() {
                   </div>
                 </div>
 
-                {/* Price */}
-                <div className="mb-6">
-                  <div className="flex items-baseline gap-3">
-                    <span className="text-5xl font-black text-white">$19.99</span>
-                    <span className="text-lg text-[#A8A8A8]">/mo</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="text-lg text-[#A8A8A8] line-through">$40.00</span>
-                    <span className="text-xs text-[#FF2E8C] font-semibold bg-[#FF2E8C]/10 px-2 py-0.5 rounded">
-                      Save $20.01/mo
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#A8A8A8] mt-2">
-                    Locked in for life as an early supporter. Price increases after {totalSlots} slots.
-                  </p>
-                </div>
+                {hasSubscription ? (
+                  /* ── Subscribed state ─────────────────────────── */
+                  <>
+                    {/* Active badge */}
+                    <div className="mb-6 p-4 bg-[#B6FF2E]/5 border border-[#B6FF2E]/20 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
+                        <span className="text-sm font-bold text-[#B6FF2E]">Subscription Active</span>
+                      </div>
+                      <p className="text-xs text-[#A8A8A8]">
+                        Your early access subscription is active at the locked-in rate of <span className="text-white font-semibold">$19.99/mo</span>.
+                      </p>
+                    </div>
 
-                {/* Slot progress bar */}
-                <div className="mb-6">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-[#A8A8A8]">
-                      <span className="text-white font-semibold">{slotsTaken}</span> of {totalSlots} claimed
-                    </span>
-                    <span className={`font-semibold ${slotsRemaining <= 3 ? 'text-[#FF2E8C]' : 'text-[#B6FF2E]'}`}>
-                      {isSoldOut ? 'SOLD OUT' : `${slotsRemaining} left`}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-1000 ease-out"
-                      style={{
-                        width: `${fillPercent}%`,
-                        background: slotsRemaining <= 3
-                          ? 'linear-gradient(90deg, #FF2E8C, #FF6B6B)'
-                          : 'linear-gradient(90deg, #B6FF2E, #2ED0FF)',
-                      }}
-                    />
-                  </div>
-                  {!isSoldOut && slotsRemaining <= 3 && (
-                    <p className="text-[10px] text-[#FF2E8C] mt-1.5 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      Almost gone — {slotsRemaining} slot{slotsRemaining !== 1 ? 's' : ''} remaining
-                    </p>
-                  )}
-                </div>
-
-                {/* Error message */}
-                {error && (
-                  <div className="mb-4 rounded-lg px-3 py-2 text-xs bg-[#FF2E8C]/10 border border-[#FF2E8C]/20 text-[#FF2E8C]">
-                    {error}
-                  </div>
-                )}
-
-                {/* CTA button */}
-                {isSoldOut ? (
-                  <button
-                    disabled
-                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-white/5 text-[#A8A8A8] border border-white/10 cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <Lock className="w-4 h-4" />
-                    Sold Out — Waitlist Coming Soon
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleSubscribe}
-                    disabled={checkoutLoading}
-                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
-                  >
-                    {checkoutLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Redirecting to checkout...
-                      </>
-                    ) : (
-                      <>
+                    {/* Auth badge + CTA */}
+                    <div className="space-y-3">
+                      <PricingAuthBadge
+                        user={user!}
+                        telegramData={telegramData}
+                        onLogout={logout}
+                      />
+                      <Link
+                        to={hasInstance ? '/dashboard' : '/deploy'}
+                        className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2"
+                      >
                         <Zap className="w-4 h-4" />
-                        {user ? 'Claim Your Slot — $19.99/mo' : 'Sign In to Claim Your Slot'}
-                      </>
-                    )}
-                  </button>
-                )}
+                        {hasInstance ? 'Go to Dashboard' : 'Set Up Your Agent'}
+                      </Link>
+                    </div>
+                  </>
+                ) : (
+                  /* ── Not subscribed state ─────────────────────── */
+                  <>
+                    {/* Price */}
+                    <div className="mb-6">
+                      <div className="flex items-baseline gap-3">
+                        <span className="text-5xl font-black text-white">$19.99</span>
+                        <span className="text-lg text-[#A8A8A8]">/mo</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="text-lg text-[#A8A8A8] line-through">$40.00</span>
+                        <span className="text-xs text-[#FF2E8C] font-semibold bg-[#FF2E8C]/10 px-2 py-0.5 rounded">
+                          Save $20.01/mo
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#A8A8A8] mt-2">
+                        Locked in for life as an early supporter. Price increases after {totalSlots} slots.
+                      </p>
+                    </div>
 
-                {/* Trust signals */}
-                <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#A8A8A8]">
-                  <span className="flex items-center gap-1">
-                    <Shield className="w-3 h-3" />
-                    Cancel anytime
-                  </span>
-                  <span className="text-white/10">|</span>
-                  <span className="flex items-center gap-1">
-                    <Lock className="w-3 h-3" />
-                    Secure payment
-                  </span>
-                </div>
+                    {/* Slot progress bar */}
+                    <div className="mb-6">
+                      <div className="flex items-center justify-between text-xs mb-2">
+                        <span className="text-[#A8A8A8]">
+                          <span className="text-white font-semibold">{slotsTaken}</span> of {totalSlots} claimed
+                        </span>
+                        <span className={`font-semibold ${slotsRemaining <= 3 ? 'text-[#FF2E8C]' : 'text-[#B6FF2E]'}`}>
+                          {isSoldOut ? 'SOLD OUT' : `${slotsRemaining} left`}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-1000 ease-out"
+                          style={{
+                            width: `${fillPercent}%`,
+                            background: slotsRemaining <= 3
+                              ? 'linear-gradient(90deg, #FF2E8C, #FF6B6B)'
+                              : 'linear-gradient(90deg, #B6FF2E, #2ED0FF)',
+                          }}
+                        />
+                      </div>
+                      {!isSoldOut && slotsRemaining <= 3 && (
+                        <p className="text-[10px] text-[#FF2E8C] mt-1.5 flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" />
+                          Almost gone — {slotsRemaining} slot{slotsRemaining !== 1 ? 's' : ''} remaining
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Error message */}
+                    {error && (
+                      <div className="mb-4 rounded-lg px-3 py-2 text-xs bg-[#FF2E8C]/10 border border-[#FF2E8C]/20 text-[#FF2E8C]">
+                        {error}
+                      </div>
+                    )}
+
+                    {/* Auth + CTA area */}
+                    {isSoldOut ? (
+                      <button
+                        disabled
+                        className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-white/5 text-[#A8A8A8] border border-white/10 cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        <Lock className="w-4 h-4" />
+                        Sold Out — Waitlist Coming Soon
+                      </button>
+                    ) : !isLoggedIn ? (
+                      /* Not logged in - show Telegram login */
+                      <div className="space-y-4">
+                        <p className="text-xs text-[#A8A8A8] text-center">
+                          Sign in with Telegram to claim your slot
+                        </p>
+
+                        {authLoading || loggingIn ? (
+                          <div className="flex items-center justify-center gap-2 py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-[#A8A8A8]" />
+                            <span className="text-sm text-[#A8A8A8]">
+                              {loggingIn ? 'Signing in...' : 'Restoring session...'}
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            {TELEGRAM_BOT_NAME && (
+                              <TelegramLoginWidgetHome botName={TELEGRAM_BOT_NAME} onAuth={handleTelegramAuth} />
+                            )}
+
+                            {IS_DEV && (
+                              <div className="border-t border-white/10 pt-4">
+                                <p className="text-[10px] text-[#A8A8A8] mb-2 uppercase tracking-wider font-semibold">
+                                  Dev Mode
+                                </p>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 transition-all mono text-xs"
+                                    placeholder="Telegram User ID"
+                                    value={devTelegramId}
+                                    onChange={(e) => setDevTelegramId(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleDevLogin()}
+                                  />
+                                  <button
+                                    onClick={handleDevLogin}
+                                    className="text-xs py-2 px-3 bg-white/5 border border-white/10 rounded-lg text-[#A8A8A8] hover:text-white transition-colors"
+                                  >
+                                    Use ID
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {!TELEGRAM_BOT_NAME && !IS_DEV && (
+                              <p className="text-sm text-[#FF2E8C] text-center">
+                                Telegram login not configured.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      /* Logged in but no subscription - show checkout */
+                      <div className="space-y-3">
+                        <PricingAuthBadge
+                          user={user!}
+                          telegramData={telegramData}
+                          onLogout={logout}
+                        />
+                        <button
+                          onClick={handleSubscribe}
+                          disabled={checkoutLoading}
+                          className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
+                        >
+                          {checkoutLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Redirecting to checkout...
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4" />
+                              Claim Your Slot — $19.99/mo
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Trust signals */}
+                    <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#A8A8A8]">
+                      <span className="flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        Cancel anytime
+                      </span>
+                      <span className="text-white/10">|</span>
+                      <span className="flex items-center gap-1">
+                        <Lock className="w-3 h-3" />
+                        Secure payment
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Divider */}
@@ -603,5 +820,49 @@ function EarlyAccessPricing() {
         </p>
       </div>
     </section>
+  );
+}
+
+/** Compact signed-in badge shown inside the pricing card */
+function PricingAuthBadge({
+  user,
+  telegramData,
+  onLogout,
+}: {
+  user: { firstName?: string; username?: string; telegramId: string };
+  telegramData: TelegramUser | null;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-[#B6FF2E]/5 border border-[#B6FF2E]/20 rounded-lg">
+      {telegramData?.photo_url ? (
+        <img
+          src={telegramData.photo_url}
+          alt={user.firstName || 'User'}
+          className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+        />
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-[#B6FF2E]/20 flex items-center justify-center flex-shrink-0">
+          <User className="w-4 h-4 text-[#B6FF2E]" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <CheckCircle className="w-3 h-3 text-[#B6FF2E]" />
+          <span className="text-xs font-semibold text-[#B6FF2E]">Signed In</span>
+        </div>
+        <p className="text-xs text-white truncate">
+          {user.firstName || telegramData?.first_name || 'User'}
+          {user.username && <span className="text-[#A8A8A8]"> @{user.username}</span>}
+        </p>
+      </div>
+      <button
+        onClick={onLogout}
+        className="text-[#A8A8A8] hover:text-[#FF2E8C] transition-colors p-1.5"
+        title="Sign out"
+      >
+        <LogOut className="w-3.5 h-3.5" />
+      </button>
+    </div>
   );
 }
