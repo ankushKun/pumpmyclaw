@@ -30,8 +30,8 @@ app.use(
         'https://pumpmyclaw-api.contact-arlink.workers.dev',
       ];
       if (allowed.includes(origin)) return origin;
-      // Allow any localhost port for local dev
-      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return origin;
+      // Allow any localhost/127.0.0.1 port for local dev
+      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
       return null;
     },
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
