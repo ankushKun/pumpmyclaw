@@ -479,6 +479,7 @@ export function Dashboard() {
       await backend.stopInstance(instance.id);
       setInstance({ ...instance, status: "stopped" });
       setStopModalOpen(false);
+      setActiveTab("logs");
     } catch (err) {
       console.error("Stop failed:", err);
     } finally {
@@ -489,6 +490,7 @@ export function Dashboard() {
   const handleStart = async () => {
     if (!instance) return;
     setActionLoading("start");
+    setActiveTab("logs");
     try {
       await backend.startInstance(instance.id);
       setInstance({ ...instance, status: "pending" });
@@ -570,6 +572,9 @@ export function Dashboard() {
     try {
       const res = await backend.updateInstance(instance.id, updates);
       setInstance({ ...instance, ...updates, status: "running" });
+      if (res.restarted) {
+        setActiveTab("logs");
+      }
       setAlertModal({
         open: true,
         title: "Settings Saved",
@@ -765,7 +770,7 @@ export function Dashboard() {
                 Open in Telegram
               </a>
             )}
-            {instance!.status === "running" ? (
+            {instance!.status === "running" || instance!.status === "pending" || instance!.status === "restarting" ? (
               <button
                 onClick={() => setStopModalOpen(true)}
                 className="btn-secondary text-sm py-2 px-4"
@@ -774,7 +779,7 @@ export function Dashboard() {
                 <Square className="w-3.5 h-3.5" />
                 {actionLoading === "stop" ? "Stopping..." : "Stop"}
               </button>
-            ) : instance!.status === "stopped" ? (
+            ) : (
               <button
                 onClick={handleStart}
                 className="btn-secondary text-sm py-2 px-4"
@@ -783,7 +788,7 @@ export function Dashboard() {
                 <Play className="w-3.5 h-3.5" />
                 {actionLoading === "start" ? "Starting..." : "Start"}
               </button>
-            ) : null}
+            )}
           </div>
         </div>
 
