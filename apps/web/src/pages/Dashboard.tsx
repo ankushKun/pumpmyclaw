@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   Play,
@@ -11,9 +11,25 @@ import {
   Copy,
   Check,
   Loader2,
-  ArrowLeft,
   RefreshCw,
+  Bot,
+  Cpu,
+  Clock,
+  ArrowUpRight,
+  ArrowDownLeft,
+  CircleDot,
+  Send,
+  Plug,
 } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import {
+  PublicKey,
+  Transaction,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { useAuth } from "../lib/auth";
 import {
   backend,
@@ -25,14 +41,17 @@ import {
 import { MODELS, CUSTOM_MODEL_ID, getModelName } from "../lib/models";
 import { ConfirmModal, AlertModal } from "../components/Modal";
 
+type Tab = "overview" | "logs" | "wallet" | "settings";
+
 export function Dashboard() {
   const navigate = useNavigate();
-  const { user, logout, setHasInstance } = useAuth();
+  const { user, telegramData, setHasInstance } = useAuth();
 
   const [instance, setInstance] = useState<Instance | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
 
-  // Creation flow (when redirected from deploy)
+  // Creation flow
   const [creating, setCreating] = useState(false);
   const [creationLogs, setCreationLogs] = useState<string[]>([]);
   const [creationStatus, setCreationStatus] = useState("");
@@ -40,10 +59,8 @@ export function Dashboard() {
   // Actions
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [logs, setLogs] = useState<string | null>(null);
-  const [showLogs, setShowLogs] = useState(false);
 
   // Settings
-  const [showSettings, setShowSettings] = useState(false);
   const [settingsModel, setSettingsModel] = useState("");
   const [customSettingsModel, setCustomSettingsModel] = useState("");
   const [settingsOrKey, setSettingsOrKey] = useState("");
@@ -58,8 +75,117 @@ export function Dashboard() {
   const [walletTransactions, setWalletTransactions] = useState<
     WalletTransaction[] | null
   >(null);
-  const [showWallet, setShowWallet] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Fund wallet
+  const { connection } = useConnection();
+  const {
+    publicKey: userWalletPubkey,
+    sendTransaction,
+    connected: userWalletConnected,
+  } = useWallet();
+  const [fundAmount, setFundAmount] = useState("");
+  const [fundingInProgress, setFundingInProgress] = useState(false);
+  const [fundResult, setFundResult] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [userWalletBalance, setUserWalletBalance] = useState<number | null>(
+    null
+  );
+
+  // Fetch user's browser wallet SOL balance
+  useEffect(() => {
+    if (!userWalletPubkey || !connection) {
+      setUserWalletBalance(null);
+      return;
+    }
+    let cancelled = false;
+    const fetch = async () => {
+      try {
+        const bal = await connection.getBalance(userWalletPubkey);
+        if (!cancelled) setUserWalletBalance(bal / LAMPORTS_PER_SOL);
+      } catch {
+        if (!cancelled) setUserWalletBalance(null);
+      }
+    };
+    fetch();
+    const interval = setInterval(fetch, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [userWalletPubkey, connection]);
+
+  const refreshBotWallet = useCallback(async () => {
+    if (!instance) return;
+    try {
+      const balance = await backend.getWalletBalance(instance.id);
+      setWalletBalance({ sol: balance.sol, formatted: balance.formatted });
+    } catch {
+      /* ignore */
+    }
+  }, [instance?.id]);
+
+  const handleFundBot = async () => {
+    if (!userWalletPubkey || !walletAddress || !sendTransaction) return;
+    const amount = parseFloat(fundAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setFundResult({ type: "error", message: "Enter a valid amount" });
+      return;
+    }
+    if (userWalletBalance !== null && amount > userWalletBalance) {
+      setFundResult({ type: "error", message: "Insufficient balance" });
+      return;
+    }
+
+    setFundingInProgress(true);
+    setFundResult(null);
+
+    try {
+      const recipientPubkey = new PublicKey(walletAddress);
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: userWalletPubkey,
+          toPubkey: recipientPubkey,
+          lamports: Math.round(amount * LAMPORTS_PER_SOL),
+        })
+      );
+
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = userWalletPubkey;
+
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed"
+      );
+
+      setFundResult({
+        type: "success",
+        message: `Sent ${amount} SOL! Tx: ${signature.slice(0, 12)}...`,
+      });
+      setFundAmount("");
+
+      // Refresh balances
+      if (userWalletPubkey) {
+        const bal = await connection.getBalance(userWalletPubkey);
+        setUserWalletBalance(bal / LAMPORTS_PER_SOL);
+      }
+      await refreshBotWallet();
+    } catch (err) {
+      console.error("Fund transfer failed:", err);
+      setFundResult({
+        type: "error",
+        message:
+          err instanceof Error ? err.message : "Transaction failed",
+      });
+    } finally {
+      setFundingInProgress(false);
+    }
+  };
 
   // Modals
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -114,9 +240,9 @@ export function Dashboard() {
     return () => clearInterval(poll);
   }, [instance?.id, instance?.status]);
 
-  // Auto-refresh logs when panel is open
+  // Auto-refresh logs when tab is active
   useEffect(() => {
-    if (!showLogs || !instance) return;
+    if (activeTab !== "logs" || !instance) return;
     const fetchLogs = async () => {
       try {
         const content = await backend.getInstanceLogs(instance.id);
@@ -129,9 +255,10 @@ export function Dashboard() {
         /* ignore */
       }
     };
-    const interval = setInterval(fetchLogs, 1000);
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
-  }, [showLogs, instance?.id]);
+  }, [activeTab, instance?.id]);
 
   // Periodically refresh instance status
   useEffect(() => {
@@ -203,9 +330,8 @@ export function Dashboard() {
     }
   };
 
-  // ── Creation (called from DeployAgent via navigate state) ─────
+  // ── Creation ──────────────────────────────────────────────────
   useEffect(() => {
-    // Check if we were redirected here with deploy config
     const stored = sessionStorage.getItem("pmc_deploy_config");
     if (stored && !instance && !creating) {
       sessionStorage.removeItem("pmc_deploy_config");
@@ -242,7 +368,6 @@ export function Dashboard() {
       setHasInstance(true);
       setCreationStatus("Starting container and streaming logs...");
 
-      // Stream logs
       const ctrl = backend.streamInstanceLogs(
         inst.id,
         (line) => {
@@ -263,7 +388,6 @@ export function Dashboard() {
         () => {}
       );
 
-      // Poll container status
       const statusPoll = setInterval(async () => {
         if (creationCompletedRef.current) {
           clearInterval(statusPoll);
@@ -296,7 +420,6 @@ export function Dashboard() {
         }
       }, 3000);
 
-      // Timeout after 60s
       timeoutRef.current = setTimeout(async () => {
         clearInterval(statusPoll);
         ctrl.abort();
@@ -381,8 +504,6 @@ export function Dashboard() {
       await backend.deleteInstance(instance.id);
       setInstance(null);
       setHasInstance(false);
-      setShowLogs(false);
-      setLogs(null);
       setDeleteModalOpen(false);
     } catch (err) {
       console.error("Delete failed:", err);
@@ -397,41 +518,9 @@ export function Dashboard() {
     }
   };
 
-  const handleToggleLogs = async () => {
-    if (!instance) return;
-    if (showLogs) {
-      setShowLogs(false);
-      isUserScrolledUp.current = false;
-      return;
-    }
-    setActionLoading("logs");
-    try {
-      const content = await backend.getInstanceLogs(instance.id);
-      setLogs(content);
-      setShowLogs(true);
-      setShowSettings(false);
-      setShowWallet(false);
-      isUserScrolledUp.current = false;
-      setTimeout(() => {
-        if (logsContainerRef.current) {
-          logsContainerRef.current.scrollTop =
-            logsContainerRef.current.scrollHeight;
-        }
-      }, 50);
-    } catch (err) {
-      console.error("Logs failed:", err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   // ── Settings ──────────────────────────────────────────────────
-  const toggleSettings = () => {
+  const initSettings = () => {
     if (!instance) return;
-    if (showSettings) {
-      setShowSettings(false);
-      return;
-    }
     const currentModel = instance.model || MODELS[0].id;
     const isKnown = MODELS.some((m) => m.id === currentModel);
     setSettingsModel(isKnown ? currentModel : CUSTOM_MODEL_ID);
@@ -439,10 +528,11 @@ export function Dashboard() {
       isKnown ? "" : currentModel.replace(/^openrouter\//, "")
     );
     setSettingsOrKey("");
-    setShowSettings(true);
-    setShowLogs(false);
-    setShowWallet(false);
   };
+
+  useEffect(() => {
+    if (activeTab === "settings") initSettings();
+  }, [activeTab, instance?.id]);
 
   const saveSettings = async () => {
     if (!instance) return;
@@ -454,15 +544,11 @@ export function Dashboard() {
     if (resolvedModel && resolvedModel !== instance.model)
       updates.model = resolvedModel;
     if (settingsOrKey) updates.openrouterApiKey = settingsOrKey;
-    if (Object.keys(updates).length === 0) {
-      setShowSettings(false);
-      return;
-    }
+    if (Object.keys(updates).length === 0) return;
     setActionLoading("settings");
     try {
       const res = await backend.updateInstance(instance.id, updates);
       setInstance({ ...instance, ...updates, status: "running" });
-      setShowSettings(false);
       setAlertModal({
         open: true,
         title: "Settings Saved",
@@ -492,12 +578,19 @@ export function Dashboard() {
     return "bg-[#FF2E8C]";
   };
 
+  const statusTextColor = (s: string) => {
+    if (s === "running") return "text-[#34d399]";
+    if (s === "stopped") return "text-[#A8A8A8]";
+    if (s === "pending" || s === "restarting") return "text-[#FBBF24]";
+    return "text-[#FF2E8C]";
+  };
+
   const statusLabel = (s: string) => {
-    if (s === "running") return "Bot Online";
-    if (s === "stopped") return "Bot Stopped";
-    if (s === "pending") return "Bot Starting...";
-    if (s === "restarting") return "Bot Restarting...";
-    return "Bot Error";
+    if (s === "running") return "Online";
+    if (s === "stopped") return "Stopped";
+    if (s === "pending") return "Starting...";
+    if (s === "restarting") return "Restarting...";
+    return "Error";
   };
 
   // ── Guards ────────────────────────────────────────────────────
@@ -511,14 +604,16 @@ export function Dashboard() {
     );
   }
 
-  // ── No instance: redirect to deploy ───────────────────────────
   if (!instance && !creating) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="cyber-card p-8 max-w-md w-full text-center">
-          <h2 className="text-xl font-bold mb-3">No Agent Deployed</h2>
-          <p className="text-[#A8A8A8] mb-6">
-            You haven't deployed an agent yet. Set one up now!
+        <div className="cyber-card p-10 max-w-md w-full text-center">
+          <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5">
+            <Bot className="w-8 h-8 text-[#A8A8A8]" />
+          </div>
+          <h2 className="text-xl font-bold mb-2">No Agent Deployed</h2>
+          <p className="text-[#A8A8A8] text-sm mb-6">
+            You haven't deployed an OpenClaw agent yet.
           </p>
           <Link to="/deploy" className="btn-primary inline-flex">
             Deploy Agent
@@ -532,15 +627,21 @@ export function Dashboard() {
   if (creating) {
     return (
       <div className="min-h-screen py-12 px-4">
-        <div className="max-w-xl mx-auto">
-          <div className="cyber-card p-8">
-            <div className="text-center mb-6">
-              <Loader2 className="w-8 h-8 animate-spin text-[#B6FF2E] mx-auto mb-4" />
-              <h2 className="text-xl font-bold mb-2">Setting Up Your Bot</h2>
-              <p className="text-[#A8A8A8] text-sm">{creationStatus}</p>
+        <div className="max-w-2xl mx-auto">
+          <div className="cyber-card overflow-hidden">
+            {/* Header bar */}
+            <div className="px-6 py-5 border-b border-white/5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-[#B6FF2E]/10 flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-[#B6FF2E]" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold">Setting Up Your Bot</h2>
+                <p className="text-[#A8A8A8] text-xs mt-0.5">{creationStatus}</p>
+              </div>
             </div>
 
-            <div className="bg-black/50 rounded-lg p-4 max-h-[300px] overflow-y-auto font-mono text-xs">
+            {/* Terminal */}
+            <div className="bg-black/40 p-4 max-h-[350px] overflow-y-auto font-mono text-xs">
               {creationLogs.length === 0 ? (
                 <p className="text-[#A8A8A8] m-0">
                   Waiting for container logs...
@@ -549,7 +650,7 @@ export function Dashboard() {
                 creationLogs.map((line, i) => (
                   <div
                     key={i}
-                    className={`mb-1 ${
+                    className={`leading-5 ${
                       line.includes("Error")
                         ? "text-[#FF2E8C]"
                         : "text-[#A8A8A8]"
@@ -562,65 +663,87 @@ export function Dashboard() {
               <div ref={logsEndRef} />
             </div>
 
-            <p className="text-[#A8A8A8] text-xs text-center mt-4">
-              This may take a minute while OpenClaw initializes...
-            </p>
+            <div className="px-6 py-3 border-t border-white/5">
+              <p className="text-[#A8A8A8] text-xs">
+                This may take a minute while OpenClaw initializes...
+              </p>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Dashboard ─────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen py-12 px-4">
-      <div className="max-w-xl mx-auto">
-        {/* Back link */}
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-[#A8A8A8] hover:text-white transition-colors mb-6"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Leaderboard
-        </Link>
+  // ════════════════════════════════════════════════════════════════
+  //  MAIN DASHBOARD
+  // ════════════════════════════════════════════════════════════════
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "overview", label: "Overview", icon: <Bot className="w-4 h-4" /> },
+    { id: "logs", label: "Logs", icon: <Terminal className="w-4 h-4" /> },
+    { id: "wallet", label: "Wallet", icon: <Wallet className="w-4 h-4" /> },
+    { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
+  ];
 
-        <div className="cyber-card p-6 sm:p-8">
-          {/* Status header */}
-          <div className="flex items-center justify-center gap-2.5 mb-6">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${statusColor(instance!.status)} ${
-                instance!.status === "running" ? "animate-pulse-glow" : ""
-              }`}
-            />
-            <span className="text-lg font-semibold">
-              {statusLabel(instance!.status)}
-            </span>
+  return (
+    <div className="min-h-screen py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+
+        {/* ── Page header ─────────────────────────────────────────── */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            {/* Avatar / Bot icon */}
+            <div className="w-12 h-12 rounded-2xl bg-[#0B0B0B] border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+              {telegramData?.photo_url ? (
+                <img
+                  src={telegramData.photo_url}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Bot className="w-6 h-6 text-[#A8A8A8]" />
+              )}
+            </div>
+            <div>
+              <h1 className="text-xl font-bold leading-tight">
+                {instance!.botUsername
+                  ? `@${instance!.botUsername}`
+                  : "Your Agent"}
+              </h1>
+              <div className="flex items-center gap-2 mt-1">
+                <span
+                  className={`w-2 h-2 rounded-full ${statusColor(instance!.status)} ${
+                    instance!.status === "running" ? "animate-pulse-glow" : ""
+                  }`}
+                />
+                <span className={`text-sm font-medium ${statusTextColor(instance!.status)}`}>
+                  {statusLabel(instance!.status)}
+                </span>
+                {instance!.model && (
+                  <>
+                    <span className="text-white/20">|</span>
+                    <span className="text-xs text-[#A8A8A8] flex items-center gap-1">
+                      <Cpu className="w-3 h-3" />
+                      {getModelName(instance!.model)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Telegram link */}
-          {instance!.botUsername && (
-            <div className="text-center mb-6">
+          {/* Quick actions */}
+          <div className="flex items-center gap-2">
+            {instance!.botUsername && (
               <a
                 href={`https://t.me/${instance!.botUsername}?start=true`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="btn-primary inline-flex text-sm py-2.5 px-5"
+                className="btn-primary text-sm py-2 px-4"
               >
-                Open @{instance!.botUsername} in Telegram
-                <ExternalLink className="w-3.5 h-3.5" />
+                <Send className="w-3.5 h-3.5" />
+                Open in Telegram
               </a>
-            </div>
-          )}
-
-          {/* Model */}
-          {instance!.model && (
-            <p className="text-[#A8A8A8] text-sm text-center mb-6">
-              Model: {getModelName(instance!.model)}
-            </p>
-          )}
-
-          {/* Controls */}
-          <div className="flex flex-wrap gap-2 justify-center mb-6">
+            )}
             {instance!.status === "running" ? (
               <button
                 onClick={() => setStopModalOpen(true)}
@@ -633,186 +756,110 @@ export function Dashboard() {
             ) : instance!.status === "stopped" ? (
               <button
                 onClick={handleStart}
-                className="btn-primary text-sm py-2 px-4"
+                className="btn-secondary text-sm py-2 px-4"
                 disabled={actionLoading !== null}
               >
                 <Play className="w-3.5 h-3.5" />
                 {actionLoading === "start" ? "Starting..." : "Start"}
               </button>
             ) : null}
-
-            <button
-              onClick={handleToggleLogs}
-              className={`text-sm py-2 px-4 ${showLogs ? "btn-primary" : "btn-secondary"}`}
-              disabled={actionLoading === "logs"}
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              {actionLoading === "logs"
-                ? "Loading..."
-                : showLogs
-                  ? "Hide Logs"
-                  : "Logs"}
-            </button>
-
-            <button
-              onClick={toggleSettings}
-              className={`text-sm py-2 px-4 ${showSettings ? "btn-primary" : "btn-secondary"}`}
-              disabled={actionLoading !== null}
-            >
-              <Settings className="w-3.5 h-3.5" />
-              {showSettings ? "Hide" : "Settings"}
-            </button>
-
-            <button
-              onClick={() => {
-                setShowWallet(!showWallet);
-                if (!showWallet) {
-                  setShowLogs(false);
-                  setShowSettings(false);
-                }
-              }}
-              className={`text-sm py-2 px-4 ${showWallet ? "btn-primary" : "btn-secondary"}`}
-            >
-              <Wallet className="w-3.5 h-3.5" />
-              {showWallet ? "Hide" : "Wallet"}
-            </button>
           </div>
+        </div>
 
-          {/* ── Logs panel ──────────────────────────────────────── */}
-          {showLogs && (
-            <div className="mb-6 animate-fade-in">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium text-[#A8A8A8]">
-                  Container Logs{" "}
-                  {!isUserScrolledUp.current && (
-                    <span className="text-[#34d399] text-xs">(live)</span>
-                  )}
-                </span>
+        {/* ── Tab navigation ──────────────────────────────────────── */}
+        <div className="flex gap-1 mb-6 border-b border-white/5 pb-px overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all rounded-t-lg whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "text-[#B6FF2E] border-b-2 border-[#B6FF2E] bg-white/5"
+                  : "text-[#A8A8A8] hover:text-white hover:bg-white/[0.02]"
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Tab content ─────────────────────────────────────────── */}
+
+        {/* OVERVIEW TAB */}
+        {activeTab === "overview" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+            {/* Bot Info Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Bot className="w-4 h-4 text-[#B6FF2E]" />
+                <h3 className="text-sm font-semibold">Bot Info</h3>
               </div>
-              <div
-                ref={logsContainerRef}
-                onScroll={handleLogsScroll}
-                className="bg-black/50 rounded-lg p-4 max-h-[400px] overflow-y-auto"
-              >
-                <pre className="font-mono text-xs text-[#A8A8A8] whitespace-pre-wrap m-0">
-                  {logs || "No logs available"}
-                </pre>
+              <div className="space-y-3">
+                <InfoRow label="Username" value={instance!.botUsername ? `@${instance!.botUsername}` : "N/A"} />
+                <InfoRow label="Status" value={statusLabel(instance!.status)} valueClass={statusTextColor(instance!.status)} />
+                <InfoRow label="Model" value={getModelName(instance!.model)} />
+                <InfoRow
+                  label="Created"
+                  value={instance!.createdAt
+                    ? new Date(typeof instance!.createdAt === 'string' ? instance!.createdAt : Number(instance!.createdAt) * 1000).toLocaleDateString()
+                    : "N/A"
+                  }
+                />
               </div>
-            </div>
-          )}
-
-          {/* ── Settings panel ──────────────────────────────────── */}
-          {showSettings && (
-            <div className="mb-6 bg-white/5 rounded-lg p-5 animate-fade-in">
-              <h3 className="text-sm font-semibold mb-4">Bot Settings</h3>
-
-              <div className="mb-4">
-                <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                  AI Model
-                </label>
-                <select
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#B6FF2E]/50"
-                  value={settingsModel}
-                  onChange={(e) => {
-                    setSettingsModel(e.target.value);
-                    if (e.target.value !== CUSTOM_MODEL_ID)
-                      setCustomSettingsModel("");
-                  }}
+              {instance!.botUsername && (
+                <a
+                  href={`https://t.me/${instance!.botUsername}?start=true`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary w-full text-sm py-2.5 mt-5 justify-center"
                 >
-                  {MODELS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                      {m.free ? " (FREE)" : ""}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_MODEL_ID}>Enter your own</option>
-                </select>
-                {settingsModel === CUSTOM_MODEL_ID && (
-                  <input
-                    type="text"
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mt-2 mono focus:outline-none focus:border-[#B6FF2E]/50"
-                    placeholder="e.g. google/gemini-2.5-flash"
-                    value={customSettingsModel}
-                    onChange={(e) => setCustomSettingsModel(e.target.value)}
-                    autoFocus
-                  />
+                  <Send className="w-3.5 h-3.5" />
+                  Chat with Bot
+                </a>
+              )}
+            </div>
+
+            {/* Wallet Summary Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-[#2ED0FF]" />
+                  <h3 className="text-sm font-semibold">Wallet</h3>
+                </div>
+                {walletAddress && (
+                  <button
+                    onClick={() => setActiveTab("wallet")}
+                    className="text-xs text-[#2ED0FF] hover:underline"
+                  >
+                    View all
+                  </button>
                 )}
               </div>
-
-              <div className="mb-4">
-                <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                  OpenRouter API Key{" "}
-                  <span className="text-[#A8A8A8]/60">(blank = keep current)</span>
-                </label>
-                <input
-                  type="password"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50"
-                  placeholder="sk-or-..."
-                  value={settingsOrKey}
-                  onChange={(e) => setSettingsOrKey(e.target.value)}
-                />
-              </div>
-
-              <p className="text-[#A8A8A8] text-xs mb-4">
-                Saving will restart your bot with the new settings.
-              </p>
-
-              <button
-                onClick={saveSettings}
-                className="btn-primary w-full text-sm py-2.5"
-                disabled={actionLoading === "settings"}
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 ${actionLoading === "settings" ? "animate-spin" : ""}`}
-                />
-                {actionLoading === "settings"
-                  ? "Saving..."
-                  : "Save & Restart Bot"}
-              </button>
-            </div>
-          )}
-
-          {/* ── Wallet panel ────────────────────────────────────── */}
-          {showWallet && (
-            <div className="mb-6 bg-white/5 rounded-lg p-5 animate-fade-in">
-              <h3 className="text-sm font-semibold mb-4">Bot Wallet</h3>
-
               {walletAddress ? (
-                <>
-                  {/* Address */}
-                  <div className="mb-4">
-                    <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                      Wallet Address
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs mono"
-                        value={walletAddress}
-                        readOnly
-                      />
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs text-[#A8A8A8] mb-1">Address</div>
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-xs truncate">{walletAddress}</span>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(walletAddress);
                           setCopied(true);
                           setTimeout(() => setCopied(false), 2000);
                         }}
-                        className="btn-secondary text-xs py-2 px-3"
+                        className="flex-shrink-0 text-[#A8A8A8] hover:text-white transition-colors"
                       >
                         {copied ? (
-                          <Check className="w-3.5 h-3.5 text-[#34d399]" />
+                          <Check className="w-3 h-3 text-[#34d399]" />
                         ) : (
-                          <Copy className="w-3.5 h-3.5" />
+                          <Copy className="w-3 h-3" />
                         )}
                       </button>
                     </div>
                   </div>
-
-                  {/* Balance */}
-                  <div className="mb-4">
-                    <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                      SOL Balance
-                    </label>
+                  <div>
+                    <div className="text-xs text-[#A8A8A8] mb-1">SOL Balance</div>
                     <div
                       className={`text-2xl font-bold ${
                         walletBalance && walletBalance.sol > 0
@@ -820,74 +867,432 @@ export function Dashboard() {
                           : "text-[#A8A8A8]"
                       }`}
                     >
-                      {walletBalance ? walletBalance.formatted : "Loading..."}
+                      {walletBalance ? walletBalance.formatted : "..."}
                     </div>
                   </div>
-
-                  {/* Tokens */}
                   {walletTokens && walletTokens.length > 0 && (
-                    <div className="mb-4">
-                      <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                        Token Holdings ({walletTokens.length})
-                      </label>
-                      <div className="max-h-[150px] overflow-y-auto bg-black/30 rounded-lg p-2">
-                        {walletTokens.map((token) => (
-                          <div
-                            key={token.mint}
-                            className="flex justify-between items-center py-2 px-2 border-b border-white/5 text-xs"
-                          >
-                            <a
-                              href={`https://solscan.io/token/${token.mint}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="mono text-[#2ED0FF] hover:underline"
-                            >
-                              {token.mint.slice(0, 4)}...{token.mint.slice(-4)}
-                            </a>
-                            <span className="font-medium">
-                              {parseFloat(token.balance).toLocaleString()}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="text-xs text-[#A8A8A8]">
+                      {walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""} held
                     </div>
                   )}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <Wallet className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                  <p className="text-[#A8A8A8] text-xs">
+                    Wallet is created when your bot first starts.
+                  </p>
+                </div>
+              )}
+            </div>
 
-                  {/* Transactions */}
-                  {walletTransactions && walletTransactions.length > 0 && (
-                    <div className="mb-4">
-                      <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                        Recent Transactions
-                      </label>
-                      <div className="max-h-[250px] overflow-y-auto bg-black/30 rounded-lg p-2">
-                        {walletTransactions.map((tx) => (
-                          <div
-                            key={tx.signature}
-                            className="py-2 px-2 border-b border-white/5 text-xs"
-                          >
-                            <div className="flex justify-between items-center mb-1">
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                                  tx.type === "buy" || tx.type === "receive"
-                                    ? "bg-[#34d399]/20 text-[#34d399]"
-                                    : tx.type === "sell" || tx.type === "send"
-                                      ? "bg-[#FF2E8C]/20 text-[#FF2E8C]"
-                                      : "bg-white/10 text-[#A8A8A8]"
-                                }`}
+            {/* Quick Stats Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <CircleDot className="w-4 h-4 text-[#FF2E8C]" />
+                <h3 className="text-sm font-semibold">Container</h3>
+              </div>
+              <div className="space-y-3">
+                <InfoRow label="Runtime" value="Docker" />
+                <InfoRow label="Memory" value="800 MB" />
+                <InfoRow label="CPU" value="0.5 cores" />
+                <InfoRow label="Restart Policy" value="Unless stopped" />
+              </div>
+              <button
+                onClick={() => setActiveTab("logs")}
+                className="btn-secondary w-full text-sm py-2.5 mt-5 justify-center"
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                View Logs
+              </button>
+            </div>
+
+            {/* Recent Activity Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-4 h-4 text-[#FBBF24]" />
+                <h3 className="text-sm font-semibold">Recent Activity</h3>
+              </div>
+              {walletTransactions && walletTransactions.length > 0 ? (
+                <div className="space-y-2">
+                  {walletTransactions.slice(0, 4).map((tx) => (
+                    <div
+                      key={tx.signature}
+                      className="flex items-center justify-between py-2 border-b border-white/5 last:border-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                            tx.type === "buy" || tx.type === "receive"
+                              ? "bg-[#34d399]/10"
+                              : tx.type === "sell" || tx.type === "send"
+                                ? "bg-[#FF2E8C]/10"
+                                : "bg-white/5"
+                          }`}
+                        >
+                          {tx.type === "buy" || tx.type === "receive" ? (
+                            <ArrowDownLeft className="w-3 h-3 text-[#34d399]" />
+                          ) : tx.type === "sell" || tx.type === "send" ? (
+                            <ArrowUpRight className="w-3 h-3 text-[#FF2E8C]" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3 text-[#A8A8A8]" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium capitalize">{tx.type}</span>
+                          {tx.solChange && (
+                            <span
+                              className={`text-xs ml-2 ${
+                                parseFloat(tx.solChange) > 0
+                                  ? "text-[#34d399]"
+                                  : "text-[#FF2E8C]"
+                              }`}
+                            >
+                              {parseFloat(tx.solChange) > 0 ? "+" : ""}
+                              {parseFloat(tx.solChange).toFixed(4)} SOL
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-[#A8A8A8]">
+                        {tx.blockTime
+                          ? new Date(tx.blockTime * 1000).toLocaleDateString()
+                          : ""}
+                      </span>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setActiveTab("wallet")}
+                    className="text-xs text-[#2ED0FF] hover:underline mt-1"
+                  >
+                    View all transactions
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <Clock className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                  <p className="text-[#A8A8A8] text-xs">
+                    No activity yet. Transactions will appear here.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* LOGS TAB */}
+        {activeTab === "logs" && (
+          <div className="animate-fade-in">
+            <div className="cyber-card overflow-hidden">
+              {/* Logs header */}
+              <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-[#B6FF2E]" />
+                  <span className="text-sm font-medium">Container Logs</span>
+                  {!isUserScrolledUp.current && (
+                    <span className="text-[10px] text-[#34d399] bg-[#34d399]/10 px-1.5 py-0.5 rounded">
+                      LIVE
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-[#A8A8A8] mono">
+                  Auto-refresh 2s
+                </span>
+              </div>
+
+              {/* Terminal */}
+              <div
+                ref={logsContainerRef}
+                onScroll={handleLogsScroll}
+                className="bg-black/40 p-4 h-[500px] overflow-y-auto"
+              >
+                <pre className="font-mono text-xs text-[#A8A8A8] whitespace-pre-wrap m-0 leading-5">
+                  {logs || "No logs available. Make sure your bot is running."}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* WALLET TAB */}
+        {activeTab === "wallet" && (
+          <div className="animate-fade-in">
+            {walletAddress ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Balance card - full width top */}
+                <div className="cyber-card p-5 md:col-span-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <div className="text-xs text-[#A8A8A8] mb-1">Wallet Address</div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="mono text-sm">{walletAddress}</span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(walletAddress);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                          className="text-[#A8A8A8] hover:text-white transition-colors"
+                        >
+                          {copied ? (
+                            <Check className="w-3.5 h-3.5 text-[#34d399]" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                      <div className="text-xs text-[#A8A8A8] mb-1">SOL Balance</div>
+                      <div
+                        className={`text-3xl font-bold ${
+                          walletBalance && walletBalance.sol > 0
+                            ? "text-[#34d399]"
+                            : "text-[#A8A8A8]"
+                        }`}
+                      >
+                        {walletBalance ? walletBalance.formatted : "Loading..."}
+                      </div>
+                    </div>
+                    <a
+                      href={`https://solscan.io/account/${walletAddress}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary text-sm py-2.5 px-4 self-start"
+                    >
+                      View on Solscan
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Fund Bot Wallet */}
+                <div className="cyber-card p-5 md:col-span-3">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Plug className="w-4 h-4 text-[#B6FF2E]" />
+                    <h3 className="text-sm font-semibold">Fund Bot Wallet</h3>
+                  </div>
+
+                  {!userWalletConnected ? (
+                    <div className="flex flex-col sm:flex-row items-center gap-4 py-3">
+                      <p className="text-sm text-[#A8A8A8]">
+                        Connect your wallet to send SOL to your bot
+                      </p>
+                      <WalletMultiButton
+                        style={{
+                          background: "rgba(182, 255, 46, 0.1)",
+                          border: "1px solid rgba(182, 255, 46, 0.3)",
+                          borderRadius: "9999px",
+                          fontSize: "14px",
+                          height: "40px",
+                          lineHeight: "40px",
+                          padding: "0 20px",
+                          color: "#B6FF2E",
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Connected wallet info */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-white/5">
+                        <div>
+                          <div className="text-xs text-[#A8A8A8] mb-1">
+                            Your Wallet
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="mono text-xs">
+                              {userWalletPubkey?.toBase58().slice(0, 8)}...
+                              {userWalletPubkey?.toBase58().slice(-6)}
+                            </span>
+                            <span className="text-xs text-[#34d399] font-medium">
+                              {userWalletBalance !== null
+                                ? `${userWalletBalance.toFixed(4)} SOL`
+                                : "..."}
+                            </span>
+                          </div>
+                        </div>
+                        <WalletMultiButton
+                          style={{
+                            background: "rgba(255, 255, 255, 0.05)",
+                            border: "1px solid rgba(255, 255, 255, 0.1)",
+                            borderRadius: "9999px",
+                            fontSize: "12px",
+                            height: "32px",
+                            lineHeight: "32px",
+                            padding: "0 14px",
+                            color: "#A8A8A8",
+                          }}
+                        />
+                      </div>
+
+                      {/* Transfer form */}
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="flex-1">
+                          <label className="text-xs text-[#A8A8A8] mb-1.5 block">
+                            Amount (SOL)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              placeholder="0.00"
+                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors pr-16"
+                              value={fundAmount}
+                              onChange={(e) => {
+                                setFundAmount(e.target.value);
+                                setFundResult(null);
+                              }}
+                              disabled={fundingInProgress}
+                            />
+                            {userWalletBalance !== null && (
+                              <button
+                                onClick={() => {
+                                  // Leave ~0.005 SOL for fee
+                                  const max = Math.max(
+                                    0,
+                                    userWalletBalance - 0.005
+                                  );
+                                  setFundAmount(max.toFixed(4));
+                                  setFundResult(null);
+                                }}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#B6FF2E] hover:text-[#B6FF2E]/80 transition-colors uppercase font-semibold"
                               >
-                                {tx.type}
-                              </span>
-                              <span className="text-[#A8A8A8] text-[10px]">
-                                {tx.blockTime
-                                  ? new Date(
-                                      tx.blockTime * 1000
-                                    ).toLocaleString()
-                                  : "Pending"}
-                              </span>
+                                Max
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            onClick={handleFundBot}
+                            disabled={
+                              fundingInProgress ||
+                              !fundAmount ||
+                              parseFloat(fundAmount) <= 0
+                            }
+                            className="btn-primary text-sm py-2.5 px-6 whitespace-nowrap"
+                          >
+                            {fundingInProgress ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Sending...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="w-3.5 h-3.5" />
+                                Send SOL to Bot
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Result feedback */}
+                      {fundResult && (
+                        <div
+                          className={`rounded-lg px-3 py-2 text-xs ${
+                            fundResult.type === "success"
+                              ? "bg-[#34d399]/10 border border-[#34d399]/20 text-[#34d399]"
+                              : "bg-[#FF2E8C]/10 border border-[#FF2E8C]/20 text-[#FF2E8C]"
+                          }`}
+                        >
+                          {fundResult.message}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Tokens */}
+                <div className="cyber-card p-5 md:col-span-1">
+                  <h3 className="text-sm font-semibold mb-3">
+                    Token Holdings
+                    {walletTokens && (
+                      <span className="text-[#A8A8A8] font-normal ml-1">
+                        ({walletTokens.length})
+                      </span>
+                    )}
+                  </h3>
+                  {walletTokens && walletTokens.length > 0 ? (
+                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                      {walletTokens.map((token) => (
+                        <div
+                          key={token.mint}
+                          className="flex justify-between items-center py-2 px-2 rounded-lg hover:bg-white/[0.02] transition-colors"
+                        >
+                          <a
+                            href={`https://solscan.io/token/${token.mint}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mono text-xs text-[#2ED0FF] hover:underline"
+                          >
+                            {token.mint.slice(0, 6)}...{token.mint.slice(-4)}
+                          </a>
+                          <span className="text-xs font-medium">
+                            {parseFloat(token.balance).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[#A8A8A8] text-xs py-4 text-center">
+                      No tokens held
+                    </p>
+                  )}
+                </div>
+
+                {/* Transactions */}
+                <div className="cyber-card p-5 md:col-span-2">
+                  <h3 className="text-sm font-semibold mb-3">
+                    Transaction History
+                    {walletTransactions && (
+                      <span className="text-[#A8A8A8] font-normal ml-1">
+                        ({walletTransactions.length})
+                      </span>
+                    )}
+                  </h3>
+                  {walletTransactions && walletTransactions.length > 0 ? (
+                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                      {walletTransactions.map((tx) => (
+                        <div
+                          key={tx.signature}
+                          className="flex items-center justify-between py-2.5 px-2 rounded-lg hover:bg-white/[0.02] transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                tx.type === "buy" || tx.type === "receive"
+                                  ? "bg-[#34d399]/10"
+                                  : tx.type === "sell" || tx.type === "send"
+                                    ? "bg-[#FF2E8C]/10"
+                                    : "bg-white/5"
+                              }`}
+                            >
+                              {tx.type === "buy" || tx.type === "receive" ? (
+                                <ArrowDownLeft className="w-3.5 h-3.5 text-[#34d399]" />
+                              ) : tx.type === "sell" || tx.type === "send" ? (
+                                <ArrowUpRight className="w-3.5 h-3.5 text-[#FF2E8C]" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5 text-[#A8A8A8]" />
+                              )}
                             </div>
+                            <div>
+                              <div className="text-xs font-medium capitalize">
+                                {tx.type}
+                              </div>
+                              <a
+                                href={`https://solscan.io/tx/${tx.signature}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-[#A8A8A8] hover:text-[#2ED0FF] mono"
+                              >
+                                {tx.signature.slice(0, 12)}...
+                              </a>
+                            </div>
+                          </div>
+                          <div className="text-right">
                             {tx.solChange && (
                               <div
-                                className={`font-medium ${
+                                className={`text-xs font-medium ${
                                   parseFloat(tx.solChange) > 0
                                     ? "text-[#34d399]"
                                     : "text-[#FF2E8C]"
@@ -897,54 +1302,141 @@ export function Dashboard() {
                                 {parseFloat(tx.solChange).toFixed(4)} SOL
                               </div>
                             )}
-                            <a
-                              href={`https://solscan.io/tx/${tx.signature}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-[#A8A8A8] hover:text-white"
-                            >
-                              {tx.signature.slice(0, 8)}...
-                            </a>
+                            <div className="text-[10px] text-[#A8A8A8]">
+                              {tx.blockTime
+                                ? new Date(
+                                    tx.blockTime * 1000
+                                  ).toLocaleString()
+                                : "Pending"}
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <p className="text-[#A8A8A8] text-xs py-4 text-center">
+                      No transactions yet
+                    </p>
                   )}
-
-                  <a
-                    href={`https://solscan.io/account/${walletAddress}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-secondary w-full text-sm py-2.5 justify-center"
-                  >
-                    View on Solscan
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </>
-              ) : (
-                <p className="text-[#A8A8A8] text-center py-4 text-sm">
-                  Wallet will be created when your bot starts for the first
-                  time.
+                </div>
+              </div>
+            ) : (
+              <div className="cyber-card p-10 text-center">
+                <Wallet className="w-12 h-12 text-white/10 mx-auto mb-3" />
+                <h3 className="text-base font-semibold mb-1">Wallet Not Created</h3>
+                <p className="text-[#A8A8A8] text-sm">
+                  Your bot's wallet will be automatically created when it starts
+                  for the first time.
                 </p>
-              )}
-            </div>
-          )}
-
-          {/* ── Delete ──────────────────────────────────────────── */}
-          <div className="border-t border-white/10 pt-5 text-center">
-            <button
-              onClick={() => setDeleteModalOpen(true)}
-              className="text-sm py-2 px-4 text-[#FF2E8C] border border-[#FF2E8C]/30 rounded-full hover:bg-[#FF2E8C]/10 transition-all inline-flex items-center gap-2"
-              disabled={actionLoading !== null}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              {actionLoading === "delete" ? "Deleting..." : "Delete Instance"}
-            </button>
-            <p className="text-[#A8A8A8] text-xs mt-2">
-              This stops your bot and removes all data
-            </p>
+              </div>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* SETTINGS TAB */}
+        {activeTab === "settings" && (
+          <div className="animate-fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Model & API Key */}
+              <div className="cyber-card p-5">
+                <div className="flex items-center gap-2 mb-5">
+                  <Cpu className="w-4 h-4 text-[#B6FF2E]" />
+                  <h3 className="text-sm font-semibold">AI Model</h3>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs text-[#A8A8A8] mb-1.5 block">
+                      Model
+                    </label>
+                    <select
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
+                      value={settingsModel}
+                      onChange={(e) => {
+                        setSettingsModel(e.target.value);
+                        if (e.target.value !== CUSTOM_MODEL_ID)
+                          setCustomSettingsModel("");
+                      }}
+                    >
+                      {MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                          {m.free ? " (FREE)" : ""}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_MODEL_ID}>Enter your own</option>
+                    </select>
+                    {settingsModel === CUSTOM_MODEL_ID && (
+                      <input
+                        type="text"
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mt-2 mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
+                        placeholder="e.g. google/gemini-2.5-flash"
+                        value={customSettingsModel}
+                        onChange={(e) => setCustomSettingsModel(e.target.value)}
+                        autoFocus
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs text-[#A8A8A8] mb-1.5 block">
+                      OpenRouter API Key
+                      <span className="text-white/30 ml-1">(leave blank to keep current)</span>
+                    </label>
+                    <input
+                      type="password"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
+                      placeholder="sk-or-..."
+                      value={settingsOrKey}
+                      onChange={(e) => setSettingsOrKey(e.target.value)}
+                    />
+                  </div>
+                  <div className="bg-[#FBBF24]/5 border border-[#FBBF24]/10 rounded-lg px-3 py-2">
+                    <p className="text-xs text-[#FBBF24]/80">
+                      Saving will stop and restart your bot with the new configuration.
+                    </p>
+                  </div>
+                  <button
+                    onClick={saveSettings}
+                    className="btn-primary w-full text-sm py-2.5 justify-center"
+                    disabled={actionLoading === "settings"}
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${actionLoading === "settings" ? "animate-spin" : ""}`}
+                    />
+                    {actionLoading === "settings"
+                      ? "Saving..."
+                      : "Save & Restart Bot"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Danger Zone */}
+              <div className="cyber-card p-5 border-[#FF2E8C]/10">
+                <div className="flex items-center gap-2 mb-5">
+                  <Trash2 className="w-4 h-4 text-[#FF2E8C]" />
+                  <h3 className="text-sm font-semibold">Danger Zone</h3>
+                </div>
+                <div className="bg-[#FF2E8C]/5 border border-[#FF2E8C]/10 rounded-lg p-4 mb-4">
+                  <h4 className="text-sm font-medium mb-1">Delete Instance</h4>
+                  <p className="text-xs text-[#A8A8A8] mb-3">
+                    Permanently stop your bot and delete all instance data. Your
+                    wallet data is preserved on the server but the container and
+                    configuration will be removed. This cannot be undone.
+                  </p>
+                  <button
+                    onClick={() => setDeleteModalOpen(true)}
+                    className="text-sm py-2 px-4 text-[#FF2E8C] border border-[#FF2E8C]/30 rounded-full hover:bg-[#FF2E8C]/10 transition-all inline-flex items-center gap-2"
+                    disabled={actionLoading !== null}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {actionLoading === "delete"
+                      ? "Deleting..."
+                      : "Delete Instance"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -974,6 +1466,26 @@ export function Dashboard() {
         message={alertModal.message}
         type={alertModal.type}
       />
+    </div>
+  );
+}
+
+/* ── Helper: Info row for overview cards ─────────────────────────── */
+function InfoRow({
+  label,
+  value,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-[#A8A8A8]">{label}</span>
+      <span className={`text-xs font-medium ${valueClass || "text-white"}`}>
+        {value}
+      </span>
     </div>
   );
 }

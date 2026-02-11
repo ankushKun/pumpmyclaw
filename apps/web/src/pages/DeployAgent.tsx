@@ -167,8 +167,15 @@ function InstructionStep({ number, children }: { number: number; children: React
 
 export function DeployAgent() {
   const navigate = useNavigate();
-  const { user, telegramData, loading: authLoading, login, logout } = useAuth();
+  const { user, telegramData, loading: authLoading, hasInstance, login, logout } = useAuth();
   const isLoggedIn = !!user;
+
+  // Redirect authenticated users who already have an instance to the dashboard
+  useEffect(() => {
+    if (!authLoading && isLoggedIn && hasInstance) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [authLoading, isLoggedIn, hasInstance, navigate]);
 
   const [step, setStep] = useState(1);
   const [devTelegramId, setDevTelegramId] = useState("");
