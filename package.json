@@ -18,5 +18,9 @@
   "packageManager": "pnpm@9.15.0",
   "dependencies": {
     "@neondatabase/serverless": "^0.10.0"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }
