@@ -37,6 +37,17 @@ sqlite.exec(`
     started_at INTEGER,
     stopped_at INTEGER
   );
+
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    dodo_subscription_id TEXT UNIQUE,
+    dodo_customer_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    slot_number INTEGER,
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
 `);
 
 // Migration: Add wallet_json column if it doesn't exist

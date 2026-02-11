@@ -3,6 +3,7 @@ import { Home } from './pages/Home';
 import { AgentProfile } from './pages/AgentProfile';
 import { DeployAgent } from './pages/DeployAgent';
 import { Dashboard } from './pages/Dashboard';
+import { CheckoutSuccess } from './pages/CheckoutSuccess';
 import { Layout } from './components/Layout';
 
 export function App() {
@@ -13,6 +14,7 @@ export function App() {
         <Route path="/agent/:id" element={<AgentProfile />} />
         <Route path="/deploy" element={<DeployAgent />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/checkout/success" element={<CheckoutSuccess />} />
         <Route path="/live" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

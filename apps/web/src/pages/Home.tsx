@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, DollarSign, TrendingUp, Zap, Clock, Shield, Bot, Sparkles, Check, Lock } from 'lucide-react';
-import { api } from '../lib/api';
+import { Users, Activity, DollarSign, TrendingUp, Zap, Clock, Shield, Bot, Sparkles, Check, Lock, Loader2 } from 'lucide-react';
+import { api, backend } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { AgentCard } from '../components/AgentCard';
 import { LiveTradeFeed } from '../components/LiveTradeFeed';
 import { AgentCardSkeleton } from '../components/Skeleton';
@@ -379,14 +381,24 @@ function StepCard({ number, title, description }: { number: string; title: strin
 
 /* ── Early Access Pricing Section ───────────────────────────────── */
 
-const TOTAL_SLOTS = 10;
-// TODO: Replace with real API call to get remaining slots
-const SLOTS_TAKEN = 3;
-
 function EarlyAccessPricing() {
-  const slotsRemaining = TOTAL_SLOTS - SLOTS_TAKEN;
-  const isSoldOut = slotsRemaining <= 0;
-  const fillPercent = (SLOTS_TAKEN / TOTAL_SLOTS) * 100;
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const { data: slots } = useQuery({
+    queryKey: ['slots'],
+    queryFn: () => backend.getSlots(),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  const totalSlots = slots?.total ?? 10;
+  const slotsTaken = slots?.taken ?? 0;
+  const slotsRemaining = slots?.remaining ?? 10;
+  const isSoldOut = slots?.soldOut ?? false;
+  const fillPercent = (slotsTaken / totalSlots) * 100;
 
   const features = [
     'Fully managed AI trading bot on Solana',
@@ -396,12 +408,27 @@ function EarlyAccessPricing() {
     'Telegram bot interface for commands & alerts',
     'Auto-generated Solana wallet with fund management',
     'Live logs, P&L tracking, and leaderboard ranking',
-    'Priority support via Discord',
+    'Priority support via Telegram',
   ];
 
-  const handleSubscribe = () => {
-    // TODO: Integrate Dodo Payments checkout
-    console.log('[pricing] Subscribe clicked — Dodo Payments integration pending');
+  const handleSubscribe = async () => {
+    setError('');
+
+    // Must be logged in first
+    if (!user) {
+      navigate('/deploy');
+      return;
+    }
+
+    setCheckoutLoading(true);
+    try {
+      const { checkoutUrl } = await backend.createCheckout();
+      // Redirect to Dodo Payments hosted checkout
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start checkout');
+      setCheckoutLoading(false);
+    }
   };
 
   return (
@@ -421,7 +448,7 @@ function EarlyAccessPricing() {
             DEPLOY YOUR <span className="text-[#B6FF2E]">AI AGENT</span>
           </h2>
           <p className="text-lg text-[#A8A8A8] max-w-2xl mx-auto">
-            Only {TOTAL_SLOTS} early access slots available. First come, first served.
+            Only {totalSlots} early access slots available. First come, first served.
             {!isSoldOut && <> <span className="text-white font-semibold">{slotsRemaining} remaining.</span></>}
           </p>
         </div>
@@ -465,7 +492,7 @@ function EarlyAccessPricing() {
                     </span>
                   </div>
                   <p className="text-xs text-[#A8A8A8] mt-2">
-                    Locked in for life as an early supporter. Price increases after {TOTAL_SLOTS} slots.
+                    Locked in for life as an early supporter. Price increases after {totalSlots} slots.
                   </p>
                 </div>
 
@@ -473,7 +500,7 @@ function EarlyAccessPricing() {
                 <div className="mb-6">
                   <div className="flex items-center justify-between text-xs mb-2">
                     <span className="text-[#A8A8A8]">
-                      <span className="text-white font-semibold">{SLOTS_TAKEN}</span> of {TOTAL_SLOTS} claimed
+                      <span className="text-white font-semibold">{slotsTaken}</span> of {totalSlots} claimed
                     </span>
                     <span className={`font-semibold ${slotsRemaining <= 3 ? 'text-[#FF2E8C]' : 'text-[#B6FF2E]'}`}>
                       {isSoldOut ? 'SOLD OUT' : `${slotsRemaining} left`}
@@ -498,6 +525,13 @@ function EarlyAccessPricing() {
                   )}
                 </div>
 
+                {/* Error message */}
+                {error && (
+                  <div className="mb-4 rounded-lg px-3 py-2 text-xs bg-[#FF2E8C]/10 border border-[#FF2E8C]/20 text-[#FF2E8C]">
+                    {error}
+                  </div>
+                )}
+
                 {/* CTA button */}
                 {isSoldOut ? (
                   <button
@@ -510,10 +544,20 @@ function EarlyAccessPricing() {
                 ) : (
                   <button
                     onClick={handleSubscribe}
-                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2"
+                    disabled={checkoutLoading}
+                    className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
                   >
-                    <Zap className="w-4 h-4" />
-                    Claim Your Slot — $19.99/mo
+                    {checkoutLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Redirecting to checkout...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4" />
+                        {user ? 'Claim Your Slot — $19.99/mo' : 'Sign In to Claim Your Slot'}
+                      </>
+                    )}
                   </button>
                 )}
 

@@ -249,6 +249,42 @@ class BackendClient {
   async getWalletTransactions(id: number, limit = 20): Promise<{ transactions: WalletTransaction[] }> {
     return this.request<{ transactions: WalletTransaction[] }>(`/api/instances/${id}/wallet/transactions?limit=${limit}`);
   }
+
+  // ── Subscription / Checkout ────────────────────────────────────
+
+  /** Public — no auth needed */
+  async getSlots(): Promise<SlotsInfo> {
+    const res = await fetch(`${BACKEND_URL}/api/slots`);
+    if (!res.ok) throw new Error('Failed to fetch slots');
+    return res.json();
+  }
+
+  /** Create a Dodo Payments checkout session. Returns the checkout URL. */
+  async createCheckout(): Promise<{ checkoutUrl: string }> {
+    return this.request<{ checkoutUrl: string }>('/api/checkout', {
+      method: 'POST',
+    });
+  }
+
+  /** Get current user's subscription status. */
+  async getSubscription(): Promise<{ subscription: SubscriptionInfo | null }> {
+    return this.request<{ subscription: SubscriptionInfo | null }>('/api/subscription');
+  }
+}
+
+export interface SlotsInfo {
+  total: number;
+  taken: number;
+  remaining: number;
+  soldOut: boolean;
+}
+
+export interface SubscriptionInfo {
+  id: number;
+  status: string;
+  slotNumber: number | null;
+  dodoSubscriptionId: string | null;
+  createdAt: string;
 }
 
 export const backend = new BackendClient();
