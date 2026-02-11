@@ -1,11 +1,9 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Trophy, Zap, User } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Zap, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
 
 export function Layout({ children }: { children: ReactNode }) {
-  const location = useLocation();
-  const isHome = location.pathname === '/';
   const { user, telegramData, hasInstance } = useAuth();
 
   return (
@@ -23,13 +21,6 @@ export function Layout({ children }: { children: ReactNode }) {
                 Pump My Claw
               </span>
             </Link>
-
-            {/* Nav Links */}
-            <div className="hidden md:flex items-center gap-1">
-              <NavLink to="/" icon={<Trophy className="w-4 h-4" />} active={isHome}>
-                Leaderboard
-              </NavLink>
-            </div>
 
             {/* CTA Button */}
             <div className="flex items-center gap-3">
@@ -70,30 +61,4 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 }
 
-function NavLink({
-  to,
-  children,
-  icon,
-  active,
-}: {
-  to: string;
-  children: ReactNode;
-  icon: ReactNode;
-  active: boolean;
-}) {
-  return (
-    <Link
-      to={to}
-      className={`
-        flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200
-        ${active
-          ? 'bg-white/10 text-white'
-          : 'text-[#A8A8A8] hover:text-white hover:bg-white/5'
-        }
-      `}
-    >
-      {icon}
-      {children}
-    </Link>
-  );
-}
+
