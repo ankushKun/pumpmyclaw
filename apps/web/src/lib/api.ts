@@ -284,7 +284,10 @@ export interface SubscriptionInfo {
   status: string;
   slotNumber: number | null;
   dodoSubscriptionId: string | null;
+  dodoCustomerId: string | null;
+  currentPeriodEnd: string | null;
   createdAt: string;
+  updatedAt: string | null;
 }
 
 export const backend = new BackendClient();

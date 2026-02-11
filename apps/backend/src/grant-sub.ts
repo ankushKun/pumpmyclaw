@@ -1,30 +1,19 @@
 /**
- * Grant a subscription to a user.
+ * Grant a subscription to a user via the running backend's admin API.
  *
  * Usage:
  *   bun run grant-sub <id_or_telegram_id>
  *
- * Accepts either the database user ID or the Telegram ID.
+ * Requires:
+ *   - Backend running (default: http://localhost:8080)
+ *   - DB_PASS set in .env (used as admin auth token)
  *
  * Examples:
  *   bun run grant-sub 1            # by user id
  *   bun run grant-sub 1165131649   # by telegram id
- *
- * If the user already has an active subscription, it will tell you and exit.
- * Assigns the next available slot number automatically.
  */
 
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "fs";
-import { dirname } from "path";
-
-type UserRow = { id: number; telegram_id: string; username: string | null; first_name: string | null };
-
-const dbPath = process.env.DATABASE_URL || "./data/pmc.db";
-mkdirSync(dirname(dbPath), { recursive: true });
-
-const sqlite = new Database(dbPath);
-sqlite.exec("PRAGMA journal_mode = WAL;");
+export { }; // Module marker for top-level await
 
 const input = process.argv[2];
 if (!input) {
@@ -32,60 +21,37 @@ if (!input) {
   process.exit(1);
 }
 
-// Try matching by user id first, then by telegram_id
-let user = sqlite
-  .prepare("SELECT id, telegram_id, username, first_name FROM users WHERE id = ?")
-  .get(input) as UserRow | null;
+const port = process.env.PORT || "8080";
+const backendUrl = process.env.BACKEND_URL || `http://localhost:${port}`;
+const adminPass = process.env.DB_PASS;
 
-if (!user) {
-  user = sqlite
-    .prepare("SELECT id, telegram_id, username, first_name FROM users WHERE telegram_id = ?")
-    .get(input) as UserRow | null;
-}
-
-if (!user) {
-  console.error(`No user found matching "${input}" (checked both id and telegram_id).`);
-
-  const allUsers = sqlite
-    .prepare("SELECT id, telegram_id, username, first_name FROM users ORDER BY id")
-    .all() as UserRow[];
-
-  if (allUsers.length > 0) {
-    console.log("\nExisting users:");
-    for (const u of allUsers) {
-      console.log(`  id=${u.id}  tg=${u.telegram_id}  @${u.username || "-"}  ${u.first_name || ""}`);
-    }
-  } else {
-    console.log("No users in the database.");
-  }
+if (!adminPass) {
+  console.error("DB_PASS must be set in .env (used as admin auth token).");
   process.exit(1);
 }
 
-const userId = user.id;
+try {
+  const res = await fetch(`${backendUrl}/admin/grant-sub`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminPass}`,
+    },
+    body: JSON.stringify({ id: input }),
+  });
 
-// Check existing subscription
-const existing = sqlite
-  .prepare("SELECT id, status FROM subscriptions WHERE user_id = ? AND status = 'active'")
-  .get(userId) as { id: number; status: string } | null;
+  const data = await res.json();
 
-if (existing) {
-  console.log(`User ${userId} (@${user.username || user.first_name}) already has an active subscription (id=${existing.id}).`);
-  process.exit(0);
+  if (!res.ok) {
+    console.error(`Error (${res.status}): ${data.error || "Unknown error"}`);
+    process.exit(1);
+  }
+
+  console.log(data.message);
+} catch (err) {
+  console.error(
+    `Failed to connect to backend at ${backendUrl}. Is it running?`
+  );
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
 }
-
-// Assign next slot number
-const taken = sqlite
-  .prepare("SELECT count(*) as count FROM subscriptions WHERE status IN ('active', 'pending')")
-  .get() as { count: number };
-const slotNumber = (taken?.count ?? 0) + 1;
-
-const now = Math.floor(Date.now() / 1000);
-
-sqlite
-  .prepare(
-    `INSERT INTO subscriptions (user_id, dodo_subscription_id, dodo_customer_id, status, slot_number, created_at, updated_at)
-     VALUES (?, ?, ?, 'active', ?, ?, ?)`
-  )
-  .run(userId, `manual_grant_${userId}_${now}`, null, slotNumber, now, now);
-
-console.log(`Granted active subscription to user ${userId} (@${user.username || user.first_name}), slot #${slotNumber}.`);
