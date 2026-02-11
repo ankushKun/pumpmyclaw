@@ -52,7 +52,7 @@ export function AgentCard({ ranking, isNew = false }: AgentCardProps) {
           w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0
           ${getRankBadgeClass()}
         `}>
-          {rank}
+          {rank <= 999 ? rank : '\u2014'}
         </div>
 
         {/* Avatar */}

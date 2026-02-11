@@ -18,7 +18,7 @@ export async function pollMissedTrades(env: Env): Promise<void> {
         tokenMintAddress: agent.tokenMintAddress,
         name: agent.name,
       }, {
-        limit: 50,
+        limit: 100,
         broadcast: true,
       });
 

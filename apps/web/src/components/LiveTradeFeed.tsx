@@ -23,25 +23,37 @@ export function LiveTradeFeed({ maxItems = 7 }: LiveTradeFeedProps) {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
   const seededRef = useRef(false);
 
+  const mapRecentTrades = (data: Awaited<ReturnType<typeof api.getRecentTrades>>['data']): LiveTrade[] =>
+    (data ?? []).map((t) => ({
+      id: t.id,
+      agentName: t.agentName || 'Unknown Agent',
+      tradeType: (t.tradeType as 'buy' | 'sell') || 'buy',
+      tokenInSymbol: t.tokenInSymbol || '???',
+      tokenOutSymbol: t.tokenOutSymbol || '???',
+      tradeValueUsd: t.tradeValueUsd || '0',
+      isBuyback: t.isBuyback || false,
+      timestamp: t.blockTime,
+    }));
+
   // Seed with recent trades from REST endpoint on mount
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
     api.getRecentTrades(maxItems).then((res) => {
-      if (res.data && res.data.length > 0) {
-        const seed: LiveTrade[] = res.data.map((t) => ({
-          id: t.id,
-          agentName: t.agentName || 'Unknown Agent',
-          tradeType: (t.tradeType as 'buy' | 'sell') || 'buy',
-          tokenInSymbol: t.tokenInSymbol || '???',
-          tokenOutSymbol: t.tokenOutSymbol || '???',
-          tradeValueUsd: t.tradeValueUsd || '0',
-          isBuyback: t.isBuyback || false,
-          timestamp: t.blockTime,
-        }));
-        setTrades(seed);
-      }
+      const seed = mapRecentTrades(res.data);
+      if (seed.length > 0) setTrades(seed);
     }).catch(() => {});
+  }, [maxItems]);
+
+  // Periodic REST polling fallback (every 15s) so feed never goes stale
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getRecentTrades(maxItems).then((res) => {
+        const fresh = mapRecentTrades(res.data);
+        if (fresh.length > 0) setTrades(fresh);
+      }).catch(() => {});
+    }, 15_000);
+    return () => clearInterval(interval);
   }, [maxItems]);
 
   const { isConnected } = useWebSocket({
