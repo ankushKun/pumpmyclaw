@@ -619,7 +619,7 @@ export function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-[#A8A8A8]" />
       </div>
     );
@@ -627,7 +627,7 @@ export function Dashboard() {
 
   if (!instance && !creating) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
         <div className="cyber-card p-10 max-w-md w-full text-center">
           <div className="w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-5">
             <Bot className="w-8 h-8 text-[#A8A8A8]" />
@@ -647,7 +647,7 @@ export function Dashboard() {
   // ── Creating ──────────────────────────────────────────────────
   if (creating) {
     return (
-      <div className="min-h-screen py-12 px-4">
+      <div className="min-h-[calc(100vh-4rem)] py-12 px-4">
         <div className="max-w-2xl mx-auto">
           <div className="cyber-card overflow-hidden">
             {/* Header bar */}
@@ -706,7 +706,7 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="min-h-screen py-8 px-4">
+    <div className="min-h-[calc(100vh-4rem)] py-8 px-4">
       <div className="max-w-4xl mx-auto">
 
         {/* ── Page header ─────────────────────────────────────────── */}

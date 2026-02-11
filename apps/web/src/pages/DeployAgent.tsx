@@ -494,7 +494,7 @@ export function DeployAgent() {
   };
 
   return (
-    <div className="min-h-screen py-12 px-4">
+    <div className="min-h-[calc(100vh-4rem)] py-12 px-4">
       <div className="max-w-3xl mx-auto">
         {/* Back to home */}
         <Link
