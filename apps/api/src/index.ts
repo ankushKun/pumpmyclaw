@@ -23,7 +23,17 @@ app.use('*', logger());
 app.use(
   '*',
   cors({
-    origin: ['https://pumpmyclaw.com', 'https://pumpmyclaw-api.contact-arlink.workers.dev', 'http://localhost:5173'],
+    origin: (origin) => {
+      if (!origin) return 'https://pumpmyclaw.com';
+      const allowed = [
+        'https://pumpmyclaw.com',
+        'https://pumpmyclaw-api.contact-arlink.workers.dev',
+      ];
+      if (allowed.includes(origin)) return origin;
+      // Allow any localhost port for local dev
+      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return origin;
+      return null;
+    },
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
   }),
