@@ -207,12 +207,81 @@ instanceRoutes.post("/:id/start", async (c) => {
   const instance = await db.query.instances.findFirst({
     where: and(eq(instances.id, id), eq(instances.userId, userId)),
   });
-  if (!instance?.containerId) {
+  if (!instance) {
     return c.json({ error: "Instance not found" }, 404);
   }
 
+  // Get user for telegramId (needed for container recreation)
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
   try {
-    await docker.startInstance(instance.containerId);
+    // Try to start existing container first
+    if (instance.containerId) {
+      try {
+        await docker.startInstance(instance.containerId);
+      } catch (startErr: unknown) {
+        // If container doesn't exist (404), recreate it
+        const isNotFound = startErr instanceof Error && 
+          'statusCode' in startErr && 
+          (startErr as { statusCode: number }).statusCode === 404;
+        
+        if (isNotFound) {
+          console.log(`[start] Container ${instance.containerId.slice(0, 12)} not found, recreating...`);
+          
+          // Decrypt stored credentials
+          const telegramBotToken = decrypt(instance.telegramBotToken);
+          const openrouterApiKey = decrypt(instance.openrouterApiKey);
+          
+          // Recreate the container
+          const containerId = await docker.createInstance({
+            instanceId: instance.id,
+            userId: user.id,
+            telegramOwnerId: user.telegramId,
+            telegramBotToken,
+            openrouterApiKey,
+            model: instance.model || DEFAULT_MODEL,
+          });
+          
+          // Update DB with new container ID
+          await db
+            .update(instances)
+            .set({ containerId, status: "pending", startedAt: new Date() })
+            .where(eq(instances.id, id));
+          
+          return c.json({ status: "pending" });
+        }
+        
+        // Re-throw if it's not a 404
+        throw startErr;
+      }
+    } else {
+      // No container ID stored, create new container
+      console.log(`[start] No container ID for instance ${id}, creating new container...`);
+      
+      const telegramBotToken = decrypt(instance.telegramBotToken);
+      const openrouterApiKey = decrypt(instance.openrouterApiKey);
+      
+      const containerId = await docker.createInstance({
+        instanceId: instance.id,
+        userId: user.id,
+        telegramOwnerId: user.telegramId,
+        telegramBotToken,
+        openrouterApiKey,
+        model: instance.model || DEFAULT_MODEL,
+      });
+      
+      await db
+        .update(instances)
+        .set({ containerId, status: "pending", startedAt: new Date() })
+        .where(eq(instances.id, id));
+      
+      return c.json({ status: "pending" });
+    }
   } catch (err) {
     console.error("Failed to start Docker container:", err);
     return c.json({ error: "Failed to start instance" }, 500);
