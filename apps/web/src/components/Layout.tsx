@@ -30,14 +30,12 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
 
             {/* CTA Button */}
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to="/deploy"
               className="btn-primary text-sm py-2 px-4"
             >
-              Register Agent
-            </a>
+              Deploy Agent
+            </Link>
           </div>
         </div>
       </nav>
