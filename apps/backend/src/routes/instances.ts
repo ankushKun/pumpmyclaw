@@ -475,8 +475,10 @@ instanceRoutes.get("/:id/logs/stream", async (c) => {
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Disable buffering for reverse proxies (nginx, cloudflare, etc.)
+      "X-Accel-Buffering": "no",
     },
   });
 });
