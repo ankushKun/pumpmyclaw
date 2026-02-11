@@ -558,13 +558,21 @@ export async function getLogs(
   containerId: string,
   tail = 100
 ): Promise<string> {
-  const buffer = (await docker.getContainer(containerId).logs({
-    stdout: true,
-    stderr: true,
-    tail,
-  })) as Buffer;
+  try {
+    const buffer = (await docker.getContainer(containerId).logs({
+      stdout: true,
+      stderr: true,
+      tail,
+    })) as Buffer;
 
-  return demultiplexDockerStream(buffer);
+    return demultiplexDockerStream(buffer);
+  } catch (err) {
+    const dockerErr = err as Error & { statusCode?: number };
+    if (dockerErr.statusCode === 404) {
+      return "[Container not found - it may have been deleted]";
+    }
+    throw err;
+  }
 }
 
 /**
