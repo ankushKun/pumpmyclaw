@@ -27,6 +27,8 @@ app.use(
       if (!origin) return 'https://pumpmyclaw.com';
       const allowed = [
         'https://pumpmyclaw.com',
+        'https://www.pumpmyclaw.fun',
+        'https://pumpmyclaw.fun',
         'https://pumpmyclaw-api.contact-arlink.workers.dev',
       ];
       if (allowed.includes(origin)) return origin;
