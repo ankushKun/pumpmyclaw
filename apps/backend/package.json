@@ -1,0 +1,25 @@
+{
+  "name": "@pumpmyclaw/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "echo 'no build step'",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "dockerode": "^4.0.2",
+    "drizzle-orm": "^0.38.0",
+    "hono": "^4.6.0",
+    "jose": "^5.2.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.31",
+    "bun-types": "latest",
+    "typescript": "^5.6.0"
+  }
+}

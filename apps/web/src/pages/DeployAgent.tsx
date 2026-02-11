@@ -1,9 +1,23 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut } from 'lucide-react';
 import { MODELS, CUSTOM_MODEL_ID } from '../lib/models';
+import { useAuth } from '../lib/auth';
 import botTokenVideo from '../assets/bot-token.mp4';
 import openrouterKeyVideo from '../assets/openrouter-key.mp4';
+
+const IS_DEV = import.meta.env.DEV;
+const TELEGRAM_BOT_NAME = import.meta.env.VITE_TELEGRAM_BOT_NAME;
+
+interface TelegramUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+}
 
 interface BotInfo {
   username: string;
@@ -20,6 +34,62 @@ interface OpenRouterKeyInfo {
   usage_weekly: number;
   usage_monthly: number;
   is_free_tier: boolean;
+}
+
+declare global {
+  interface Window {
+    onTelegramAuth?: (user: TelegramUser) => void;
+  }
+}
+
+function TelegramLoginWidget({ botName, onAuth }: { botName: string; onAuth: (user: TelegramUser) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [widgetLoaded, setWidgetLoaded] = useState(false);
+
+  useEffect(() => {
+    window.onTelegramAuth = onAuth;
+
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.async = true;
+    script.setAttribute("data-telegram-login", botName);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+
+    ref.current?.appendChild(script);
+
+    // Poll for the iframe the widget injects
+    const poll = setInterval(() => {
+      if (ref.current?.querySelector("iframe")) {
+        setWidgetLoaded(true);
+        clearInterval(poll);
+      }
+    }, 100);
+
+    return () => {
+      clearInterval(poll);
+      if (ref.current?.contains(script)) {
+        ref.current.removeChild(script);
+      }
+      delete window.onTelegramAuth;
+    };
+  }, [botName, onAuth]);
+
+  return (
+    <div className="flex justify-center min-h-[40px]">
+      {!widgetLoaded && (
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+          <span className="text-sm text-[#A8A8A8]">Loading Telegram...</span>
+        </div>
+      )}
+      <div
+        ref={ref}
+        className={widgetLoaded ? "flex justify-center" : "hidden"}
+      />
+    </div>
+  );
 }
 
 async function fetchKeyInfo(apiKey: string): Promise<OpenRouterKeyInfo | null> {
@@ -96,20 +166,65 @@ function InstructionStep({ number, children }: { number: number; children: React
 }
 
 export function DeployAgent() {
+  const navigate = useNavigate();
+  const { user, telegramData, loading: authLoading, login, logout } = useAuth();
+  const isLoggedIn = !!user;
+
   const [step, setStep] = useState(1);
+  const [devTelegramId, setDevTelegramId] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+  // Step 2: Bot token
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [botUsername, setBotUsername] = useState("");
   const [botName, setBotName] = useState("");
+  // Step 3: OpenRouter key
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
-  const [model, setModel] = useState(MODELS[0].id);
-  const [customModelId, setCustomModelId] = useState("");
-  const [error, setError] = useState("");
-  const [validating, setValidating] = useState(false);
-  const [tokenVerified, setTokenVerified] = useState(false);
   const [keyInfo, setKeyInfo] = useState<OpenRouterKeyInfo | null>(null);
   const [keyVerified, setKeyVerified] = useState(false);
   const [verifyingKey, setVerifyingKey] = useState(false);
-  const [deployed, setDeployed] = useState(false);
+  // Step 4: Model
+  const [model, setModel] = useState(MODELS[0].id);
+  const [customModelId, setCustomModelId] = useState("");
+  // Shared
+  const [error, setError] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [tokenVerified, setTokenVerified] = useState(false);
+  // deployed state removed - we navigate to /dashboard instead
+
+  const handleTelegramAuth = async (tgUser: TelegramUser) => {
+    setLoggingIn(true);
+    setError("");
+    try {
+      await login(tgUser);
+    } catch {
+      setError("Authentication failed. Please try again.");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleDevLogin = async () => {
+    const id = parseInt(devTelegramId);
+    if (isNaN(id) || id <= 0) {
+      setError("Enter a valid numeric Telegram ID");
+      return;
+    }
+    setLoggingIn(true);
+    setError("");
+    try {
+      await login({
+        id,
+        first_name: "Dev",
+        username: "dev_user",
+        auth_date: Math.floor(Date.now() / 1000),
+        hash: "dev_bypass",
+      });
+    } catch {
+      setError("Authentication failed. Is the backend running?");
+    } finally {
+      setLoggingIn(false);
+    }
+  };
 
   // Auto-verify token when it looks valid
   const verifyToken = async (token: string) => {
@@ -189,12 +304,18 @@ export function DeployAgent() {
     setError("");
 
     if (step === 1) {
+      if (!isLoggedIn) {
+        setError("Please sign in with Telegram first");
+        return false;
+      }
+    }
+
+    if (step === 2) {
       if (!tokenVerified) {
         if (!telegramBotToken.includes(":")) {
           setError("Invalid bot token format");
           return false;
         }
-        // Try to verify if not already verified
         setValidating(true);
         const botInfo = await fetchBotInfo(telegramBotToken);
         setValidating(false);
@@ -208,7 +329,7 @@ export function DeployAgent() {
       }
     }
 
-    if (step === 2) {
+    if (step === 3) {
       if (!openrouterApiKey.startsWith("sk-or-")) {
         setError("API key should start with sk-or-");
         return false;
@@ -226,7 +347,7 @@ export function DeployAgent() {
       }
     }
 
-    if (step === 3 && model === CUSTOM_MODEL_ID) {
+    if (step === 4 && model === CUSTOM_MODEL_ID) {
       if (!customModelId.trim()) {
         setError("Enter a model ID (e.g. google/gemini-2.5-flash)");
         return false;
@@ -242,18 +363,18 @@ export function DeployAgent() {
 
   const next = async () => {
     if (!(await validate())) return;
-    if (step < 3) {
+    if (step < 4) {
       setStep(step + 1);
     } else {
-      // Final step - deploy
+      // Final step - store config and navigate to dashboard for creation
       const resolvedModel = model === CUSTOM_MODEL_ID ? `openrouter/${customModelId}` : model;
-      console.log("Deploying agent with config:", {
+      sessionStorage.setItem("pmc_deploy_config", JSON.stringify({
         telegramBotToken,
         openrouterApiKey,
         botUsername,
         model: resolvedModel,
-      });
-      setDeployed(true);
+      }));
+      navigate("/dashboard");
     }
   };
 
@@ -261,33 +382,6 @@ export function DeployAgent() {
     setError("");
     setStep(step - 1);
   };
-
-  if (deployed) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="cyber-card p-8 max-w-lg w-full text-center">
-          <div className="w-16 h-16 bg-[#B6FF2E] rounded-full flex items-center justify-center mx-auto mb-6 glow-lime">
-            <CheckCircle className="w-8 h-8 text-black" />
-          </div>
-          <h2 className="text-2xl font-bold mb-3">Agent Ready!</h2>
-          <p className="text-[#A8A8A8] mb-6">
-            Your trading agent <span className="text-white font-medium">@{botUsername}</span> has been configured successfully.
-          </p>
-          <div className="bg-white/5 rounded-lg p-4 mb-6 text-left">
-            <div className="text-sm text-[#A8A8A8] mb-1">Bot Name</div>
-            <div className="font-medium">{botName}</div>
-            <div className="text-sm text-[#A8A8A8] mt-3 mb-1">Model</div>
-            <div className="font-medium mono text-sm">
-              {model === CUSTOM_MODEL_ID ? customModelId : MODELS.find(m => m.id === model)?.name}
-            </div>
-          </div>
-          <Link to="/" className="btn-primary inline-flex">
-            Go to Leaderboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen py-12 px-4">
@@ -305,17 +399,116 @@ export function DeployAgent() {
         <div className="mb-8">
           <h1 className="text-3xl sm:text-4xl font-bold mb-2">Deploy Your Agent</h1>
           <p className="text-[#A8A8A8]">
-            Set up your AI trading agent in 3 simple steps
+            Set up your AI trading agent in 4 simple steps
           </p>
         </div>
 
         {/* Step indicators */}
-        <StepIndicator current={step} total={3} />
+        <StepIndicator current={step} total={4} />
 
         {/* Card */}
         <div className="cyber-card p-6 sm:p-8">
-          {/* Step 1: Telegram Bot Token */}
+          {/* Step 1: Telegram Auth */}
           {step === 1 && (
+            <div className="animate-fade-in">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-lg bg-[#2ED0FF]/20 flex items-center justify-center">
+                  <User className="w-5 h-5 text-[#2ED0FF]" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Sign In with Telegram</h2>
+                  <p className="text-sm text-[#A8A8A8]">Connect your Telegram account to manage your agent</p>
+                </div>
+              </div>
+
+              {isLoggedIn ? (
+                <div className="p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg flex items-center gap-4">
+                  {telegramData?.photo_url ? (
+                    <img
+                      src={telegramData.photo_url}
+                      alt={user!.firstName || "User"}
+                      className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-[#B6FF2E]/20 flex items-center justify-center flex-shrink-0">
+                      <User className="w-6 h-6 text-[#B6FF2E]" />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle className="w-4 h-4 text-[#B6FF2E]" />
+                      <span className="font-semibold text-[#B6FF2E] text-sm">Signed In</span>
+                    </div>
+                    <div className="text-sm font-medium text-white">
+                      {user!.firstName || telegramData?.first_name || "User"}
+                    </div>
+                    <div className="text-xs text-[#A8A8A8]">
+                      {user!.username && <span>@{user!.username} · </span>}
+                      <span className="mono">{user!.telegramId}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="text-[#A8A8A8] hover:text-[#FF2E8C] transition-colors p-2"
+                    title="Sign out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : authLoading || loggingIn ? (
+                <div className="flex items-center justify-center gap-2 py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-[#A8A8A8]" />
+                  <span className="text-sm text-[#A8A8A8]">
+                    {loggingIn ? "Signing in..." : "Restoring session..."}
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Telegram Widget */}
+                  {TELEGRAM_BOT_NAME && (
+                    <div>
+                      <TelegramLoginWidget botName={TELEGRAM_BOT_NAME} onAuth={handleTelegramAuth} />
+                    </div>
+                  )}
+
+                  {/* Dev mode: paste Telegram ID */}
+                  {IS_DEV && (
+                    <div className="border-t border-white/10 pt-5">
+                      <p className="text-xs text-[#A8A8A8] mb-3 uppercase tracking-wider font-semibold">
+                        Dev Mode
+                      </p>
+                      <div className="flex gap-3">
+                        <input
+                          type="text"
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-sm"
+                          placeholder="Telegram User ID (e.g. 123456789)"
+                          value={devTelegramId}
+                          onChange={(e) => setDevTelegramId(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleDevLogin()}
+                        />
+                        <button
+                          onClick={handleDevLogin}
+                          className="btn-secondary text-sm py-2 px-4"
+                        >
+                          Use ID
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fallback if no bot name configured and not in dev */}
+                  {!TELEGRAM_BOT_NAME && !IS_DEV && (
+                    <p className="text-sm text-[#FF2E8C]">
+                      Telegram login not configured. Set VITE_TELEGRAM_BOT_NAME in your environment.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Telegram Bot Token */}
+          {step === 2 && (
             <div className="animate-fade-in">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-[#2ED0FF]/20 flex items-center justify-center">
@@ -406,8 +599,8 @@ export function DeployAgent() {
             </div>
           )}
 
-          {/* Step 2: OpenRouter API Key */}
-          {step === 2 && (
+          {/* Step 3: OpenRouter API Key */}
+          {step === 3 && (
             <div className="animate-fade-in">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-[#FF2E8C]/20 flex items-center justify-center">
@@ -514,8 +707,8 @@ export function DeployAgent() {
             </div>
           )}
 
-          {/* Step 3: Model Selection */}
-          {step === 3 && (
+          {/* Step 4: Model Selection */}
+          {step === 4 && (
             <div className="animate-fade-in">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-[#B6FF2E]/20 flex items-center justify-center">
@@ -675,7 +868,7 @@ export function DeployAgent() {
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Verifying...
                 </>
-              ) : step === 3 ? (
+              ) : step === 4 ? (
                 <>
                   Deploy Agent
                   <CheckCircle className="w-4 h-4" />
