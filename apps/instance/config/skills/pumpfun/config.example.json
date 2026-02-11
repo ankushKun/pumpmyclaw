@@ -1,0 +1,5 @@
+{
+  "privateKey": "YOUR_SOLANA_PRIVATE_KEY_BASE58",
+  "publicKey": "YOUR_SOLANA_PUBLIC_KEY",
+  "rpcUrl": "https://api.mainnet-beta.solana.com"
+}

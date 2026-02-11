@@ -1,0 +1,5 @@
+{
+  "privateKey": "YOUR_PRIVATE_KEY_BASE58_OR_PATH_TO_KEYPAIR",
+  "rpcUrl": "https://api.mainnet-beta.solana.com",
+  "commitment": "confirmed"
+}

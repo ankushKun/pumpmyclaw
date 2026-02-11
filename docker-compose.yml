@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - backend-data:/app/data
+      # Instance OpenClaw configs are stored here and bind-mounted into each
+      # user's container. The backend creates subdirs per instance.
+      - instances-data:/app/data/instances
+    env_file:
+      - ./apps/backend/.env
+    environment:
+      - NODE_ENV=production
+      - INSTANCES_DATA_DIR=/app/data/instances
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_TELEGRAM_BOT_NAME: ${VITE_TELEGRAM_BOT_NAME}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+  instances-data:

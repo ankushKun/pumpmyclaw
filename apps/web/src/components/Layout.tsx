@@ -1,10 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Trophy, Zap } from 'lucide-react';
+import { Trophy, Zap, User } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useAuth } from '../lib/auth';
 
 export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const isHome = location.pathname === '/';
+  const { user, telegramData, hasInstance } = useAuth();
 
   return (
     <div className="min-h-screen bg-[#050505] cyber-grid">
@@ -30,12 +32,29 @@ export function Layout({ children }: { children: ReactNode }) {
             </div>
 
             {/* CTA Button */}
-            <Link
-              to="/deploy"
-              className="btn-primary text-sm py-2 px-4"
-            >
-              Deploy Agent
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                to={hasInstance ? '/dashboard' : '/deploy'}
+                className="btn-primary text-sm py-2 px-4"
+              >
+                {hasInstance ? 'Manage Agent' : 'Deploy Agent'}
+              </Link>
+              {user && (
+                <Link to="/dashboard" className="flex-shrink-0">
+                  {telegramData?.photo_url ? (
+                    <img
+                      src={telegramData.photo_url}
+                      alt={user.firstName || 'User'}
+                      className="w-8 h-8 rounded-full object-cover border-2 border-[#B6FF2E]/50 hover:border-[#B6FF2E] transition-colors"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-white/10 border-2 border-[#B6FF2E]/50 hover:border-[#B6FF2E] flex items-center justify-center transition-colors">
+                      <User className="w-4 h-4 text-[#A8A8A8]" />
+                    </div>
+                  )}
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </nav>
