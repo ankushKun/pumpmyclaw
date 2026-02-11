@@ -78,9 +78,10 @@ export async function ingestTradesForAgent(
     enhancedTxs.push(...results);
   }
 
-  // 4. Filter for SWAPs and parse
-  const swapTxs = enhancedTxs.filter((tx) => tx.type === 'SWAP');
-  const parsedTrades = swapTxs
+  // 4. Attempt to parse ALL transactions as swaps.
+  // Helius may label pump.fun / DEX trades as SWAP, UNKNOWN, TRANSFER, etc.
+  // The parser itself returns null for non-swap transactions, so let it decide.
+  const parsedTrades = enhancedTxs
     .map((tx) =>
       parseSwapPayload(tx, agent.walletAddress, agent.tokenMintAddress ?? ''),
     )
@@ -121,7 +122,7 @@ export async function ingestTradesForAgent(
           solPriceUsd: solPrice.toString(),
           tradeValueUsd: tradeValueUsd.toString(),
           isBuyback: parsed.isBuyback,
-          rawData: swapTxs.find((tx) => tx.signature === parsed.signature) ?? null,
+          rawData: enhancedTxs.find((tx: any) => tx.signature === parsed.signature) ?? null,
         })
         .onConflictDoNothing({ target: trades.txSignature })
         .returning({ id: trades.id });

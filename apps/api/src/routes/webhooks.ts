@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { agents, trades } from '../db/schema';
 import { parseSwapPayload } from '../services/swap-parser';
-import { getSolPrice } from '../services/pumpfun-client';
+import { getSolPriceUsd } from '../services/sol-price';
 import { resolveTokens } from '../services/token-resolver';
 import type { HonoEnv } from '../types/hono';
 
@@ -37,11 +37,15 @@ webhookRoutes.post('/helius', async (c) => {
       const parsed = parseSwapPayload(
         tx,
         agent.walletAddress,
-        agent.tokenMintAddress,
+        agent.tokenMintAddress ?? '',
       );
       if (!parsed) continue;
 
-      const solPrice = await getSolPrice(c.env);
+      const solPrice = await getSolPriceUsd(c.env);
+      if (solPrice <= 0) {
+        console.error(`SOL price unavailable — skipping webhook trade ${parsed.signature}`);
+        continue;
+      }
       const solAmountDecimal = parseFloat(parsed.solAmount) / 1e9;
       const tradeValueUsd = solAmountDecimal * solPrice;
 

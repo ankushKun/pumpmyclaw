@@ -23,17 +23,52 @@ function useRelativeTime(timestamp: Date | null) {
 }
 
 export function Home() {
-  const { data: rankings, isLoading, dataUpdatedAt, isFetching } = useQuery({
+  const { data: rankings, isLoading: rankingsLoading, dataUpdatedAt, isFetching } = useQuery({
     queryKey: ['rankings'],
     queryFn: api.getRankings,
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
 
+  const { data: allAgents, isLoading: agentsLoading } = useQuery({
+    queryKey: ['agents'],
+    queryFn: api.getAgents,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  const isLoading = rankingsLoading || agentsLoading;
+
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
   const relativeTime = useRelativeTime(lastUpdated);
 
-  const data = rankings?.data ?? [];
+  // Merge agents with rankings — agents without rankings still appear with defaults
+  const data = useMemo(() => {
+    const agentList = allAgents?.data ?? [];
+    const rankingList = rankings?.data ?? [];
+    const rankingMap = new Map(rankingList.map((r) => [r.agentId, r]));
+
+    return agentList.map((agent) => {
+      const ranking = rankingMap.get(agent.id);
+      return {
+        rank: ranking?.rank ?? 9999,
+        agentId: agent.id,
+        totalPnlUsd: ranking?.totalPnlUsd ?? '0',
+        winRate: ranking?.winRate ?? '0',
+        totalTrades: ranking?.totalTrades ?? 0,
+        totalVolumeUsd: ranking?.totalVolumeUsd ?? '0',
+        tokenPriceChange24h: ranking?.tokenPriceChange24h ?? '0',
+        buybackTotalSol: ranking?.buybackTotalSol ?? '0',
+        buybackTotalTokens: ranking?.buybackTotalTokens ?? '0',
+        rankedAt: ranking?.rankedAt ?? null,
+        agentName: ranking?.agentName ?? agent.name,
+        agentAvatarUrl: ranking?.agentAvatarUrl ?? agent.avatarUrl,
+        agentWalletAddress: ranking?.agentWalletAddress ?? agent.walletAddress,
+        agentTokenMintAddress: ranking?.agentTokenMintAddress ?? agent.tokenMintAddress,
+      };
+    });
+  }, [allAgents, rankings]);
+
   const totalAgents = data.length;
   const totalTrades = data.reduce((sum, r) => sum + r.totalTrades, 0);
   const totalVolume = data.reduce((sum, r) => sum + parseFloat(r.totalVolumeUsd), 0);
@@ -72,6 +107,8 @@ export function Home() {
       const aIsNew = newAgentIds.has(a.agentId) ? 1 : 0;
       const bIsNew = newAgentIds.has(b.agentId) ? 1 : 0;
       if (aIsNew !== bIsNew) return bIsNew - aIsNew;
+      // Ranked agents first (by rank), then unranked by trade count
+      if (a.rank !== b.rank) return a.rank - b.rank;
       return b.totalTrades - a.totalTrades;
     });
   }, [data, newAgentIds, filter]);

@@ -9,18 +9,23 @@ import type { HonoEnv } from '../types/hono';
 
 export const tradeRoutes = new Hono<HonoEnv>();
 
-/** Enrich trade rows with token names/symbols */
+/** Enrich trade rows with token names/symbols (best-effort, never fails the response) */
 async function enrichTrades(db: any, tradeRows: any[]) {
   if (tradeRows.length === 0) return tradeRows;
-  const allMints = tradeRows.flatMap((t) => [t.tokenInMint, t.tokenOutMint]);
-  const tokenMap = await resolveTokens(db, allMints);
-  return tradeRows.map((t) => ({
-    ...t,
-    tokenInSymbol: tokenMap.get(t.tokenInMint)?.symbol ?? undefined,
-    tokenInName: tokenMap.get(t.tokenInMint)?.name ?? undefined,
-    tokenOutSymbol: tokenMap.get(t.tokenOutMint)?.symbol ?? undefined,
-    tokenOutName: tokenMap.get(t.tokenOutMint)?.name ?? undefined,
-  }));
+  try {
+    const allMints = tradeRows.flatMap((t) => [t.tokenInMint, t.tokenOutMint]);
+    const tokenMap = await resolveTokens(db, allMints);
+    return tradeRows.map((t) => ({
+      ...t,
+      tokenInSymbol: tokenMap.get(t.tokenInMint)?.symbol ?? undefined,
+      tokenInName: tokenMap.get(t.tokenInMint)?.name ?? undefined,
+      tokenOutSymbol: tokenMap.get(t.tokenOutMint)?.symbol ?? undefined,
+      tokenOutName: tokenMap.get(t.tokenOutMint)?.name ?? undefined,
+    }));
+  } catch (err) {
+    console.error('Token enrichment failed, returning raw trades:', err);
+    return tradeRows;
+  }
 }
 
 // GET /api/trades/recent — latest trades across all agents (for live feed backfill)

@@ -148,6 +148,43 @@ agentRoutes.post(
   },
 );
 
+// POST /api/agents/:id/resync — public resync trigger (rate-limited by CF)
+agentRoutes.post('/:id/resync', async (c) => {
+  const agentId = c.req.param('id');
+  const db = c.get('db');
+
+  const agent = await db.select({
+    id: agents.id,
+    walletAddress: agents.walletAddress,
+    tokenMintAddress: agents.tokenMintAddress,
+    name: agents.name,
+  }).from(agents).where(eq(agents.id, agentId)).limit(1);
+
+  if (agent.length === 0) {
+    return c.json({ success: false, error: 'Agent not found' }, 404);
+  }
+
+  const helius = new HeliusClient(c.env.HELIUS_API_KEY);
+  const result = await ingestTradesForAgent(db, helius, c.env, agent[0], {
+    limit: 200,
+    broadcast: true,
+  });
+
+  // Recalculate rankings in background
+  if (result.inserted > 0) {
+    c.executionCtx.waitUntil(recalculateRankings(c.env));
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      inserted: result.inserted,
+      total: result.total,
+      signatures: result.signatures,
+    },
+  });
+});
+
 // GET /api/agents
 agentRoutes.get('/', async (c) => {
   const db = c.get('db');
