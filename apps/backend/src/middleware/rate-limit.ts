@@ -39,14 +39,35 @@ setInterval(() => {
 /**
  * Rate limiting middleware factory.
  */
+/**
+ * Default IP extraction strategy:
+ * 1. x-real-ip — set by nginx via `proxy_set_header X-Real-IP $remote_addr`
+ *    (not spoofable when nginx is the only reverse proxy)
+ * 2. Last IP in x-forwarded-for — the one appended by nginx, not the client
+ * 3. Fallback to a per-request random key so unknown clients never share a bucket
+ */
+function defaultKeyGenerator(c: Context): string {
+  const realIp = c.req.header("x-real-ip");
+  if (realIp) return realIp.trim();
+
+  const forwarded = c.req.header("x-forwarded-for");
+  if (forwarded) {
+    const parts = forwarded.split(",").map((s) => s.trim());
+    // Last entry is the one added by the closest reverse proxy (nginx)
+    const lastIp = parts[parts.length - 1];
+    if (lastIp) return lastIp;
+  }
+
+  // No proxy headers at all — generate a unique key per request
+  // so unknown clients don't share a single rate-limit bucket
+  return `no-ip-${crypto.randomUUID()}`;
+}
+
 export function rateLimit(config: RateLimitConfig) {
   const {
     max,
     windowMs,
-    keyGenerator = (c) =>
-      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-      c.req.header("x-real-ip") ||
-      "unknown",
+    keyGenerator = defaultKeyGenerator,
     message = "Too many requests, please try again later",
   } = config;
 
