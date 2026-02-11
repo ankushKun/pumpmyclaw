@@ -9,6 +9,7 @@ import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { ensureImageReady } from "./services/docker";
 import { startSubscriptionEnforcer } from "./services/subscription-enforcer";
+import { startDbAdmin } from "./db-admin";
 import { db } from "./db";
 import { users, subscriptions } from "./db/schema";
 
@@ -114,6 +115,13 @@ await ensureImageReady()
 
 // Start periodic subscription enforcer — stops containers when paid period ends
 startSubscriptionEnforcer();
+
+// Start DB Admin GUI if password is configured
+if (process.env.DB_PASS) {
+  startDbAdmin(process.env.DB_PASS);
+} else {
+  console.log("[pmc-backend] DB Admin disabled (set DB_PASS in .env to enable)");
+}
 
 console.log(`[pmc-backend] Listening on http://localhost:${port}`);
 

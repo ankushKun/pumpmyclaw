@@ -1,28 +1,73 @@
 /**
- * Standalone DB Admin GUI
+ * DB Admin GUI — can run standalone or embedded in the main backend.
  *
- * Run:  bun run db            (starts on port 4983)
- *       DB_PORT=9999 bun run db  (custom port)
+ * Standalone:
+ *   bun run db                          (prompts for password)
+ *   DB_PASS=secret bun run db           (set password via env)
  *
- * Provides a web UI to browse and edit the users, instances, and subscriptions tables.
- * Kill the process (Ctrl-C) when done — there is no auth, so don't leave it running.
+ * Embedded (auto-starts with backend if DB_PASS is set in .env):
+ *   import { startDbAdmin } from "./db-admin";
+ *   startDbAdmin();
+ *
+ * Protected by a password — set via DB_PASS env var.
  */
 
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
+import { randomBytes } from "crypto";
 
-const dbPath = process.env.DATABASE_URL || "./data/pmc.db";
-mkdirSync(dirname(dbPath), { recursive: true });
+// ── Auth ───────────────────────────────────────────────────────────
 
-const sqlite = new Database(dbPath);
-sqlite.exec("PRAGMA journal_mode = WAL;");
+/** Active session tokens (in-memory, cleared on restart) */
+const sessions = new Set<string>();
 
-const port = parseInt(process.env.DB_PORT || "4983");
+function createSession(): string {
+  const token = randomBytes(32).toString("hex");
+  sessions.add(token);
+  return token;
+}
+
+function isValidSession(req: Request): boolean {
+  const cookie = req.headers.get("cookie") || "";
+  const match = cookie.match(/(?:^|;\s*)dbadmin=([a-f0-9]{64})/);
+  return match ? sessions.has(match[1]) : false;
+}
+
+function loginPage(dbPath: string, error?: string): Response {
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PMC DB Admin — Login</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono','Menlo','Monaco','Consolas',monospace; background: #0a0a0a; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 32px; width: 320px; }
+  h1 { color: #B6FF2E; font-size: 16px; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 11px; margin-bottom: 24px; }
+  label { display: block; font-size: 11px; color: #888; margin-bottom: 6px; }
+  input { width: 100%; background: #0a0a0a; border: 1px solid #222; color: #e0e0e0; padding: 10px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+  input:focus { outline: none; border-color: #B6FF2E; }
+  button { width: 100%; margin-top: 16px; background: #B6FF2E; color: #000; font-weight: 600; padding: 10px; border: none; border-radius: 6px; font-family: inherit; font-size: 13px; cursor: pointer; }
+  button:hover { background: #c8ff5e; }
+  .err { margin-top: 12px; padding: 8px 12px; background: #2e0000; border: 1px solid #4a0000; border-radius: 6px; color: #ff4444; font-size: 11px; }
+</style></head><body>
+<div class="card">
+  <h1>PMC DB Admin</h1>
+  <p class="sub">${esc(dbPath)}</p>
+  <form method="POST" action="/login">
+    <label>Password</label>
+    <input type="password" name="password" autofocus autocomplete="off" />
+    <button type="submit">Sign In</button>
+  </form>
+  ${error ? `<div class="err">${esc(error)}</div>` : ""}
+</div>
+</body></html>`;
+  return new Response(html, { headers: { "Content-Type": "text/html" } });
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function getTables(): string[] {
+function getTables(sqlite: Database): string[] {
   const rows = sqlite
     .prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -31,9 +76,8 @@ function getTables(): string[] {
   return rows.map((r) => r.name);
 }
 
-function getRows(table: string): { columns: string[]; rows: any[] } {
-  // Validate table name to prevent SQL injection
-  const tables = getTables();
+function getRows(sqlite: Database, table: string): { columns: string[]; rows: any[] } {
+  const tables = getTables(sqlite);
   if (!tables.includes(table)) throw new Error(`Unknown table: ${table}`);
 
   const cols = sqlite.prepare(`PRAGMA table_info("${table}")`).all() as {
@@ -47,22 +91,24 @@ function getRows(table: string): { columns: string[]; rows: any[] } {
 }
 
 function getTableInfo(
+  sqlite: Database,
   table: string
 ): { name: string; type: string; pk: number; notnull: number; dflt_value: string | null }[] {
-  const tables = getTables();
+  const tables = getTables(sqlite);
   if (!tables.includes(table)) throw new Error(`Unknown table: ${table}`);
   return sqlite.prepare(`PRAGMA table_info("${table}")`).all() as any;
 }
 
 function updateRow(
+  sqlite: Database,
   table: string,
   id: number,
   updates: Record<string, string | null>
 ) {
-  const tables = getTables();
+  const tables = getTables(sqlite);
   if (!tables.includes(table)) throw new Error(`Unknown table: ${table}`);
 
-  const info = getTableInfo(table);
+  const info = getTableInfo(sqlite, table);
   const validCols = new Set(info.map((c) => c.name));
 
   const sets: string[] = [];
@@ -71,7 +117,6 @@ function updateRow(
   for (const [col, val] of Object.entries(updates)) {
     if (!validCols.has(col) || col === "id") continue;
     sets.push(`"${col}" = ?`);
-    // Coerce types
     const colInfo = info.find((c) => c.name === col);
     if (val === "" || val === null) {
       values.push(null);
@@ -88,15 +133,15 @@ function updateRow(
   sqlite.prepare(`UPDATE "${table}" SET ${sets.join(", ")} WHERE id = ?`).run(...values);
 }
 
-function deleteRow(table: string, id: number) {
-  const tables = getTables();
+function deleteRow(sqlite: Database, table: string, id: number) {
+  const tables = getTables(sqlite);
   if (!tables.includes(table)) throw new Error(`Unknown table: ${table}`);
   sqlite.prepare(`DELETE FROM "${table}" WHERE id = ?`).run(id);
 }
 
-function runQuery(sql: string): { columns: string[]; rows: any[]; changes: number; error?: string } {
+function runQuery(sqlite: Database, sqlStr: string): { columns: string[]; rows: any[]; changes: number; error?: string } {
   try {
-    const trimmed = sql.trim();
+    const trimmed = sqlStr.trim();
     const isSelect = /^SELECT/i.test(trimmed);
     if (isSelect) {
       const stmt = sqlite.prepare(trimmed);
@@ -115,6 +160,8 @@ function runQuery(sql: string): { columns: string[]; rows: any[]; changes: numbe
 // ── HTML Template ──────────────────────────────────────────────────
 
 function renderPage(
+  sqlite: Database,
+  dbPath: string,
   activeTable: string | null,
   tables: string[],
   data?: { columns: string[]; rows: any[] },
@@ -131,7 +178,7 @@ function renderPage(
   let tableHTML = "";
   if (data && activeTable) {
     const { columns, rows } = data;
-    const info = getTableInfo(activeTable);
+    const info = getTableInfo(sqlite, activeTable);
     const pkCol = info.find((c) => c.pk)?.name || "id";
 
     tableHTML = `
@@ -357,64 +404,139 @@ function esc(s: string): string {
 
 // ── Server ─────────────────────────────────────────────────────────
 
-const server = Bun.serve({
-  port,
-  async fetch(req) {
-    const url = new URL(req.url);
+/**
+ * Start the DB Admin GUI server.
+ * Requires `password` to be provided.
+ * Opens its own SQLite connection (read/write, WAL mode).
+ */
+export function startDbAdmin(password: string) {
+  const dbPath = process.env.DATABASE_URL || "./data/pmc.db";
+  mkdirSync(dirname(dbPath), { recursive: true });
 
-    // ── GUI page ───────────────────────────────────
-    if (req.method === "GET" && url.pathname === "/") {
-      const tables = getTables();
-      const activeTable = url.searchParams.get("table") || tables[0] || null;
-      const data = activeTable ? getRows(activeTable) : undefined;
-      return new Response(renderPage(activeTable, tables, data), {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
+  const sqlite = new Database(dbPath);
+  sqlite.exec("PRAGMA journal_mode = WAL;");
 
-    // ── Raw SQL query ──────────────────────────────
-    if (req.method === "POST" && url.pathname === "/query") {
-      const form = await req.formData();
-      const sql = form.get("sql") as string;
-      const tables = getTables();
-      const activeTable = tables[0] || null;
-      const data = activeTable ? getRows(activeTable) : undefined;
-      const result = sql ? runQuery(sql) : undefined;
-      return new Response(renderPage(activeTable, tables, data, result, sql || ""), {
-        headers: { "Content-Type": "text/html" },
-      });
-    }
+  const port = parseInt(process.env.DB_PORT || "4983");
 
-    // ── API: update row ────────────────────────────
-    if (req.method === "POST" && url.pathname === "/api/update") {
-      try {
-        const body = (await req.json()) as {
-          table: string;
-          id: number;
-          updates: Record<string, string | null>;
-        };
-        updateRow(body.table, body.id, body.updates);
-        return Response.json({ ok: true });
-      } catch (e: any) {
-        return Response.json({ error: e.message }, { status: 400 });
+  const server = Bun.serve({
+    port,
+    async fetch(req) {
+      const url = new URL(req.url);
+
+      // ── Login page (public) ────────────────────────
+      if (req.method === "GET" && url.pathname === "/login") {
+        return loginPage(dbPath);
       }
-    }
 
-    // ── API: delete row ────────────────────────────
-    if (req.method === "POST" && url.pathname === "/api/delete") {
-      try {
-        const body = (await req.json()) as { table: string; id: number };
-        deleteRow(body.table, body.id);
-        return Response.json({ ok: true });
-      } catch (e: any) {
-        return Response.json({ error: e.message }, { status: 400 });
+      if (req.method === "POST" && url.pathname === "/login") {
+        const form = await req.formData();
+        const pw = (form.get("password") as string) || "";
+        if (pw !== password) {
+          return loginPage(dbPath, "Wrong password");
+        }
+        const token = createSession();
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: "/",
+            "Set-Cookie": `dbadmin=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`,
+          },
+        });
       }
+
+      // ── Auth check for everything else ─────────────
+      if (!isValidSession(req)) {
+        if (url.pathname.startsWith("/api/")) {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        return loginPage(dbPath);
+      }
+
+      // ── GUI page ───────────────────────────────────
+      if (req.method === "GET" && url.pathname === "/") {
+        const tables = getTables(sqlite);
+        const activeTable = url.searchParams.get("table") || tables[0] || null;
+        const data = activeTable ? getRows(sqlite, activeTable) : undefined;
+        return new Response(renderPage(sqlite, dbPath, activeTable, tables, data), {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+
+      // ── Raw SQL query ──────────────────────────────
+      if (req.method === "POST" && url.pathname === "/query") {
+        const form = await req.formData();
+        const sql = form.get("sql") as string;
+        const tables = getTables(sqlite);
+        const activeTable = tables[0] || null;
+        const data = activeTable ? getRows(sqlite, activeTable) : undefined;
+        const result = sql ? runQuery(sqlite, sql) : undefined;
+        return new Response(renderPage(sqlite, dbPath, activeTable, tables, data, result, sql || ""), {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+
+      // ── API: update row ────────────────────────────
+      if (req.method === "POST" && url.pathname === "/api/update") {
+        try {
+          const body = (await req.json()) as {
+            table: string;
+            id: number;
+            updates: Record<string, string | null>;
+          };
+          updateRow(sqlite, body.table, body.id, body.updates);
+          return Response.json({ ok: true });
+        } catch (e: any) {
+          return Response.json({ error: e.message }, { status: 400 });
+        }
+      }
+
+      // ── API: delete row ────────────────────────────
+      if (req.method === "POST" && url.pathname === "/api/delete") {
+        try {
+          const body = (await req.json()) as { table: string; id: number };
+          deleteRow(sqlite, body.table, body.id);
+          return Response.json({ ok: true });
+        } catch (e: any) {
+          return Response.json({ error: e.message }, { status: 400 });
+        }
+      }
+
+      return new Response("Not found", { status: 404 });
+    },
+  });
+
+  console.log(
+    `[db-admin] Running at http://localhost:${port} (password protected)`
+  );
+
+  return server;
+}
+
+// ── Standalone entry point ─────────────────────────────────────────
+// Only runs when executed directly: `bun run src/db-admin.ts`
+
+const isMainModule = import.meta.main;
+if (isMainModule) {
+  let password = process.env.DB_PASS || "";
+  if (!password) {
+    process.stdout.write("Set admin password: ");
+    password = await new Promise<string>((resolve) => {
+      process.stdin.once("data", (data) => resolve(data.toString().trim()));
+    });
+    if (!password) {
+      console.error("Password cannot be empty.");
+      process.exit(1);
     }
+  }
 
-    return new Response("Not found", { status: 404 });
-  },
-});
+  const dbPath = process.env.DATABASE_URL || "./data/pmc.db";
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const sqlite = new Database(dbPath);
+  sqlite.exec("PRAGMA journal_mode = WAL;");
 
-console.log(
-  `\n  PMC DB Admin running at http://localhost:${port}\n  Database: ${dbPath}\n  Tables: ${getTables().join(", ")}\n\n  Press Ctrl-C to stop.\n`
-);
+  startDbAdmin(password);
+
+  console.log(
+    `\n  PMC DB Admin running at http://localhost:${process.env.DB_PORT || "4983"}\n  Database: ${dbPath}\n  Tables: ${getTables(sqlite).join(", ")}\n  Auth: password protected\n\n  Press Ctrl-C to stop.\n`
+  );
+}
