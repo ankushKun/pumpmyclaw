@@ -394,7 +394,10 @@ export async function deleteInstance(containerId: string): Promise<void> {
   console.log(`[docker] Deleting container ${containerId.slice(0, 12)}`);
   const container = docker.getContainer(containerId);
   await container.stop().catch(() => {});
-  await container.remove({ force: true });
+  await container.remove({ force: true }).catch((err: Error & { statusCode?: number }) => {
+    // Ignore 404 - container was already deleted externally
+    if (err.statusCode !== 404) throw err;
+  });
 }
 
 /** 
