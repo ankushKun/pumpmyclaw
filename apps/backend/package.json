@@ -12,9 +12,11 @@
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
     "dockerode": "^4.0.2",
+    "dodopayments": "^2.19.0",
     "drizzle-orm": "^0.38.0",
     "hono": "^4.6.0",
     "jose": "^5.2.0",
+    "standardwebhooks": "^1.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

@@ -1,14 +1,15 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import authRoutes from "./routes/auth";
 import instanceRoutes from "./routes/instances";
+import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
 import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { ensureImageReady } from "./services/docker";
 import { db } from "./db";
-import { users } from "./db/schema";
+import { users, subscriptions } from "./db/schema";
 
 type Variables = { userId: number };
 const app = new Hono<{ Variables: Variables }>();
@@ -40,6 +41,25 @@ app.use("/api/*", generalRateLimit);
 // ── Auth routes (public) ───────────────────────────────────────────
 app.route("/api/auth", authRoutes);
 
+// ── Webhook routes (public — uses signature verification) ──────────
+app.route("/api/webhooks", webhookRoutes);
+
+// ── Public subscription info (no auth needed) ──────────────────────
+app.get("/api/slots", async (c) => {
+  const taken = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(subscriptions)
+    .where(sql`${subscriptions.status} IN ('active', 'pending')`);
+  const takenCount = taken[0]?.count ?? 0;
+  const TOTAL_SLOTS = 10;
+  return c.json({
+    total: TOTAL_SLOTS,
+    taken: takenCount,
+    remaining: Math.max(0, TOTAL_SLOTS - takenCount),
+    soldOut: takenCount >= TOTAL_SLOTS,
+  });
+});
+
 // ── Auth middleware for all other /api routes ──────────────────────
 app.use("/api/*", async (c, next) => {
   const authHeader = c.req.header("Authorization");
@@ -69,6 +89,9 @@ app.use("/api/*", async (c, next) => {
 
 // ── Instance routes (protected) ───────────────────────────────────
 app.route("/api/instances", instanceRoutes);
+
+// ── Subscription routes (protected — checkout, status) ────────────
+app.route("/api", subscriptionRoutes);
 
 // ── Start server ──────────────────────────────────────────────────
 const port = parseInt(process.env.PORT || "8080");

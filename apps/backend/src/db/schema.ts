@@ -33,5 +33,27 @@ export const instances = sqliteTable("instances", {
   stoppedAt: integer("stopped_at", { mode: "timestamp" }),
 });
 
+export const subscriptions = sqliteTable("subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  /** Dodo Payments subscription ID (e.g. "sub_xxxxx") */
+  dodoSubscriptionId: text("dodo_subscription_id").unique(),
+  /** Dodo Payments customer ID */
+  dodoCustomerId: text("dodo_customer_id"),
+  /** active | on_hold | cancelled | failed | pending */
+  status: text("status").notNull().default("pending"),
+  /** Slot number 1-10 for early access */
+  slotNumber: integer("slot_number"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
+    () => new Date()
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(
+    () => new Date()
+  ),
+});
+
 export type User = typeof users.$inferSelect;
 export type Instance = typeof instances.$inferSelect;
+export type Subscription = typeof subscriptions.$inferSelect;

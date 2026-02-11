@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db";
-import { instances, users } from "../db/schema";
+import { instances, users, subscriptions } from "../db/schema";
 import * as docker from "../services/docker";
 import { encrypt, decrypt } from "../services/crypto";
 import { instanceCreationRateLimit } from "../middleware/rate-limit";
@@ -75,6 +75,20 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
   });
   if (existing) {
     return c.json({ error: "You already have an instance" }, 400);
+  }
+
+  // Require active subscription
+  const subscription = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.userId, userId),
+      eq(subscriptions.status, "active")
+    ),
+  });
+  if (!subscription) {
+    return c.json(
+      { error: "Active subscription required. Subscribe first at /pricing." },
+      403
+    );
   }
 
   const user = await db.query.users.findFirst({
