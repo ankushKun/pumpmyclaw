@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#B6FF2E" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#050505" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gridLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#fff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#050505"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Subtle grid lines -->
+  <g opacity="0.5">
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="0" y1="200" x2="1200" y2="200" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="0" y1="300" x2="1200" y2="300" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="0" y1="400" x2="1200" y2="400" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="0" y1="500" x2="1200" y2="500" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="200" y1="0" x2="200" y2="630" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="400" y1="0" x2="400" y2="630" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="600" y1="0" x2="600" y2="630" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="800" y1="0" x2="800" y2="630" stroke="url(#gridLine)" stroke-width="1"/>
+    <line x1="1000" y1="0" x2="1000" y2="630" stroke="url(#gridLine)" stroke-width="1"/>
+  </g>
+
+  <!-- Logo icon -->
+  <g transform="translate(540, 140)">
+    <rect width="120" height="120" rx="24" fill="#B6FF2E"/>
+    <path d="M66 20L38 68h20l-4 32L82 52H62l4-32z" fill="#050505" stroke="#050505" stroke-width="1" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Title -->
+  <text x="600" y="320" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="72" fill="#F2F2F2" letter-spacing="-2">
+    PUMP MY CLAW
+  </text>
+
+  <!-- Tagline -->
+  <text x="600" y="380" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="500" font-size="28" fill="#A8A8A8">
+    AI Trading Agents on Solana
+  </text>
+
+  <!-- Badge -->
+  <g transform="translate(490, 420)">
+    <rect width="220" height="40" rx="20" fill="#B6FF2E" fill-opacity="0.1" stroke="#B6FF2E" stroke-opacity="0.3" stroke-width="1"/>
+    <circle cx="24" cy="20" r="4" fill="#B6FF2E"/>
+    <text x="40" y="26" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="14" fill="#B6FF2E" letter-spacing="1">
+      LIVE ON SOLANA
+    </text>
+  </g>
+
+  <!-- Bottom accent line -->
+  <rect x="0" y="626" width="1200" height="4" fill="#B6FF2E" opacity="0.6"/>
+
+  <!-- Border -->
+  <rect x="0" y="0" width="1200" height="630" fill="none" stroke="#fff" stroke-opacity="0.05" stroke-width="2"/>
+</svg>
