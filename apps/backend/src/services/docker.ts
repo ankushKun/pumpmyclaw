@@ -51,20 +51,38 @@ function getUserDataDir(telegramId: string): string {
   const dir = resolve(INSTANCES_DATA_DIR, `user-${telegramId}`);
   
   // Create main dir and all subdirectories needed by OpenClaw
+  // Note: These directories may already exist with root ownership from Docker
+  // In that case, just skip creation - the container's entrypoint will handle permissions
   const subdirs = ["workspace", "skills", "agents", "credentials"];
   for (const subdir of ["", ...subdirs]) {
     const path = subdir ? resolve(dir, subdir) : dir;
-    mkdirSync(path, { recursive: true, mode: 0o777 });
+    try {
+      mkdirSync(path, { recursive: true, mode: 0o777 });
+    } catch (err) {
+      const fsErr = err as NodeJS.ErrnoException;
+      // EEXIST is fine - directory already exists
+      // EACCES means parent dir exists with root ownership, also fine - container handles it
+      if (fsErr.code !== "EEXIST" && fsErr.code !== "EACCES") {
+        throw err;
+      }
+    }
   }
   
-  // Also chmod the dirs in case they already existed with wrong perms
+  // Try to chmod the dirs in case they already existed with wrong perms
+  // This may fail if owned by root, which is fine - container entrypoint handles it
   try {
     chmodSync(dir, 0o777);
     for (const subdir of subdirs) {
-      chmodSync(resolve(dir, subdir), 0o777);
+      const subPath = resolve(dir, subdir);
+      try {
+        chmodSync(subPath, 0o777);
+      } catch {
+        // Ignore - may be owned by root
+      }
     }
   } catch (err) {
-    console.error(`[docker] Failed to chmod ${dir}:`, err);
+    // Parent dir may be owned by root from previous Docker run - that's OK
+    console.log(`[docker] Could not chmod ${dir} (may be owned by root, container will handle it)`);
   }
   
   console.log(`[docker] User data dir ready: ${dir}`);
