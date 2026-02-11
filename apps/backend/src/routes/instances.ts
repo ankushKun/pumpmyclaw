@@ -167,7 +167,13 @@ instanceRoutes.post("/:id/stop", async (c) => {
     return c.json({ error: "Instance not found" }, 404);
   }
 
-  await docker.stopInstance(instance.containerId);
+  try {
+    await docker.stopInstance(instance.containerId);
+  } catch (err) {
+    console.error("Failed to stop Docker container:", err);
+    return c.json({ error: "Failed to stop instance" }, 500);
+  }
+
   await db
     .update(instances)
     .set({ status: "stopped", stoppedAt: new Date() })
@@ -184,6 +190,20 @@ instanceRoutes.post("/:id/start", async (c) => {
     return c.json({ error: "Invalid instance ID" }, 400);
   }
 
+  // Require active subscription to start an instance
+  const subscription = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.userId, userId),
+      eq(subscriptions.status, "active")
+    ),
+  });
+  if (!subscription) {
+    return c.json(
+      { error: "Active subscription required. Subscribe first at /pricing." },
+      403
+    );
+  }
+
   const instance = await db.query.instances.findFirst({
     where: and(eq(instances.id, id), eq(instances.userId, userId)),
   });
@@ -191,7 +211,13 @@ instanceRoutes.post("/:id/start", async (c) => {
     return c.json({ error: "Instance not found" }, 404);
   }
 
-  await docker.startInstance(instance.containerId);
+  try {
+    await docker.startInstance(instance.containerId);
+  } catch (err) {
+    console.error("Failed to start Docker container:", err);
+    return c.json({ error: "Failed to start instance" }, 500);
+  }
+
   await db
     .update(instances)
     .set({ status: "pending", startedAt: new Date() })

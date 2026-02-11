@@ -13,6 +13,39 @@ import { startDbAdmin } from "./db-admin";
 import { db } from "./db";
 import { users, subscriptions } from "./db/schema";
 
+// ── Startup env validation ─────────────────────────────────────────
+const REQUIRED_ENV_VARS = [
+  "JWT_SECRET",
+  "ENCRYPTION_KEY",
+  "TELEGRAM_BOT_TOKEN",
+  "DODO_API_KEY",
+  "DODO_WEBHOOK_KEY",
+  "DODO_PRODUCT_ID",
+  "FRONTEND_URL",
+] as const;
+
+function validateEnv() {
+  const missing = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+  if (missing.length === 0) return;
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const label = isProduction ? "ERROR" : "WARN";
+  const lines = missing.map((key) => `  - ${key}`).join("\n");
+
+  console.error(
+    `[pmc-backend] ${label}: Missing required environment variables:\n${lines}`
+  );
+
+  if (isProduction) {
+    console.error(
+      "[pmc-backend] Refusing to start in production with missing env vars."
+    );
+    process.exit(1);
+  }
+}
+
+validateEnv();
+
 type Variables = { userId: number };
 const app = new Hono<{ Variables: Variables }>();
 
