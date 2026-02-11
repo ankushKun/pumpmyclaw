@@ -26,6 +26,9 @@ interface AuthContextType {
   /** Whether the user has a deployed instance (checked on login/restore) */
   hasInstance: boolean;
   setHasInstance: (v: boolean) => void;
+  /** Whether the user has an active subscription */
+  hasSubscription: boolean;
+  setHasSubscription: (v: boolean) => void;
   login: (telegramData: TelegramAuthData) => Promise<void>;
   logout: () => void;
 }
@@ -45,11 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [telegramData, setTelegramData] = useState<TelegramAuthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasInstance, setHasInstance] = useState(false);
+  const [hasSubscription, setHasSubscription] = useState(false);
 
   const logout = useCallback(() => {
     setUser(null);
     setTelegramData(null);
     setHasInstance(false);
+    setHasSubscription(false);
     backend.clearToken();
     localStorage.removeItem(STORAGE_KEY);
   }, []);
@@ -66,6 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Check if user has a running instance
         backend.getInstances().then((list) => {
           setHasInstance(list.length > 0);
+        }).catch(() => { /* ignore */ });
+        // Check if user has an active subscription
+        backend.getSubscription().then(({ subscription }) => {
+          setHasSubscription(subscription?.status === 'active');
         }).catch(() => { /* ignore */ });
       } catch {
         localStorage.removeItem(STORAGE_KEY);
@@ -93,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, telegramData, loading, hasInstance, setHasInstance, login, logout }}>
+    <AuthContext.Provider value={{ user, telegramData, loading, hasInstance, setHasInstance, hasSubscription, setHasSubscription, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -8,6 +8,7 @@ import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
 import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
 import { ensureImageReady } from "./services/docker";
+import { startSubscriptionEnforcer } from "./services/subscription-enforcer";
 import { db } from "./db";
 import { users, subscriptions } from "./db/schema";
 
@@ -110,6 +111,9 @@ await ensureImageReady()
     console.error(`[pmc-backend] Docker image build failed: ${err.message}`);
     console.error("[pmc-backend] Instance creation will fail until images are available");
   });
+
+// Start periodic subscription enforcer — stops containers when paid period ends
+startSubscriptionEnforcer();
 
 console.log(`[pmc-backend] Listening on http://localhost:${port}`);
 

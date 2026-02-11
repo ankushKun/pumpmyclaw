@@ -11,7 +11,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 const dodo = new DodoPayments({
   bearerToken: process.env.DODO_API_KEY!,
-  environment: (process.env.DODO_ENV as "live_mode" | "test_mode") || "live_mode",
+  environment: process.env.DODO_TEST_MODE === "true" ? "test_mode" : "live_mode",
 });
 
 // ── Public routes (no auth) ──────────────────────────────────────
@@ -171,18 +171,24 @@ webhookRoutes.post("/dodo", async (c) => {
         await handleSubscriptionActive(data);
         break;
       }
+      case "subscription.renewed": {
+        await handleSubscriptionRenewed(data);
+        break;
+      }
       case "subscription.on_hold": {
         await handleSubscriptionOnHold(data);
+        break;
+      }
+      case "subscription.cancelled": {
+        await handleSubscriptionCancelled(data);
         break;
       }
       case "subscription.failed": {
         await handleSubscriptionFailed(data);
         break;
       }
-      case "subscription.renewed": {
-        console.log(
-          `[webhook] Subscription renewed: ${data.subscription_id}`
-        );
+      case "subscription.expired": {
+        await handleSubscriptionExpired(data);
         break;
       }
       case "payment.succeeded": {
@@ -206,14 +212,27 @@ webhookRoutes.post("/dodo", async (c) => {
 
 // ── Webhook event handlers ───────────────────────────────────────
 
+/**
+ * Parse Dodo's next_billing_date into a JS Date.
+ * Dodo sends ISO 8601 strings like "2026-03-11T00:00:00Z".
+ * Returns null if missing or unparseable.
+ */
+function parsePeriodEnd(data: any): Date | null {
+  const raw = data.next_billing_date;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 async function handleSubscriptionActive(data: any) {
   const subId = data.subscription_id;
   const customerId = data.customer?.customer_id;
   const metadata = data.metadata || {};
   const userId = metadata.user_id ? parseInt(metadata.user_id) : null;
+  const periodEnd = parsePeriodEnd(data);
 
   console.log(
-    `[webhook] Subscription active: ${subId}, userId: ${userId}, customerId: ${customerId}`
+    `[webhook] Subscription active: ${subId}, userId: ${userId}, customerId: ${customerId}, periodEnd: ${periodEnd?.toISOString() ?? "unknown"}`
   );
 
   if (!userId) {
@@ -233,6 +252,7 @@ async function handleSubscriptionActive(data: any) {
       .set({
         status: "active",
         dodoCustomerId: customerId,
+        currentPeriodEnd: periodEnd,
         updatedAt: new Date(),
       })
       .where(eq(subscriptions.dodoSubscriptionId, subId));
@@ -261,6 +281,7 @@ async function handleSubscriptionActive(data: any) {
     dodoSubscriptionId: subId,
     dodoCustomerId: customerId,
     status: "active",
+    currentPeriodEnd: periodEnd,
     slotNumber: Math.min(slotNumber, TOTAL_SLOTS),
   });
 
@@ -269,9 +290,35 @@ async function handleSubscriptionActive(data: any) {
   );
 }
 
+/**
+ * Renewal succeeded — subscription continues for another period.
+ * Update status back to active (in case it was on_hold) and bump period end.
+ */
+async function handleSubscriptionRenewed(data: any) {
+  const subId = data.subscription_id;
+  const periodEnd = parsePeriodEnd(data);
+  console.log(
+    `[webhook] Subscription renewed: ${subId}, new periodEnd: ${periodEnd?.toISOString() ?? "unknown"}`
+  );
+
+  await db
+    .update(subscriptions)
+    .set({
+      status: "active",
+      currentPeriodEnd: periodEnd,
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.dodoSubscriptionId, subId));
+}
+
+/**
+ * Renewal payment failed — Dodo puts subscription on hold.
+ * Mark status but DO NOT stop the container — user paid through current_period_end.
+ * The periodic enforcer will stop it once the period expires.
+ */
 async function handleSubscriptionOnHold(data: any) {
   const subId = data.subscription_id;
-  console.log(`[webhook] Subscription on hold: ${subId}`);
+  console.log(`[webhook] Subscription on hold (payment failed): ${subId}`);
 
   await db
     .update(subscriptions)
@@ -279,6 +326,25 @@ async function handleSubscriptionOnHold(data: any) {
     .where(eq(subscriptions.dodoSubscriptionId, subId));
 }
 
+/**
+ * User or merchant cancelled the subscription.
+ * Mark status but DO NOT stop the container — user paid through current_period_end.
+ * The periodic enforcer will stop it once the period expires.
+ */
+async function handleSubscriptionCancelled(data: any) {
+  const subId = data.subscription_id;
+  console.log(`[webhook] Subscription cancelled: ${subId}`);
+
+  await db
+    .update(subscriptions)
+    .set({ status: "cancelled", updatedAt: new Date() })
+    .where(eq(subscriptions.dodoSubscriptionId, subId));
+}
+
+/**
+ * Mandate creation failed — subscription never started.
+ * No container should exist, but mark status for bookkeeping.
+ */
 async function handleSubscriptionFailed(data: any) {
   const subId = data.subscription_id;
   console.log(`[webhook] Subscription failed: ${subId}`);
@@ -286,6 +352,20 @@ async function handleSubscriptionFailed(data: any) {
   await db
     .update(subscriptions)
     .set({ status: "failed", updatedAt: new Date() })
+    .where(eq(subscriptions.dodoSubscriptionId, subId));
+}
+
+/**
+ * Subscription reached end of term and expired.
+ * Mark status — the periodic enforcer will stop the container.
+ */
+async function handleSubscriptionExpired(data: any) {
+  const subId = data.subscription_id;
+  console.log(`[webhook] Subscription expired: ${subId}`);
+
+  await db
+    .update(subscriptions)
+    .set({ status: "expired", updatedAt: new Date() })
     .where(eq(subscriptions.dodoSubscriptionId, subId));
 }
 

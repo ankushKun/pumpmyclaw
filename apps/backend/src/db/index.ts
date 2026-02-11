@@ -57,4 +57,11 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add current_period_end column to subscriptions
+try {
+  sqlite.exec(`ALTER TABLE subscriptions ADD COLUMN current_period_end INTEGER;`);
+} catch {
+  // Column already exists, ignore
+}
+
 export const db = drizzle(sqlite, { schema });
