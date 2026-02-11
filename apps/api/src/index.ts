@@ -43,7 +43,7 @@ app.use(
 
 // Database middleware
 app.use('*', async (c, next) => {
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.DB);
   c.set('db', db);
   await next();
 });

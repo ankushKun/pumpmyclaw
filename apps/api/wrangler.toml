@@ -6,6 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ENVIRONMENT = "production"
 
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "pumpmyclaw"
+database_id = "1cdc4308-18fd-45f0-b7ca-107f606fe8b7"
+migrations_dir = "drizzle"
+
 # Durable Objects
 [[durable_objects.bindings]]
 name = "WEBSOCKET_HUB"
@@ -18,8 +25,8 @@ binding = "TRADE_QUEUE"
 
 [[queues.consumers]]
 queue = "trade-processing"
-max_batch_size = 10
-max_batch_timeout = 5
+max_batch_size = 1
+max_batch_timeout = 1
 
 # Cron Triggers
 [triggers]

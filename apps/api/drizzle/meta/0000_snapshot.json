@@ -1,61 +1,56 @@
 {
-  "id": "d4aaf57f-dd6b-46fa-8eb7-ec92754797a4",
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "fc11a487-30bd-435b-a466-0b39978e1b31",
   "prevId": "00000000-0000-0000-0000-000000000000",
-  "version": "7",
-  "dialect": "postgresql",
   "tables": {
-    "public.agent_context": {
+    "agent_context": {
       "name": "agent_context",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "context_type": {
           "name": "context_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "data": {
           "name": "data",
-          "type": "jsonb",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
         "agent_context_agent_id_idx": {
           "name": "agent_context_agent_id_idx",
           "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "agent_id"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -75,207 +70,194 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.agents": {
+    "agents": {
       "name": "agents",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "bio": {
           "name": "bio",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "avatar_url": {
           "name": "avatar_url",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "wallet_address": {
           "name": "wallet_address",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_mint_address": {
           "name": "token_mint_address",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false,
+          "autoincrement": false
         },
         "api_key_hash": {
           "name": "api_key_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
+        "agents_wallet_address_unique": {
+          "name": "agents_wallet_address_unique",
+          "columns": [
+            "wallet_address"
+          ],
+          "isUnique": true
+        },
         "agents_wallet_idx": {
           "name": "agents_wallet_idx",
           "columns": [
-            {
-              "expression": "wallet_address",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "wallet_address"
           ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": true
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "agents_wallet_address_unique": {
-          "name": "agents_wallet_address_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "wallet_address"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
-    "public.performance_rankings": {
+    "performance_rankings": {
       "name": "performance_rankings",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "total_pnl_usd": {
           "name": "total_pnl_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "win_rate": {
           "name": "win_rate",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "total_trades": {
           "name": "total_trades",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "total_volume_usd": {
           "name": "total_volume_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_price_change_24h": {
           "name": "token_price_change_24h",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "buyback_total_sol": {
           "name": "buyback_total_sol",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "buyback_total_tokens": {
           "name": "buyback_total_tokens",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "rank": {
           "name": "rank",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "ranked_at": {
           "name": "ranked_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
         "perf_rankings_agent_id_idx": {
           "name": "perf_rankings_agent_id_idx",
           "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "agent_id"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         },
         "perf_rankings_ranked_at_idx": {
           "name": "perf_rankings_ranked_at_idx",
           "columns": [
-            {
-              "expression": "ranked_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "ranked_at"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -295,89 +277,130 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.token_snapshots": {
+    "token_metadata": {
+      "name": "token_metadata",
+      "columns": {
+        "mint": {
+          "name": "mint",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "symbol": {
+          "name": "symbol",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decimals": {
+          "name": "decimals",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 6
+        },
+        "logo_url": {
+          "name": "logo_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "token_snapshots": {
       "name": "token_snapshots",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "mint_address": {
           "name": "mint_address",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "price_usd": {
           "name": "price_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "market_cap_usd": {
           "name": "market_cap_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "holder_count": {
           "name": "holder_count",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "snapshot_at": {
           "name": "snapshot_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
         "token_snapshots_agent_id_idx": {
           "name": "token_snapshots_agent_id_idx",
           "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "agent_id"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         },
         "token_snapshots_snapshot_at_idx": {
           "name": "token_snapshots_snapshot_at_idx",
           "columns": [
-            {
-              "expression": "snapshot_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "snapshot_at"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -397,57 +420,60 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.trade_annotations": {
+    "trade_annotations": {
       "name": "trade_annotations",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "trade_id": {
           "name": "trade_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "strategy": {
           "name": "strategy",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "notes": {
           "name": "notes",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "tags": {
           "name": "tags",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {},
@@ -481,174 +507,155 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.trades": {
+    "trades": {
       "name": "trades",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "tx_signature": {
           "name": "tx_signature",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "block_time": {
           "name": "block_time",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "platform": {
           "name": "platform",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "trade_type": {
           "name": "trade_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_in_mint": {
           "name": "token_in_mint",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_in_amount": {
           "name": "token_in_amount",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_out_mint": {
           "name": "token_out_mint",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "token_out_amount": {
           "name": "token_out_amount",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "sol_price_usd": {
           "name": "sol_price_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "trade_value_usd": {
           "name": "trade_value_usd",
-          "type": "numeric",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "is_buyback": {
           "name": "is_buyback",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": false
         },
         "raw_data": {
           "name": "raw_data",
-          "type": "jsonb",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp with time zone",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
+        "trades_tx_signature_unique": {
+          "name": "trades_tx_signature_unique",
+          "columns": [
+            "tx_signature"
+          ],
+          "isUnique": true
+        },
         "trades_tx_sig_idx": {
           "name": "trades_tx_sig_idx",
           "columns": [
-            {
-              "expression": "tx_signature",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "tx_signature"
           ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": true
         },
         "trades_agent_id_idx": {
           "name": "trades_agent_id_idx",
           "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "agent_id"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         },
         "trades_block_time_idx": {
           "name": "trades_block_time_idx",
           "columns": [
-            {
-              "expression": "block_time",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "block_time"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         },
         "trades_agent_buyback_idx": {
           "name": "trades_agent_buyback_idx",
           "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "is_buyback",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+            "agent_id",
+            "is_buyback"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -667,29 +674,18 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "trades_tx_signature_unique": {
-          "name": "trades_tx_signature_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tx_signature"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     }
   },
-  "enums": {},
-  "schemas": {},
-  "sequences": {},
-  "roles": {},
-  "policies": {},
   "views": {},
+  "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
   }
 }

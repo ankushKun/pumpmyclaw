@@ -1,6 +1,6 @@
 export interface Env {
-  // Secrets
-  DATABASE_URL: string;
+  // Bindings (D1)
+  DB: D1Database;
   UPSTASH_REDIS_REST_URL: string;
   UPSTASH_REDIS_REST_TOKEN: string;
   HELIUS_API_KEY: string;

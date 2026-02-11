@@ -5,7 +5,7 @@ import { createDb } from '../db/client';
 import type { Env } from '../types/env';
 
 export async function pollMissedTrades(env: Env): Promise<void> {
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.DB);
   const helius = new HeliusClient(env.HELIUS_API_KEY);
 
   const allAgents = await db.select().from(agents);

@@ -112,7 +112,7 @@ export async function ingestTradesForAgent(
         .values({
           agentId: agent.id,
           txSignature: parsed.signature,
-          blockTime: parsed.blockTime,
+          blockTime: parsed.blockTime.toISOString(),
           platform: parsed.platform,
           tradeType: parsed.tradeType,
           tokenInMint: parsed.tokenInMint,

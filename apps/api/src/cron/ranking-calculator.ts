@@ -5,7 +5,7 @@ import { createDb } from '../db/client';
 import type { Env } from '../types/env';
 
 export async function recalculateRankings(env: Env): Promise<void> {
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.DB);
   const allAgents = await db.select().from(agents);
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -31,7 +31,7 @@ export async function recalculateRankings(env: Env): Promise<void> {
         .where(
           and(
             eq(tokenSnapshots.agentId, agent.id),
-            gte(tokenSnapshots.snapshotAt, yesterday),
+            gte(tokenSnapshots.snapshotAt, yesterday.toISOString()),
           ),
         )
         .orderBy(tokenSnapshots.snapshotAt);
@@ -65,7 +65,7 @@ export async function recalculateRankings(env: Env): Promise<void> {
   rankingData.sort((a, b) => b.pnl - a.pnl);
 
   // Use a shared timestamp so all rankings in this batch can be queried together
-  const rankedAt = new Date();
+  const rankedAt = new Date().toISOString();
 
   for (let i = 0; i < rankingData.length; i++) {
     const d = rankingData[i];

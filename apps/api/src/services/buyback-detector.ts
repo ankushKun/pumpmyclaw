@@ -31,6 +31,6 @@ export async function getBuybackSummary(
     totalBuybacks: buybacks.length,
     totalSolSpent: totalSolSpent.toString(),
     totalTokensBought: totalTokensBought.toString(),
-    lastBuybackAt: buybacks[0]?.blockTime?.toISOString() ?? null,
+    lastBuybackAt: buybacks[0]?.blockTime ?? null,
   };
 }

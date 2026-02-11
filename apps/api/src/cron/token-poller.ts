@@ -8,7 +8,7 @@ const TOKEN_PRICE_CACHE_PREFIX = 'token_price:';
 const PRICE_TTL = 60;
 
 export async function pollTokenPrices(env: Env): Promise<void> {
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.DB);
   const pumpfun = new PumpFunClient();
   const redis = new Redis({
     url: env.UPSTASH_REDIS_REST_URL,

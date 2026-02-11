@@ -1,49 +1,44 @@
 import {
-  pgTable,
-  uuid,
+  sqliteTable,
   text,
-  timestamp,
-  numeric,
   integer,
-  boolean,
-  jsonb,
   uniqueIndex,
   index,
-} from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+} from 'drizzle-orm/sqlite-core';
+import { sql, relations } from 'drizzle-orm';
 
 // ─── agents ─────────────────────────────────────────────
-export const agents = pgTable('agents', {
-  id: uuid('id').defaultRandom().primaryKey(),
+export const agents = sqliteTable('agents', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
   name: text('name').notNull(),
   bio: text('bio'),
   avatarUrl: text('avatar_url'),
   walletAddress: text('wallet_address').notNull().unique(),
   tokenMintAddress: text('token_mint_address'),
   apiKeyHash: text('api_key_hash').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   uniqueIndex('agents_wallet_idx').on(table.walletAddress),
 ]);
 
 // ─── trades ─────────────────────────────────────────────
-export const trades = pgTable('trades', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').notNull().references(() => agents.id),
+export const trades = sqliteTable('trades', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
+  agentId: text('agent_id').notNull().references(() => agents.id),
   txSignature: text('tx_signature').notNull().unique(),
-  blockTime: timestamp('block_time', { withTimezone: true }).notNull(),
+  blockTime: text('block_time').notNull(),
   platform: text('platform').notNull(),
   tradeType: text('trade_type').notNull(),
   tokenInMint: text('token_in_mint').notNull(),
-  tokenInAmount: numeric('token_in_amount').notNull(),
+  tokenInAmount: text('token_in_amount').notNull(),
   tokenOutMint: text('token_out_mint').notNull(),
-  tokenOutAmount: numeric('token_out_amount').notNull(),
-  solPriceUsd: numeric('sol_price_usd').notNull(),
-  tradeValueUsd: numeric('trade_value_usd').notNull(),
-  isBuyback: boolean('is_buyback').notNull().default(false),
-  rawData: jsonb('raw_data'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  tokenOutAmount: text('token_out_amount').notNull(),
+  solPriceUsd: text('sol_price_usd').notNull(),
+  tradeValueUsd: text('trade_value_usd').notNull(),
+  isBuyback: integer('is_buyback', { mode: 'boolean' }).notNull().default(false),
+  rawData: text('raw_data', { mode: 'json' }),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   uniqueIndex('trades_tx_sig_idx').on(table.txSignature),
   index('trades_agent_id_idx').on(table.agentId),
@@ -52,64 +47,64 @@ export const trades = pgTable('trades', {
 ]);
 
 // ─── trade_annotations ──────────────────────────────────
-export const tradeAnnotations = pgTable('trade_annotations', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  tradeId: uuid('trade_id').notNull().references(() => trades.id),
-  agentId: uuid('agent_id').notNull().references(() => agents.id),
+export const tradeAnnotations = sqliteTable('trade_annotations', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
+  tradeId: text('trade_id').notNull().references(() => trades.id),
+  agentId: text('agent_id').notNull().references(() => agents.id),
   strategy: text('strategy'),
   notes: text('notes'),
-  tags: text('tags').array(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  tags: text('tags', { mode: 'json' }).$type<string[] | null>(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
 // ─── agent_context ──────────────────────────────────────
-export const agentContext = pgTable('agent_context', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').notNull().references(() => agents.id),
+export const agentContext = sqliteTable('agent_context', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
+  agentId: text('agent_id').notNull().references(() => agents.id),
   contextType: text('context_type').notNull(),
-  data: jsonb('data').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  data: text('data', { mode: 'json' }).notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('agent_context_agent_id_idx').on(table.agentId),
 ]);
 
 // ─── token_snapshots ────────────────────────────────────
-export const tokenSnapshots = pgTable('token_snapshots', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').notNull().references(() => agents.id),
+export const tokenSnapshots = sqliteTable('token_snapshots', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
+  agentId: text('agent_id').notNull().references(() => agents.id),
   mintAddress: text('mint_address').notNull(),
-  priceUsd: numeric('price_usd').notNull(),
-  marketCapUsd: numeric('market_cap_usd').notNull(),
+  priceUsd: text('price_usd').notNull(),
+  marketCapUsd: text('market_cap_usd').notNull(),
   holderCount: integer('holder_count'),
-  snapshotAt: timestamp('snapshot_at', { withTimezone: true }).defaultNow().notNull(),
+  snapshotAt: text('snapshot_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('token_snapshots_agent_id_idx').on(table.agentId),
   index('token_snapshots_snapshot_at_idx').on(table.snapshotAt),
 ]);
 
 // ─── token_metadata (cache) ─────────────────────────────
-export const tokenMetadata = pgTable('token_metadata', {
+export const tokenMetadata = sqliteTable('token_metadata', {
   mint: text('mint').primaryKey(),
   name: text('name').notNull(),
   symbol: text('symbol').notNull(),
   decimals: integer('decimals').notNull().default(6),
   logoUrl: text('logo_url'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
 
 // ─── performance_rankings ───────────────────────────────
-export const performanceRankings = pgTable('performance_rankings', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').notNull().references(() => agents.id),
-  totalPnlUsd: numeric('total_pnl_usd').notNull(),
-  winRate: numeric('win_rate').notNull(),
+export const performanceRankings = sqliteTable('performance_rankings', {
+  id: text('id').$defaultFn(() => crypto.randomUUID()).primaryKey(),
+  agentId: text('agent_id').notNull().references(() => agents.id),
+  totalPnlUsd: text('total_pnl_usd').notNull(),
+  winRate: text('win_rate').notNull(),
   totalTrades: integer('total_trades').notNull(),
-  totalVolumeUsd: numeric('total_volume_usd').notNull(),
-  tokenPriceChange24h: numeric('token_price_change_24h').notNull(),
-  buybackTotalSol: numeric('buyback_total_sol').notNull(),
-  buybackTotalTokens: numeric('buyback_total_tokens').notNull(),
+  totalVolumeUsd: text('total_volume_usd').notNull(),
+  tokenPriceChange24h: text('token_price_change_24h').notNull(),
+  buybackTotalSol: text('buyback_total_sol').notNull(),
+  buybackTotalTokens: text('buyback_total_tokens').notNull(),
   rank: integer('rank').notNull(),
-  rankedAt: timestamp('ranked_at', { withTimezone: true }).defaultNow().notNull(),
+  rankedAt: text('ranked_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   index('perf_rankings_agent_id_idx').on(table.agentId),
   index('perf_rankings_ranked_at_idx').on(table.rankedAt),
