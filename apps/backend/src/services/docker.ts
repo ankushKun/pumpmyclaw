@@ -37,6 +37,14 @@ export interface InstanceConfig {
   telegramBotToken: string;
   openrouterApiKey: string;
   model: string;
+  /** "openrouter" | "openai-codex" */
+  llmProvider?: string;
+  /** Plaintext OpenAI access token (JWT) — only set when llmProvider is "openai-codex" */
+  openaiAccessToken?: string;
+  /** Plaintext OpenAI refresh token */
+  openaiRefreshToken?: string;
+  /** OpenAI account ID */
+  openaiAccountId?: string;
 }
 
 /**
@@ -352,17 +360,32 @@ export async function createInstance(config: InstanceConfig): Promise<string> {
 
   console.log(`[docker] Creating container ${name} (image: ${IMAGE_NAME})`);
 
+  // Build env vars — always include Telegram + OpenRouter (may be empty for OpenAI-only)
+  const envVars = [
+    `TELEGRAM_OWNER_ID=${config.telegramOwnerId}`,
+    `TELEGRAM_BOT_TOKEN=${config.telegramBotToken}`,
+    `OPENROUTER_API_KEY=${config.openrouterApiKey}`,
+    `OPENCLAW_MODEL=${config.model}`,
+    `LLM_PROVIDER=${config.llmProvider || "openrouter"}`,
+  ];
+
+  // Add OpenAI Codex tokens if present
+  if (config.openaiAccessToken) {
+    envVars.push(`OPENAI_ACCESS_TOKEN=${config.openaiAccessToken}`);
+  }
+  if (config.openaiRefreshToken) {
+    envVars.push(`OPENAI_REFRESH_TOKEN=${config.openaiRefreshToken}`);
+  }
+  if (config.openaiAccountId) {
+    envVars.push(`OPENAI_ACCOUNT_ID=${config.openaiAccountId}`);
+  }
+
   const container = await docker.createContainer({
     Image: IMAGE_NAME,
     name,
     // Run as root so entrypoint can chown the bind-mount, then drop to openclaw via gosu
     User: "root",
-    Env: [
-      `TELEGRAM_OWNER_ID=${config.telegramOwnerId}`,
-      `TELEGRAM_BOT_TOKEN=${config.telegramBotToken}`,
-      `OPENROUTER_API_KEY=${config.openrouterApiKey}`,
-      `OPENCLAW_MODEL=${config.model}`,
-    ],
+    Env: envVars,
     HostConfig: {
       Binds: [
         // Persist all OpenClaw state (config, sessions, workspace, credentials)

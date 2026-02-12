@@ -14,13 +14,32 @@ export PATH="$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/
 
 echo "[pmc] Validating environment..."
 
-# Validate required env vars
-for var in OPENROUTER_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_OWNER_ID; do
+# LLM_PROVIDER: "openrouter" (default) or "openai-codex"
+LLM_PROVIDER="${LLM_PROVIDER:-openrouter}"
+echo "[pmc] LLM provider: ${LLM_PROVIDER}"
+
+# Validate required env vars (common)
+for var in TELEGRAM_BOT_TOKEN TELEGRAM_OWNER_ID; do
     if [ -z "${!var}" ]; then
         echo "[pmc] ERROR: $var is required but not set"
         exit 1
     fi
 done
+
+# Provider-specific validation
+if [ "$LLM_PROVIDER" = "openai-codex" ]; then
+    if [ -z "${OPENAI_ACCESS_TOKEN:-}" ]; then
+        echo "[pmc] ERROR: OPENAI_ACCESS_TOKEN is required for openai-codex provider"
+        exit 1
+    fi
+    # OpenRouter key may be empty for OpenAI-only setups
+    OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+else
+    if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+        echo "[pmc] ERROR: OPENROUTER_API_KEY is required for openrouter provider"
+        exit 1
+    fi
+fi
 
 # Optional: Solana RPC URL (defaults to mainnet)
 SOLANA_RPC_URL="${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}"
@@ -127,6 +146,15 @@ echo "[pmc] Model: ${OPENCLAW_MODEL}"
 echo "[pmc] Telegram owner: ${TELEGRAM_OWNER_ID}"
 echo "[pmc] Solana wallet: ${SOLANA_PUBLIC_KEY}"
 
+# Build auth profiles + env section based on provider
+if [ "$LLM_PROVIDER" = "openai-codex" ]; then
+    AUTH_PROFILES='{ "openai-codex:default": { "provider": "openai-codex" } }'
+    ENV_EXTRAS='{}'
+else
+    AUTH_PROFILES='{ "openrouter:default": { "provider": "openrouter", "mode": "api_key" } }'
+    ENV_EXTRAS="{\"OPENROUTER_API_KEY\": \"$OPENROUTER_API_KEY\"}"
+fi
+
 # Use jq to safely construct JSON (prevents injection attacks via env vars)
 # Note: dmPolicy "allowlist" + allowFrom allows immediate DM access without pairing
 jq -n \
@@ -140,6 +168,7 @@ jq -n \
   --arg solana_pubkey "$SOLANA_PUBLIC_KEY" \
   --arg solana_rpc "$SOLANA_RPC_URL" \
   --arg skills_path "$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts" \
+  --argjson auth_profiles "$AUTH_PROFILES" \
   '{
     env: {
       OPENROUTER_API_KEY: $openrouter_key,
@@ -149,12 +178,7 @@ jq -n \
       PATH: ($skills_path + ":/home/openclaw/.local/bin:/home/openclaw/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     },
     auth: {
-      profiles: {
-        "openrouter:default": {
-          provider: "openrouter",
-          mode: "api_key"
-        }
-      }
+      profiles: $auth_profiles
     },
     agents: {
       defaults: {
@@ -239,6 +263,30 @@ SOLANA_PRIVATE_KEY=${SOLANA_PRIVATE_KEY}
 SOLANA_PUBLIC_KEY=${SOLANA_PUBLIC_KEY}
 SOLANA_RPC_URL=${SOLANA_RPC_URL}
 EOF
+
+# --- OpenAI Codex auth setup ---
+# If using OpenAI Codex provider, write ~/.codex/auth.json so OpenClaw can use
+# the Codex subscription for LLM calls (no API key billing needed).
+if [ "$LLM_PROVIDER" = "openai-codex" ] && [ -n "${OPENAI_ACCESS_TOKEN:-}" ]; then
+    CODEX_DIR="$HOME/.codex"
+    mkdir -p "$CODEX_DIR"
+
+    jq -n \
+      --arg access_token "$OPENAI_ACCESS_TOKEN" \
+      --arg refresh_token "${OPENAI_REFRESH_TOKEN:-}" \
+      --arg account_id "${OPENAI_ACCOUNT_ID:-}" \
+      '{
+        tokens: {
+          access_token: $access_token,
+          refresh_token: $refresh_token,
+          account_id: (if $account_id != "" then $account_id else null end)
+        },
+        last_refresh: (now | todate)
+      }' > "$CODEX_DIR/auth.json"
+
+    chmod 600 "$CODEX_DIR/auth.json"
+    echo "[pmc] Wrote Codex auth.json for OpenAI subscription auth"
+fi
 
 echo "[pmc] Configuration written to $OPENCLAW_DIR/openclaw.json"
 

@@ -64,4 +64,19 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add OpenAI Codex OAuth fields to instances
+for (const col of [
+  "llm_provider TEXT NOT NULL DEFAULT 'openrouter'",
+  "openai_access_token TEXT",
+  "openai_refresh_token TEXT",
+  "openai_account_id TEXT",
+  "openai_token_expires INTEGER",
+]) {
+  try {
+    sqlite.exec(`ALTER TABLE instances ADD COLUMN ${col};`);
+  } catch {
+    // Column already exists, ignore
+  }
+}
+
 export const db = drizzle(sqlite, { schema });

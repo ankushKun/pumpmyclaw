@@ -127,6 +127,7 @@ class BackendClient {
     telegramBotUsername?: string;
     openrouterApiKey: string;
     model?: string;
+    llmProvider?: "openrouter" | "openai-codex";
   }): Promise<Instance> {
     // Backend wraps response: { instance: { id, status, botUsername, model } }
     const res = await this.request<{ instance: Instance }>('/api/instances', {
@@ -248,6 +249,37 @@ class BackendClient {
 
   async getWalletTransactions(id: number, limit = 20): Promise<{ transactions: WalletTransaction[] }> {
     return this.request<{ transactions: WalletTransaction[] }>(`/api/instances/${id}/wallet/transactions?limit=${limit}`);
+  }
+
+  // ── OpenAI Codex Auth (PKCE flow) ──────────────────────────────
+
+  /** Exchange an OAuth authorization code + PKCE verifier for tokens */
+  async openaiExchange(code: string, codeVerifier: string): Promise<{
+    status: 'authorized';
+    accountId: string | null;
+    expiresAt: number;
+    model: string;
+  }> {
+    return this.request('/api/openai-auth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code, codeVerifier }),
+    });
+  }
+
+  /** Get OpenAI auth status for current user's instance */
+  async openaiStatus(): Promise<{
+    connected: boolean;
+    provider: string | null;
+    accountId: string | null;
+    tokenExpires: number | null;
+    expired: boolean;
+  }> {
+    return this.request('/api/openai-auth/status');
+  }
+
+  /** Disconnect OpenAI and revert to OpenRouter */
+  async openaiDisconnect(): Promise<void> {
+    await this.request('/api/openai-auth/disconnect', { method: 'POST' });
   }
 
   // ── Subscription / Checkout ────────────────────────────────────

@@ -647,14 +647,26 @@ admin.post("/api/update-all", async (c) => {
         });
         if (!user) return null;
 
-        return {
+        const config: docker.InstanceConfig = {
           instanceId: instance.id,
           userId: user.id,
           telegramOwnerId: user.telegramId,
           telegramBotToken: decrypt(instance.telegramBotToken),
           openrouterApiKey: decrypt(instance.openrouterApiKey),
           model: instance.model || "openrouter/openrouter/auto",
+          llmProvider: instance.llmProvider || "openrouter",
         };
+
+        // Include OpenAI tokens if using Codex provider
+        if (instance.llmProvider === "openai-codex" && instance.openaiAccessToken) {
+          config.openaiAccessToken = decrypt(instance.openaiAccessToken);
+          if (instance.openaiRefreshToken) {
+            config.openaiRefreshToken = decrypt(instance.openaiRefreshToken);
+          }
+          config.openaiAccountId = instance.openaiAccountId || undefined;
+        }
+
+        return config;
       }
     );
 
@@ -850,14 +862,25 @@ admin.post("/update-all", async (c) => {
         });
         if (!user) return null;
 
-        return {
+        const config: docker.InstanceConfig = {
           instanceId: instance.id,
           userId: user.id,
           telegramOwnerId: user.telegramId,
           telegramBotToken: decrypt(instance.telegramBotToken),
           openrouterApiKey: decrypt(instance.openrouterApiKey),
           model: instance.model || "openrouter/openrouter/auto",
+          llmProvider: instance.llmProvider || "openrouter",
         };
+
+        if (instance.llmProvider === "openai-codex" && instance.openaiAccessToken) {
+          config.openaiAccessToken = decrypt(instance.openaiAccessToken);
+          if (instance.openaiRefreshToken) {
+            config.openaiRefreshToken = decrypt(instance.openaiRefreshToken);
+          }
+          config.openaiAccountId = instance.openaiAccountId || undefined;
+        }
+
+        return config;
       }
     );
 

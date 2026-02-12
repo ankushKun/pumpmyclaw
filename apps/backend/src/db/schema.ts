@@ -26,6 +26,16 @@ export const instances = sqliteTable("instances", {
   model: text("model")
     .notNull()
     .default("openrouter/qwen/qwen3-coder:free"),
+  /** "openrouter" | "openai-codex" — which LLM provider is active */
+  llmProvider: text("llm_provider").notNull().default("openrouter"),
+  /** Encrypted OpenAI Codex OAuth access token (JWT) */
+  openaiAccessToken: text("openai_access_token"),
+  /** Encrypted OpenAI Codex OAuth refresh token */
+  openaiRefreshToken: text("openai_refresh_token"),
+  /** OpenAI account ID extracted from the access token */
+  openaiAccountId: text("openai_account_id"),
+  /** Timestamp (ms) when the OpenAI access token expires */
+  openaiTokenExpires: integer("openai_token_expires"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date()
   ),

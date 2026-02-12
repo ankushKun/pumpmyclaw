@@ -23,6 +23,9 @@ import {
   CreditCard,
   CalendarDays,
   Shield,
+  Zap,
+  Unplug,
+  ClipboardPaste,
 } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
@@ -44,6 +47,7 @@ import {
 } from "../lib/api";
 import { MODELS, CUSTOM_MODEL_ID, getModelName } from "../lib/models";
 import { ConfirmModal, AlertModal } from "../components/Modal";
+import { generatePKCE, getAuthorizeUrl, extractCodeFromUrl, type PKCEParams } from "../lib/openai-pkce";
 
 type Tab = "overview" | "logs" | "wallet" | "settings";
 
@@ -83,6 +87,18 @@ export function Dashboard() {
 
   // Subscription
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+
+  // OpenAI Codex auth (settings tab) — PKCE flow
+  const [openaiStatus, setOpenaiStatus] = useState<{
+    connected: boolean;
+    provider: string | null;
+    accountId: string | null;
+    expired: boolean;
+  } | null>(null);
+  const [openaiLoading, setOpenaiLoading] = useState(false);
+  const [openaiWaitingForCode, setOpenaiWaitingForCode] = useState(false);
+  const [openaiCallbackUrl, setOpenaiCallbackUrl] = useState("");
+  const pkceRef = useRef<PKCEParams | null>(null);
 
   // Fund wallet
   const { connection } = useConnection();
@@ -386,6 +402,7 @@ export function Dashboard() {
     openrouterApiKey: string;
     botUsername: string;
     model: string;
+    llmProvider?: "openrouter" | "openai-codex";
   }) => {
     setCreating(true);
     setCreationLogs([]);
@@ -398,6 +415,7 @@ export function Dashboard() {
         telegramBotUsername: config.botUsername,
         openrouterApiKey: config.openrouterApiKey,
         model: config.model,
+        llmProvider: config.llmProvider,
       });
 
       const createdInstance: Instance = {
@@ -613,6 +631,128 @@ export function Dashboard() {
       });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // ── OpenAI Codex auth handlers ─────────────────────────────────
+  const fetchOpenaiStatus = useCallback(async () => {
+    try {
+      const status = await backend.openaiStatus();
+      setOpenaiStatus(status);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "settings" && instance) {
+      fetchOpenaiStatus();
+    }
+  }, [activeTab, instance?.id, fetchOpenaiStatus]);
+
+  const startOpenaiAuth = async () => {
+    setOpenaiLoading(true);
+    try {
+      const pkce = await generatePKCE();
+      pkceRef.current = pkce;
+      const url = getAuthorizeUrl(pkce.challenge, pkce.state);
+
+      // Open OpenAI authorize page in a new tab
+      window.open(url, "_blank");
+
+      // Show the "paste callback URL" state
+      setOpenaiWaitingForCode(true);
+    } catch (err) {
+      setAlertModal({
+        open: true,
+        title: "Connection Failed",
+        message: err instanceof Error ? err.message : "Failed to start OpenAI auth",
+        type: "error",
+      });
+    } finally {
+      setOpenaiLoading(false);
+    }
+  };
+
+  const handleCallbackUrlSubmit = async () => {
+    if (!pkceRef.current) return;
+
+    const result = extractCodeFromUrl(openaiCallbackUrl);
+    if (!result) {
+      setAlertModal({
+        open: true,
+        title: "Invalid URL",
+        message: "Could not find authorization code in the URL. Make sure you copied the full URL from your browser.",
+        type: "error",
+      });
+      return;
+    }
+
+    if (result.state !== pkceRef.current.state) {
+      setAlertModal({
+        open: true,
+        title: "State Mismatch",
+        message: "State mismatch. Please try the flow again.",
+        type: "error",
+      });
+      return;
+    }
+
+    setOpenaiLoading(true);
+    try {
+      await backend.openaiExchange(result.code, pkceRef.current.verifier);
+      setOpenaiWaitingForCode(false);
+      setOpenaiCallbackUrl("");
+      pkceRef.current = null;
+      await fetchOpenaiStatus();
+      setAlertModal({
+        open: true,
+        title: "OpenAI Connected",
+        message: "Your OpenAI account has been connected. Your bot is restarting with the new provider.",
+        type: "success",
+      });
+      // Refresh instance status since container was restarted
+      setInstance((prev) => prev ? { ...prev, status: "restarting" } : null);
+    } catch (err) {
+      setAlertModal({
+        open: true,
+        title: "Exchange Failed",
+        message: err instanceof Error ? err.message : "Failed to exchange code",
+        type: "error",
+      });
+    } finally {
+      setOpenaiLoading(false);
+    }
+  };
+
+  const cancelOpenaiAuth = () => {
+    setOpenaiWaitingForCode(false);
+    setOpenaiCallbackUrl("");
+    setOpenaiLoading(false);
+    pkceRef.current = null;
+  };
+
+  const disconnectOpenai = async () => {
+    setOpenaiLoading(true);
+    try {
+      await backend.openaiDisconnect();
+      await fetchOpenaiStatus();
+      setAlertModal({
+        open: true,
+        title: "OpenAI Disconnected",
+        message: "Reverted to OpenRouter. Your bot is restarting.",
+        type: "success",
+      });
+      setInstance((prev) => prev ? { ...prev, status: "restarting" } : null);
+    } catch (err) {
+      setAlertModal({
+        open: true,
+        title: "Disconnect Failed",
+        message: err instanceof Error ? err.message : "Failed to disconnect",
+        type: "error",
+      });
+    } finally {
+      setOpenaiLoading(false);
     }
   };
 
@@ -1468,6 +1608,121 @@ export function Dashboard() {
         {/* SETTINGS TAB */}
         {activeTab === "settings" && (
           <div className="animate-fade-in">
+            {/* OpenAI Provider Card — full width above the grid */}
+            <div className="cyber-card p-5 mb-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Zap className="w-4 h-4 text-[#B6FF2E]" />
+                <h3 className="text-sm font-semibold">AI Provider</h3>
+              </div>
+
+              {openaiStatus?.connected ? (
+                /* Connected to OpenAI */
+                <div className="space-y-3">
+                  <div className="p-3 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Check className="w-4 h-4 text-[#B6FF2E]" />
+                        <span className="text-sm font-medium text-[#B6FF2E]">OpenAI Connected</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold uppercase">
+                        Codex
+                      </span>
+                    </div>
+                    {openaiStatus.accountId && (
+                      <p className="text-xs text-[#A8A8A8] mt-1.5 mono">{openaiStatus.accountId}</p>
+                    )}
+                    {openaiStatus.expired && (
+                      <p className="text-xs text-[#FF2E8C] mt-1.5">Token expired — reconnect to refresh</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {openaiStatus.expired && (
+                      <button
+                        onClick={startOpenaiAuth}
+                        disabled={openaiLoading || openaiWaitingForCode}
+                        className="btn-primary text-xs py-2 px-3 flex-1 justify-center"
+                      >
+                        {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                        Reconnect
+                      </button>
+                    )}
+                    <button
+                      onClick={disconnectOpenai}
+                      disabled={openaiLoading}
+                      className="text-xs py-2 px-3 text-[#A8A8A8] border border-white/10 rounded-full hover:text-[#FF2E8C] hover:border-[#FF2E8C]/30 transition-all inline-flex items-center gap-1.5 justify-center flex-1"
+                    >
+                      <Unplug className="w-3 h-3" />
+                      Disconnect & Use OpenRouter
+                    </button>
+                  </div>
+                </div>
+              ) : openaiWaitingForCode ? (
+                /* Waiting for user to paste callback URL */
+                <div className="space-y-3">
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                    <p className="text-sm text-white font-medium mb-2">
+                      Paste the callback URL
+                    </p>
+                    <p className="text-xs text-[#A8A8A8] mb-3 leading-relaxed">
+                      After signing in with OpenAI, you'll be redirected to a page that won't load.
+                      That's expected! Copy the <span className="text-white">full URL</span> from your browser's address bar and paste it below.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-xs"
+                        placeholder="http://127.0.0.1:1455/auth/callback?code=..."
+                        value={openaiCallbackUrl}
+                        onChange={(e) => setOpenaiCallbackUrl(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleCallbackUrlSubmit()}
+                      />
+                      <button
+                        onClick={handleCallbackUrlSubmit}
+                        disabled={openaiLoading || !openaiCallbackUrl}
+                        className="btn-primary text-xs py-2.5 px-4 whitespace-nowrap"
+                      >
+                        {openaiLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            <ClipboardPaste className="w-3.5 h-3.5" />
+                            Submit
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={cancelOpenaiAuth}
+                    className="btn-secondary text-xs py-2 px-3 w-full justify-center"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                /* Not connected — show connect option */
+                <div className="space-y-3">
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2 h-2 rounded-full bg-[#A8A8A8]" />
+                      <span className="text-sm text-[#A8A8A8]">Using OpenRouter</span>
+                    </div>
+                    <p className="text-xs text-[#A8A8A8]">
+                      Connect your ChatGPT Plus/Pro subscription to use OpenAI models without an API key.
+                    </p>
+                  </div>
+                  <button
+                    onClick={startOpenaiAuth}
+                    disabled={openaiLoading}
+                    className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5"
+                  >
+                    {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                    Connect OpenAI Account
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Model & API Key */}
               <div className="cyber-card p-5">

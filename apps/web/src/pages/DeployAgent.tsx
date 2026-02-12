@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut, Zap, Shield, Lock, Clock, Sparkles, Check } from 'lucide-react';
-import { MODELS, CUSTOM_MODEL_ID } from '../lib/models';
+import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut, Zap, Shield, Lock, Clock, Sparkles, Check, Unplug, ClipboardPaste } from 'lucide-react';
+import { MODELS, CUSTOM_MODEL_ID, getModelsForProvider, DEFAULT_OPENAI_MODEL, type LlmProvider } from '../lib/models';
 import { useAuth } from '../lib/auth';
 import { backend } from '../lib/api';
+import { generatePKCE, getAuthorizeUrl, extractCodeFromUrl, type PKCEParams } from '../lib/openai-pkce';
 import botTokenVideo from '../assets/bot-token.mp4';
 import openrouterKeyVideo from '../assets/openrouter-key.mp4';
 
@@ -263,12 +264,21 @@ export function DeployAgent() {
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [botUsername, setBotUsername] = useState("");
   const [botName, setBotName] = useState("");
-  // Step 3: OpenRouter key
+  // Step 3: LLM Provider
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>("openrouter");
+  // Step 3 (OpenRouter): API key
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [keyInfo, setKeyInfo] = useState<OpenRouterKeyInfo | null>(null);
   const [keyVerified, setKeyVerified] = useState(false);
   const [verifyingKey, setVerifyingKey] = useState(false);
+  // Step 3 (OpenAI Codex): PKCE auth
+  const [openaiConnected, setOpenaiConnected] = useState(false);
+  const [openaiLoading, setOpenaiLoading] = useState(false);
+  const [openaiWaitingForCode, setOpenaiWaitingForCode] = useState(false);
+  const [openaiCallbackUrl, setOpenaiCallbackUrl] = useState("");
+  const pkceRef = useRef<PKCEParams | null>(null);
   // Step 4: Model
+  const providerModels = getModelsForProvider(llmProvider);
   const [model, setModel] = useState(MODELS[0].id);
   const [customModelId, setCustomModelId] = useState("");
   // Shared
@@ -406,6 +416,75 @@ export function DeployAgent() {
     }
   };
 
+  // ── OpenAI PKCE auth ────────────────────────────────────────
+  const startOpenaiAuth = async () => {
+    setError("");
+    setOpenaiLoading(true);
+    try {
+      const pkce = await generatePKCE();
+      pkceRef.current = pkce;
+      const url = getAuthorizeUrl(pkce.challenge, pkce.state);
+
+      // Open OpenAI authorize page in a new tab
+      window.open(url, "_blank");
+
+      // Show the "paste callback URL" state
+      setOpenaiWaitingForCode(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start OpenAI auth");
+    } finally {
+      setOpenaiLoading(false);
+    }
+  };
+
+  const handleCallbackUrlSubmit = async () => {
+    if (!pkceRef.current) return;
+    setError("");
+
+    const result = extractCodeFromUrl(openaiCallbackUrl);
+    if (!result) {
+      setError("Could not find authorization code in the URL. Make sure you copied the full URL from your browser.");
+      return;
+    }
+
+    if (result.state !== pkceRef.current.state) {
+      setError("State mismatch. Please try the flow again.");
+      return;
+    }
+
+    setOpenaiLoading(true);
+    try {
+      await backend.openaiExchange(result.code, pkceRef.current.verifier);
+      setOpenaiConnected(true);
+      setOpenaiWaitingForCode(false);
+      setOpenaiCallbackUrl("");
+      pkceRef.current = null;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to exchange code");
+    } finally {
+      setOpenaiLoading(false);
+    }
+  };
+
+  const cancelOpenaiAuth = () => {
+    setOpenaiWaitingForCode(false);
+    setOpenaiCallbackUrl("");
+    setOpenaiLoading(false);
+    pkceRef.current = null;
+    setError("");
+  };
+
+  // When provider changes, reset model to the first model for that provider
+  const handleProviderChange = (provider: LlmProvider) => {
+    setLlmProvider(provider);
+    setError("");
+    const models = getModelsForProvider(provider);
+    if (models.length > 0) {
+      setModel(models[0].id);
+    }
+    setCustomModelId("");
+  };
+
   const validate = async (): Promise<boolean> => {
     setError("");
 
@@ -440,29 +519,38 @@ export function DeployAgent() {
     }
 
     if (step === 3) {
-      if (!openrouterApiKey.startsWith("sk-or-")) {
-        setError("API key should start with sk-or-");
-        return false;
-      }
-      if (!keyVerified) {
-        setVerifyingKey(true);
-        const info = await fetchKeyInfo(openrouterApiKey);
-        setVerifyingKey(false);
-        if (!info) {
-          setError("Could not verify API key");
+      if (llmProvider === "openrouter") {
+        if (!openrouterApiKey.startsWith("sk-or-")) {
+          setError("API key should start with sk-or-");
           return false;
         }
-        setKeyInfo(info);
-        setKeyVerified(true);
+        if (!keyVerified) {
+          setVerifyingKey(true);
+          const info = await fetchKeyInfo(openrouterApiKey);
+          setVerifyingKey(false);
+          if (!info) {
+            setError("Could not verify API key");
+            return false;
+          }
+          setKeyInfo(info);
+          setKeyVerified(true);
+        }
+      } else if (llmProvider === "openai-codex") {
+        if (!openaiConnected) {
+          setError("Please connect your OpenAI account first");
+          return false;
+        }
       }
     }
 
     if (step === 4 && model === CUSTOM_MODEL_ID) {
       if (!customModelId.trim()) {
-        setError("Enter a model ID (e.g. google/gemini-2.5-flash)");
+        setError(llmProvider === "openrouter"
+          ? "Enter a model ID (e.g. google/gemini-2.5-flash)"
+          : "Enter a model ID (e.g. o4-mini)");
         return false;
       }
-      if (!customModelId.includes("/")) {
+      if (llmProvider === "openrouter" && !customModelId.includes("/")) {
         setError("Model ID should be in format: provider/model-name");
         return false;
       }
@@ -477,12 +565,15 @@ export function DeployAgent() {
       setStep(step + 1);
     } else {
       // Final step - store config and navigate to dashboard for creation
-      const resolvedModel = model === CUSTOM_MODEL_ID ? `openrouter/${customModelId}` : model;
+      const resolvedModel = model === CUSTOM_MODEL_ID
+        ? (llmProvider === "openrouter" ? `openrouter/${customModelId}` : `openai-codex/${customModelId}`)
+        : model;
       sessionStorage.setItem("pmc_deploy_config", JSON.stringify({
         telegramBotToken,
-        openrouterApiKey,
+        openrouterApiKey: llmProvider === "openrouter" ? openrouterApiKey : "",
         botUsername,
         model: resolvedModel,
+        llmProvider,
       }));
       navigate("/dashboard");
     }
@@ -828,7 +919,7 @@ export function DeployAgent() {
             </div>
           )}
 
-          {/* Step 3: OpenRouter API Key */}
+          {/* Step 3: AI Provider */}
           {step === 3 && (
             <div className="animate-fade-in">
               <div className="flex items-center gap-3 mb-4">
@@ -836,100 +927,248 @@ export function DeployAgent() {
                   <Key className="w-5 h-5 text-[#FF2E8C]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">OpenRouter API Key</h2>
-                  <p className="text-sm text-[#A8A8A8]">Powers your agent's AI capabilities</p>
+                  <h2 className="text-xl font-bold">AI Provider</h2>
+                  <p className="text-sm text-[#A8A8A8]">Choose how to power your agent's AI</p>
                 </div>
               </div>
 
-              {/* Video tutorial */}
-              <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 mb-6">
-                <VideoWithSkeleton
-                  src={openrouterKeyVideo}
-                  blobUrl={openrouterKeyBlobUrl}
-                  className="self-center aspect-video"
-                />
+              {/* Provider tabs */}
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => handleProviderChange("openrouter")}
+                  className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all border ${
+                    llmProvider === "openrouter"
+                      ? "bg-white/10 border-[#B6FF2E]/50 text-white"
+                      : "bg-white/5 border-transparent text-[#A8A8A8] hover:border-white/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Key className="w-4 h-4" />
+                    OpenRouter API Key
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleProviderChange("openai-codex")}
+                  className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all border ${
+                    llmProvider === "openai-codex"
+                      ? "bg-white/10 border-[#B6FF2E]/50 text-white"
+                      : "bg-white/5 border-transparent text-[#A8A8A8] hover:border-white/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Zap className="w-4 h-4" />
+                    ChatGPT Subscription
+                  </div>
+                </button>
+              </div>
 
-                {/* Instructions */}
-                <div className="bg-white/5 rounded-lg p-4 flex flex-col justify-start">
-                  <p className="text-[10px] font-semibold text-[#A8A8A8] mb-3 uppercase tracking-wider">
-                    Steps
-                  </p>
-                  <InstructionStep number={1}>
-                    Go to{" "}
-                    <a
-                      href="https://openrouter.ai"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#2ED0FF] hover:underline inline-flex items-center gap-1"
-                    >
-                      openrouter.ai <ExternalLink className="w-3 h-3" />
-                    </a>
-                    {" "}and sign up (free)
-                  </InstructionStep>
-                  <InstructionStep number={2}>
-                    Click your profile icon, then go to{" "}
-                    <a
-                      href="https://openrouter.ai/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#2ED0FF] hover:underline inline-flex items-center gap-1"
-                    >
-                      Keys <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </InstructionStep>
-                  <InstructionStep number={3}>
-                    Click "Create Key" and copy it
-                  </InstructionStep>
+              {/* OpenRouter panel */}
+              {llmProvider === "openrouter" && (
+                <div>
+                  {/* Video tutorial */}
+                  <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 mb-6">
+                    <VideoWithSkeleton
+                      src={openrouterKeyVideo}
+                      blobUrl={openrouterKeyBlobUrl}
+                      className="self-center aspect-video"
+                    />
+
+                    {/* Instructions */}
+                    <div className="bg-white/5 rounded-lg p-4 flex flex-col justify-start">
+                      <p className="text-[10px] font-semibold text-[#A8A8A8] mb-3 uppercase tracking-wider">
+                        Steps
+                      </p>
+                      <InstructionStep number={1}>
+                        Go to{" "}
+                        <a
+                          href="https://openrouter.ai"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#2ED0FF] hover:underline inline-flex items-center gap-1"
+                        >
+                          openrouter.ai <ExternalLink className="w-3 h-3" />
+                        </a>
+                        {" "}and sign up (free)
+                      </InstructionStep>
+                      <InstructionStep number={2}>
+                        Click your profile icon, then go to{" "}
+                        <a
+                          href="https://openrouter.ai/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#2ED0FF] hover:underline inline-flex items-center gap-1"
+                        >
+                          Keys <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </InstructionStep>
+                      <InstructionStep number={3}>
+                        Click "Create Key" and copy it
+                      </InstructionStep>
+                    </div>
+                  </div>
+
+                  {/* Input area */}
+                  <div>
+                    <p className="text-xs text-[#A8A8A8] mb-3">
+                      Free models available - you only pay for premium models.
+                    </p>
+                    <label className="text-sm font-medium text-[#A8A8A8] mb-2 block">API Key</label>
+                    <input
+                      type="password"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-sm"
+                      placeholder="sk-or-v1-..."
+                      value={openrouterApiKey}
+                      onChange={handleKeyChange}
+                    />
+
+                    {verifyingKey && (
+                      <div className="flex items-center gap-2 mt-3 text-[#A8A8A8] text-sm">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Verifying key...
+                      </div>
+                    )}
+
+                    {keyVerified && keyInfo && (
+                      <div className="mt-4 p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
+                          <span className="font-semibold text-[#B6FF2E]">Key Verified</span>
+                          {keyInfo.is_free_tier && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold ml-1">
+                              FREE TIER
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-sm">
+                          <div>
+                            <span className="text-[#A8A8A8]">Credits: </span>
+                            <span className="text-white">
+                              {keyInfo.limit_remaining !== null ? `$${keyInfo.limit_remaining.toFixed(2)}` : "Unlimited"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#A8A8A8]">Used today: </span>
+                            <span className="text-white">${keyInfo.usage_daily.toFixed(4)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Input area */}
-              <div>
-                <p className="text-xs text-[#A8A8A8] mb-3">
-                  Free models available - you only pay for premium models.
-                </p>
-                <label className="text-sm font-medium text-[#A8A8A8] mb-2 block">API Key</label>
-                <input
-                  type="password"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-sm"
-                  placeholder="sk-or-v1-..."
-                  value={openrouterApiKey}
-                  onChange={handleKeyChange}
-                />
-
-                {verifyingKey && (
-                  <div className="flex items-center gap-2 mt-3 text-[#A8A8A8] text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying key...
+              {/* OpenAI Codex panel */}
+              {llmProvider === "openai-codex" && (
+                <div>
+                  <div className="bg-white/5 rounded-lg p-4 mb-5">
+                    <p className="text-xs text-[#A8A8A8] leading-relaxed">
+                      Use your existing <span className="text-white font-medium">ChatGPT Plus</span> or{" "}
+                      <span className="text-white font-medium">Pro</span> subscription to power your agent.
+                      No API key needed — just sign in with your OpenAI account.
+                    </p>
                   </div>
-                )}
 
-                {keyVerified && keyInfo && (
-                  <div className="mt-4 p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
-                      <span className="font-semibold text-[#B6FF2E]">Key Verified</span>
-                      {keyInfo.is_free_tier && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold ml-1">
-                          FREE TIER
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-sm">
-                      <div>
-                        <span className="text-[#A8A8A8]">Credits: </span>
-                        <span className="text-white">
-                          {keyInfo.limit_remaining !== null ? `$${keyInfo.limit_remaining.toFixed(2)}` : "Unlimited"}
-                        </span>
+                  {openaiConnected ? (
+                    /* Connected state */
+                    <div className="p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
+                          <span className="font-semibold text-[#B6FF2E]">OpenAI Connected</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setOpenaiConnected(false);
+                            setError("");
+                          }}
+                          className="text-xs text-[#A8A8A8] hover:text-[#FF2E8C] transition-colors flex items-center gap-1"
+                        >
+                          <Unplug className="w-3 h-3" />
+                          Disconnect
+                        </button>
                       </div>
-                      <div>
-                        <span className="text-[#A8A8A8]">Used today: </span>
-                        <span className="text-white">${keyInfo.usage_daily.toFixed(4)}</span>
-                      </div>
+                      <p className="text-xs text-[#A8A8A8] mt-2">
+                        Your OpenAI account is linked. Click Next to choose your model.
+                      </p>
                     </div>
-                  </div>
-                )}
-              </div>
+                  ) : openaiWaitingForCode ? (
+                    /* Waiting for user to paste callback URL */
+                    <div className="space-y-4">
+                      <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                        <p className="text-sm text-white font-medium mb-2">
+                          Paste the callback URL
+                        </p>
+                        <p className="text-xs text-[#A8A8A8] mb-3 leading-relaxed">
+                          After signing in with OpenAI, you'll be redirected to a page that won't load.
+                          That's expected! Copy the <span className="text-white">full URL</span> from your browser's address bar and paste it below.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-xs"
+                            placeholder="http://127.0.0.1:1455/auth/callback?code=..."
+                            value={openaiCallbackUrl}
+                            onChange={(e) => setOpenaiCallbackUrl(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleCallbackUrlSubmit()}
+                          />
+                          <button
+                            onClick={handleCallbackUrlSubmit}
+                            disabled={openaiLoading || !openaiCallbackUrl}
+                            className="btn-primary text-xs py-2.5 px-4 whitespace-nowrap"
+                          >
+                            {openaiLoading ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <>
+                                <ClipboardPaste className="w-3.5 h-3.5" />
+                                Submit
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        onClick={cancelOpenaiAuth}
+                        className="btn-secondary text-xs py-2 px-3 w-full justify-center"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    /* Initial state — connect button */
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-3">
+                        <InstructionStep number={1}>
+                          Click "Connect OpenAI Account" — a sign-in page will open
+                        </InstructionStep>
+                        <InstructionStep number={2}>
+                          Sign in with your OpenAI account and authorize access
+                        </InstructionStep>
+                        <InstructionStep number={3}>
+                          You'll be redirected to a page that won't load — copy the URL and paste it back here
+                        </InstructionStep>
+                      </div>
+                      <button
+                        onClick={startOpenaiAuth}
+                        disabled={openaiLoading}
+                        className="btn-primary w-full text-sm py-3 justify-center"
+                      >
+                        {openaiLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4" />
+                            Connect OpenAI Account
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -946,8 +1185,20 @@ export function DeployAgent() {
                 </div>
               </div>
 
-              {/* API Key Usage Info */}
-              {keyInfo && (
+              {/* Provider badge */}
+              <div className="p-3 bg-white/5 rounded-lg mb-4 flex items-center gap-2 text-sm">
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#B6FF2E]/20 text-[#B6FF2E] uppercase">
+                  {llmProvider === "openai-codex" ? "OpenAI" : "OpenRouter"}
+                </span>
+                <span className="text-[#A8A8A8] text-xs">
+                  {llmProvider === "openai-codex"
+                    ? "Models available through your ChatGPT subscription"
+                    : "Models available through OpenRouter"}
+                </span>
+              </div>
+
+              {/* API Key Usage Info (OpenRouter only) */}
+              {llmProvider === "openrouter" && keyInfo && (
                 <div className="p-4 bg-white/5 rounded-lg mb-4 grid grid-cols-2 gap-2 text-sm">
                   <div className="col-span-2 text-xs font-semibold text-[#A8A8A8] uppercase tracking-wider mb-1">
                     API Key Info
@@ -967,7 +1218,7 @@ export function DeployAgent() {
 
               {/* Model Selection */}
               <div className="grid grid-cols-2 gap-3">
-                {MODELS.map((m) => (
+                {providerModels.map((m) => (
                   <label
                     key={m.id}
                     className={`
@@ -1037,22 +1288,28 @@ export function DeployAgent() {
                     <span className="font-medium text-sm">Enter your own</span>
                   </div>
                   <div className="text-xs text-[#A8A8A8]">
-                    Copy model ID from{" "}
-                    <a
-                      href="https://openrouter.ai/models"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#2ED0FF] hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      openrouter.ai/models
-                    </a>
+                    {llmProvider === "openrouter" ? (
+                      <>
+                        Copy model ID from{" "}
+                        <a
+                          href="https://openrouter.ai/models"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#2ED0FF] hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          openrouter.ai/models
+                        </a>
+                      </>
+                    ) : (
+                      "Enter an OpenAI model ID (e.g. o4-mini)"
+                    )}
                   </div>
                   {model === CUSTOM_MODEL_ID && (
                     <input
                       type="text"
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 text-sm mono"
-                      placeholder="e.g. google/gemini-2.5-flash"
+                      placeholder={llmProvider === "openrouter" ? "e.g. google/gemini-2.5-flash" : "e.g. o4-mini"}
                       value={customModelId}
                       onChange={(e) => setCustomModelId(e.target.value)}
                       onClick={(e) => e.stopPropagation()}

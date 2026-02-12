@@ -2,17 +2,55 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db";
-import { instances, users, subscriptions } from "../db/schema";
+import { instances, users, subscriptions, type Instance } from "../db/schema";
 import * as docker from "../services/docker";
 import { encrypt, decrypt } from "../services/crypto";
 import { instanceCreationRateLimit } from "../middleware/rate-limit";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
+import { completedTokens } from "./openai-auth";
 
 type Variables = { userId: number };
 const instanceRoutes = new Hono<{ Variables: Variables }>();
 
 const DEFAULT_MODEL = "openrouter/moonshotai/kimi-k2.5";
+
+/**
+ * Build a Docker InstanceConfig from a DB instance record + user.
+ * Decrypts all encrypted secrets. Used by create, start, and update flows.
+ */
+function buildDockerConfig(
+  instance: Instance,
+  user: { id: number; telegramId: string },
+  overrides?: { telegramBotToken?: string; openrouterApiKey?: string; model?: string }
+): docker.InstanceConfig {
+  const telegramBotToken =
+    overrides?.telegramBotToken || decrypt(instance.telegramBotToken);
+  const openrouterApiKey =
+    overrides?.openrouterApiKey || decrypt(instance.openrouterApiKey);
+  const model = overrides?.model || instance.model || DEFAULT_MODEL;
+
+  const config: docker.InstanceConfig = {
+    instanceId: instance.id,
+    userId: user.id,
+    telegramOwnerId: user.telegramId,
+    telegramBotToken,
+    openrouterApiKey,
+    model,
+    llmProvider: instance.llmProvider || "openrouter",
+  };
+
+  // Add OpenAI tokens if using Codex provider
+  if (instance.llmProvider === "openai-codex" && instance.openaiAccessToken) {
+    config.openaiAccessToken = decrypt(instance.openaiAccessToken);
+    if (instance.openaiRefreshToken) {
+      config.openaiRefreshToken = decrypt(instance.openaiRefreshToken);
+    }
+    config.openaiAccountId = instance.openaiAccountId || undefined;
+  }
+
+  return config;
+}
 
 /**
  * Safely parse a string to an integer.
@@ -26,8 +64,9 @@ function safeParseInt(value: string): number | null {
 const createSchema = z.object({
   telegramBotToken: z.string().min(1),
   telegramBotUsername: z.string().min(1).optional(),
-  openrouterApiKey: z.string().min(1),
+  openrouterApiKey: z.string().default(""),
   model: z.string().min(1).optional(),
+  llmProvider: z.enum(["openrouter", "openai-codex"]).default("openrouter"),
 });
 
 const updateSchema = z.object({
@@ -98,11 +137,27 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  const model = parsed.data.model || DEFAULT_MODEL;
+  const llmProvider = parsed.data.llmProvider;
+  const model = parsed.data.model || (llmProvider === "openai-codex" ? "openai-codex/o4-mini" : DEFAULT_MODEL);
+
+  // Validate provider-specific requirements
+  if (llmProvider === "openrouter" && !parsed.data.openrouterApiKey) {
+    return c.json({ error: "OpenRouter API key is required" }, 400);
+  }
+
+  // For OpenAI Codex, retrieve tokens from the completed device code flow
+  let openaiTokens: { accessToken: string; refreshToken?: string; accountId: string | null; expiresAt: number } | undefined;
+  if (llmProvider === "openai-codex") {
+    openaiTokens = completedTokens.get(userId);
+    if (!openaiTokens) {
+      return c.json({ error: "OpenAI authentication required. Please connect your OpenAI account first." }, 400);
+    }
+    completedTokens.delete(userId); // Consume the tokens
+  }
 
   // Encrypt sensitive data before storing
   const encryptedTelegramBotToken = encrypt(parsed.data.telegramBotToken);
-  const encryptedOpenrouterApiKey = encrypt(parsed.data.openrouterApiKey);
+  const encryptedOpenrouterApiKey = encrypt(parsed.data.openrouterApiKey || "");
 
   // Insert DB row first (with encrypted secrets)
   const [instance] = await db
@@ -115,19 +170,25 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
       bankrApiKey: "", // No longer used - self-managed wallet
       model,
       status: "pending",
+      llmProvider,
+      ...(openaiTokens && {
+        openaiAccessToken: encrypt(openaiTokens.accessToken),
+        openaiRefreshToken: openaiTokens.refreshToken ? encrypt(openaiTokens.refreshToken) : null,
+        openaiAccountId: openaiTokens.accountId,
+        openaiTokenExpires: openaiTokens.expiresAt,
+      }),
     })
     .returning();
 
   // Create Docker container (with plaintext secrets for env vars)
   try {
-    const containerId = await docker.createInstance({
-      instanceId: instance.id,
-      userId: user.id, // Used for persistent data directory
-      telegramOwnerId: user.telegramId,
-      telegramBotToken: parsed.data.telegramBotToken, // plaintext for Docker env
-      openrouterApiKey: parsed.data.openrouterApiKey,
-      model,
-    });
+    const containerId = await docker.createInstance(
+      buildDockerConfig(instance, user, {
+        telegramBotToken: parsed.data.telegramBotToken,
+        openrouterApiKey: parsed.data.openrouterApiKey,
+        model,
+      })
+    );
 
     await db
       .update(instances)
@@ -233,19 +294,10 @@ instanceRoutes.post("/:id/start", async (c) => {
         if (isNotFound) {
           console.log(`[start] Container ${instance.containerId.slice(0, 12)} not found, recreating...`);
           
-          // Decrypt stored credentials
-          const telegramBotToken = decrypt(instance.telegramBotToken);
-          const openrouterApiKey = decrypt(instance.openrouterApiKey);
-          
-          // Recreate the container
-          const containerId = await docker.createInstance({
-            instanceId: instance.id,
-            userId: user.id,
-            telegramOwnerId: user.telegramId,
-            telegramBotToken,
-            openrouterApiKey,
-            model: instance.model || DEFAULT_MODEL,
-          });
+          // Recreate the container with all credentials
+          const containerId = await docker.createInstance(
+            buildDockerConfig(instance, user)
+          );
           
           // Update DB with new container ID
           await db
@@ -263,17 +315,9 @@ instanceRoutes.post("/:id/start", async (c) => {
       // No container ID stored, create new container
       console.log(`[start] No container ID for instance ${id}, creating new container...`);
       
-      const telegramBotToken = decrypt(instance.telegramBotToken);
-      const openrouterApiKey = decrypt(instance.openrouterApiKey);
-      
-      const containerId = await docker.createInstance({
-        instanceId: instance.id,
-        userId: user.id,
-        telegramOwnerId: user.telegramId,
-        telegramBotToken,
-        openrouterApiKey,
-        model: instance.model || DEFAULT_MODEL,
-      });
+      const containerId = await docker.createInstance(
+        buildDockerConfig(instance, user)
+      );
       
       await db
         .update(instances)
@@ -399,15 +443,10 @@ instanceRoutes.patch("/:id", async (c) => {
     try {
       await docker.deleteInstance(instance.containerId);
 
-      // Decrypt stored secrets for Docker env vars
-      const containerId = await docker.createInstance({
-        instanceId: updated.id,
-        userId: user.id, // Used for persistent data directory
-        telegramOwnerId: user.telegramId,
-        telegramBotToken: decrypt(updated.telegramBotToken),
-        openrouterApiKey: decrypt(updated.openrouterApiKey),
-        model: updated.model,
-      });
+      // Recreate with all credentials (including OpenAI tokens if set)
+      const containerId = await docker.createInstance(
+        buildDockerConfig(updated, user)
+      );
 
       await db
         .update(instances)

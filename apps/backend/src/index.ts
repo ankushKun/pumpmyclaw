@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import authRoutes from "./routes/auth";
 import instanceRoutes from "./routes/instances";
 import adminRoutes from "./routes/admin";
+import openaiAuthRoutes from "./routes/openai-auth";
 import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
 import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
@@ -131,6 +132,9 @@ app.use("/api/*", async (c, next) => {
 
 // ── Instance routes (protected) ───────────────────────────────────
 app.route("/api/instances", instanceRoutes);
+
+// ── OpenAI Codex auth routes (protected) ──────────────────────────
+app.route("/api/openai-auth", openaiAuthRoutes);
 
 // ── Subscription routes (protected — checkout, status) ────────────
 app.route("/api", subscriptionRoutes);
