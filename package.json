@@ -22,7 +22,9 @@
     "@neondatabase/serverless": "^0.10.0"
   },
   "workspaces": [
-    "apps/*",
+    "apps/api",
+    "apps/backend",
+    "apps/web",
     "packages/*"
   ]
 }
