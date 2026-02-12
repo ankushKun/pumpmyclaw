@@ -5,7 +5,7 @@
  * requests to the authorize endpoint. So the flow is split:
  *
  *   1. Frontend generates PKCE verifier/challenge, opens authorize URL in browser
- *   2. User authorizes, gets redirected to 127.0.0.1:1455/auth/callback (fails to load)
+ *   2. User authorizes, gets redirected to localhost:1455/auth/callback (fails to load)
  *   3. User pastes the callback URL back into our app
  *   4. Frontend extracts `code` param, sends { code, codeVerifier } to backend
  *   5. Backend exchanges code for tokens at auth.openai.com/oauth/token (works server-side)
@@ -30,7 +30,7 @@ const openaiAuthRoutes = new Hono<{ Variables: Variables }>();
 // ── Constants ──────────────────────────────────────────────────────
 const OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
-const REDIRECT_URI = "http://127.0.0.1:1455/auth/callback";
+const REDIRECT_URI = "http://localhost:1455/auth/callback";
 
 // In-memory store for completed auth tokens (keyed by userId)
 // Used when auth completes before an instance exists (deploy wizard flow).

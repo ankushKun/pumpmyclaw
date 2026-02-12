@@ -4,16 +4,15 @@
  * Flow:
  *   1. generatePKCE() → { verifier, challenge, state }
  *   2. getAuthorizeUrl(challenge, state) → URL to open in popup
- *   3. User authorizes in OpenAI, gets redirected to 127.0.0.1:1455/auth/callback
+ *   3. User authorizes in OpenAI, gets redirected to localhost:1455/auth/callback
  *   4. extractCodeFromUrl(callbackUrl) → auth code
  *   5. Send { code, codeVerifier } to backend /api/openai-auth/exchange
  */
 
 const OPENAI_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const AUTHORIZE_URL = "https://auth.openai.com/authorize";
-const REDIRECT_URI = "http://127.0.0.1:1455/auth/callback";
+const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
+const REDIRECT_URI = "http://localhost:1455/auth/callback";
 const SCOPE = "openid profile email offline_access";
-const AUDIENCE = "https://api.openai.com/v1";
 
 /** Generate a random string of given length using crypto */
 function randomString(length: number): string {
@@ -60,13 +59,14 @@ export async function generatePKCE(): Promise<PKCEParams> {
 /** Build the OpenAI authorize URL */
 export function getAuthorizeUrl(challenge: string, state: string): string {
   const params = new URLSearchParams({
-    client_id: OPENAI_CLIENT_ID,
     response_type: "code",
+    client_id: OPENAI_CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     scope: SCOPE,
-    audience: AUDIENCE,
     code_challenge: challenge,
     code_challenge_method: "S256",
+    id_token_add_organizations: "true",
+    codex_cli_simplified_flow: "true",
     state,
   });
   return `${AUTHORIZE_URL}?${params.toString()}`;

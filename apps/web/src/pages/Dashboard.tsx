@@ -1671,7 +1671,7 @@ export function Dashboard() {
                       <input
                         type="text"
                         className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-xs"
-                        placeholder="http://127.0.0.1:1455/auth/callback?code=..."
+                        placeholder="http://localhost:1455/auth/callback?code=..."
                         value={openaiCallbackUrl}
                         onChange={(e) => setOpenaiCallbackUrl(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleCallbackUrlSubmit()}
