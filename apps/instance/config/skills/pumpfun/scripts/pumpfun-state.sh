@@ -105,6 +105,8 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         case "$COST_SOL" in ''|null) COST_SOL="0" ;; esac
         case "$AGE_MIN" in ''|null) AGE_MIN="0" ;; esac
         case "$HELD_TOKENS" in ''|null) HELD_TOKENS="0" ;; esac
+        # Truncate AGE_MIN to integer for bash -gt comparisons
+        AGE_MIN=$(printf '%.0f' "$AGE_MIN" 2>/dev/null) || AGE_MIN="0"
 
         # Fetch current market data — timeout quickly, never block
         COIN_DATA=$(curl -sf --max-time 6 \
@@ -138,9 +140,9 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         SELL_SIGNAL="HOLD"
         if [ "$IS_COMPLETE" = "true" ]; then
             SELL_SIGNAL="SELL_NOW:graduated"
-        elif safe_cmp "$PNL_PCT >= 30"; then
+        elif safe_cmp "$PNL_PCT >= 15"; then
             SELL_SIGNAL="SELL_NOW:take_profit"
-        elif safe_cmp "$PNL_PCT <= -20"; then
+        elif safe_cmp "$PNL_PCT <= -10"; then
             SELL_SIGNAL="SELL_NOW:stop_loss"
         elif [ "${AGE_MIN:-0}" -gt 10 ] 2>/dev/null && safe_cmp "$PNL_PCT <= 5"; then
             SELL_SIGNAL="SELL_NOW:stale_position"
@@ -194,9 +196,12 @@ if ! echo "$ENRICHED_POSITIONS" | jq -e '.' >/dev/null 2>&1; then
     ENRICHED_POSITIONS="{}"
 fi
 
+WALLET_ADDRESS="${SOLANA_PUBLIC_KEY:-unknown}"
+
 jq -n \
     --arg sol "$SOL_BALANCE" \
     --arg mode "$MODE" \
+    --arg wallet "$WALLET_ADDRESS" \
     --arg active "$ACTIVE_POSITIONS" \
     --arg profit "$TOTAL_PROFIT" \
     --argjson positions "$ENRICHED_POSITIONS" \
@@ -208,6 +213,7 @@ jq -n \
     '{
         sol_balance: ($sol | tonumber? // 0),
         mode: $mode,
+        wallet_address: $wallet,
         active_positions: ($active | tonumber? // 0),
         total_profit_sol: ($profit | tonumber? // 0),
         positions: $positions,

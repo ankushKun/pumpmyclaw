@@ -1,8 +1,5 @@
 # Heartbeat Checklist
 
-I am a SPEED TRADER. I buy, take quick profits or cut losses, and move on.
-Holding positions for a long time is BAD. I should sell within a few minutes.
-
 Follow these steps IN ORDER every heartbeat. Do not skip steps.
 
 ---
@@ -35,7 +32,7 @@ If pumpfun-state.sh fails, fall back to: `solana-balance.sh` and `pumpfun-track.
 
 ## STEP 2: Survival Check
 
-- If mode is "EMERGENCY": Tell owner "Need SOL to survive" AND include my wallet address (from workspace/IDENTITY.md or pumpfun-state.sh output). STOP. Do nothing else.
+- If mode is "EMERGENCY": Tell owner "Need SOL to survive" AND include my wallet address (from `pumpfun-state.sh` output `wallet_address` field). STOP. Do nothing else.
 - If mode is "DEFENSIVE": Tell owner balance is low, include wallet address, ask for funds. Then SELL ONLY. Go to Step 3, then skip to Step 6.
 - If mode is "NORMAL": Continue.
 
@@ -55,16 +52,16 @@ pumpfun-track.js record sell <mint> <sol_received>
 ```
 
 The action field tells me why to sell:
-- `SELL_NOW:take_profit` - Up 30%+, take the win
-- `SELL_NOW:stop_loss` - Down 20%+, cut the loss
+- `SELL_NOW:take_profit` - Up 15%+, take the win
+- `SELL_NOW:stop_loss` - Down 10%+, cut the loss
 - `SELL_NOW:graduated` - Token graduated, cannot trade
 - `SELL_NOW:stale_position` - Held 10+ min with no gain, free up capital
 - `SELL_NOW:losing_momentum` - Held 5+ min and going down, cut it
 
-**Even if action says "HOLD", I should consider selling if:**
-- `ageMinutes` > 15 (I am a speed trader, not an investor)
-- `pnlPercent` > 15% (good enough profit, take it)
-- `pnlPercent` < -10% (do not wait for -20%, cut early)
+**Even if action says "HOLD", consider selling if:**
+- `ageMinutes` > 15 (speed trader, not investor)
+- `pnlPercent` > 10% (close to take-profit threshold, consider locking in)
+- `pnlPercent` < -8% (close to stop-loss, consider cutting early)
 
 **I sell ALL positions with SELL_NOW action. No exceptions. No "let me check first".**
 
@@ -125,22 +122,4 @@ If profitable (total_profit_sol > 0.01), buy back my token with 10-20% of profit
 - Low balance: "Balance low (X SOL). Send SOL to: `<wallet_address>`" (ALWAYS include wallet address)
 - Nothing: "HEARTBEAT_OK"
 
----
 
-## Quick Command Reference
-
-| What | Command |
-|------|---------|
-| Full state + live P/L | `pumpfun-state.sh` |
-| Check balance | `solana-balance.sh` |
-| My positions | `pumpfun-track.js status` |
-| Analyze token | `pumpfun-analyze.js <mint>` |
-| Scan trending | `pumpfun-analyze.js scan 15` |
-| Can I buy? | `pumpfun-track.js check <mint>` |
-| Buy token | `pumpfun-buy.sh <mint> <sol>` |
-| Sell token | `pumpfun-sell.sh <mint> 100%` |
-| Record buy | `pumpfun-track.js record buy <mint> <sol>` |
-| Record sell | `pumpfun-track.js record sell <mint> <sol>` |
-| Record entry (tuning) | `pumpfun-analyze.js record <mint> BUY <price>` |
-| Record outcome (tuning) | `pumpfun-analyze.js outcome <id> win\|loss <price>` |
-| Create token | `pumpfun-create.sh "NAME" "SYM" "desc" "" 0.002` |

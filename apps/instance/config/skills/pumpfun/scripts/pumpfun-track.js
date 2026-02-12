@@ -40,11 +40,18 @@ function loadTrades() {
   for (const [mint, pos] of Object.entries(data.positions)) {
     // Old positions may lack boughtAt — estimate from trade history or use now
     if (!pos.boughtAt) {
-      // Try to find the last buy trade for this mint
       const lastBuy = [...data.trades].reverse().find(
         t => t.mint === mint && t.action === 'buy' && t.timestamp
       );
       pos.boughtAt = lastBuy ? lastBuy.timestamp : new Date().toISOString();
+      needsSave = true;
+    }
+    // Backfill firstBoughtAt from earliest buy trade for this mint
+    if (!pos.firstBoughtAt) {
+      const firstBuy = data.trades.find(
+        t => t.mint === mint && t.action === 'buy' && t.timestamp
+      );
+      pos.firstBoughtAt = firstBuy ? firstBuy.timestamp : pos.boughtAt;
       needsSave = true;
     }
     // Ensure all expected numeric fields exist
@@ -104,12 +111,15 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
     // Track position for P/L
     if (!data.positions) data.positions = {};
     if (!data.positions[mint]) {
-      data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0, boughtAt: timestamp };
+      data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0, firstBoughtAt: timestamp, boughtAt: timestamp };
     }
     data.positions[mint].totalCostSOL += sol;
     data.positions[mint].buyCount += 1;
-    // Always update boughtAt to the latest buy time
+    // boughtAt tracks latest buy; firstBoughtAt tracks entry time (never updated)
     data.positions[mint].boughtAt = timestamp;
+    if (!data.positions[mint].firstBoughtAt) {
+      data.positions[mint].firstBoughtAt = timestamp;
+    }
     if (tokenAmount) {
       data.positions[mint].totalTokens += parseFloat(tokenAmount);
     }
@@ -172,10 +182,11 @@ function getStatus() {
     if (!pos || typeof pos !== 'object') continue;
     const totalTokens = typeof pos.totalTokens === 'number' ? pos.totalTokens : 0;
     if (totalTokens > 0) {
-      // Calculate age in minutes since last buy — safe fallback to 0 if missing/invalid
+      // Calculate age in minutes since first buy — safe fallback to boughtAt or 0
       let ageMinutes = 0;
-      if (pos.boughtAt) {
-        const boughtTime = new Date(pos.boughtAt).getTime();
+      const entryTime = pos.firstBoughtAt || pos.boughtAt;
+      if (entryTime) {
+        const boughtTime = new Date(entryTime).getTime();
         if (!isNaN(boughtTime)) {
           ageMinutes = Math.max(0, Math.round((now - boughtTime) / 60000));
         }

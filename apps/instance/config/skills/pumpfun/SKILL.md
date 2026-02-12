@@ -281,7 +281,7 @@ The analyzer uses **three data sources** for comprehensive analysis:
 *Additional Indicators:*
 - `BOLLINGER_SQUEEZE` - Low volatility, breakout imminent
 
-**IMPORTANT: Always use the full path above. Do NOT use relative paths.**
+**NOTE: Scripts are available on PATH. You can run them by short name (e.g. `pumpfun-state.sh`).**
 
 ## How Trading Works
 

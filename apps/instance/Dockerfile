@@ -7,7 +7,7 @@ FROM ${BASE_IMAGE}
 # The entrypoint will copy these to the bind-mount if skills dir is empty
 COPY --chown=openclaw:openclaw config/skills/ /home/openclaw/.bundled-skills/
 
-# Copy bundled workspace files (IDENTITY.md, SOUL.md) for bot personality
+# Copy bundled workspace files (AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, etc.)
 COPY --chown=openclaw:openclaw config/workspace/ /home/openclaw/.bundled-workspace/
 
 # Copy scripts — entrypoint runs as root, setup-and-run as openclaw

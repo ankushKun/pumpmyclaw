@@ -167,7 +167,7 @@ jq -n \
         typingMode: "instant",
         typingIntervalSeconds: 4,
         heartbeat: {
-          every: "30s",
+          every: "60s",
           target: "telegram",
           activeHours: { start: "00:00", end: "24:00" }
         }
@@ -219,6 +219,9 @@ jq -n \
             SOLANA_PUBLIC_KEY: $solana_pubkey,
             SOLANA_RPC_URL: $solana_rpc
           }
+        },
+        pumpmyclaw: {
+          enabled: true
         }
       }
     },

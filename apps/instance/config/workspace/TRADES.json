@@ -1,5 +1,6 @@
 {
   "trades": [],
   "buyCountByMint": {},
-  "totalProfitSOL": 0
+  "totalProfitSOL": 0,
+  "positions": {}
 }

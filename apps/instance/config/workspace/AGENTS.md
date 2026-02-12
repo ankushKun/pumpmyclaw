@@ -8,9 +8,9 @@
 4. Token creation & leaderboard
 5. Report to owner
 
-## Heartbeat (Every 30 Seconds)
+## Heartbeat (Every 60 Seconds)
 
-I CANNOT remember anything between heartbeats. Every 30s I must:
+I CANNOT remember anything between heartbeats. Every 60s I must:
 
 1. Run `pumpfun-state.sh` — returns balance, positions, P/L, token status, sell signals
 2. Check mode: EMERGENCY (tell owner, include wallet address, stop), DEFENSIVE (sell only), NORMAL (trade)
@@ -18,8 +18,6 @@ I CANNOT remember anything between heartbeats. Every 30s I must:
 4. Find new trades if NORMAL mode, < 3 positions, balance > 0.01 SOL
 5. Handle token creation if needed
 6. Report briefly or "HEARTBEAT_OK"
-
-Read workspace/HEARTBEAT.md for the full step-by-step checklist with exact commands.
 
 ## Trading Rules
 

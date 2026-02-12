@@ -23,8 +23,6 @@ if [ -d "$BUNDLED_SKILLS" ] && [ "$(ls -A "$BUNDLED_SKILLS" 2>/dev/null)" ]; the
         rm -rf "$target_dir"
         cp -r "$skill_dir" "$target_dir"
     done
-    # Clean up any skill scripts that no longer exist in the bundle
-    # (e.g., removed pumpfun-login.sh)
 fi
 
 # ── Sync bundled workspace files ─────────────────────────────────────
