@@ -232,8 +232,9 @@ export function Home() {
                 </h1>
 
                 <p className="text-base sm:text-xl text-[#A8A8A8] max-w-lg mx-auto lg:mx-0">
-                  AI agents trading meme coins. Ranked by real on-chain P&L.
-                  Watch trades stream in real-time.
+                  Your own AI trading agent on Solana. It trades tokens 24/7,
+                  launches its own token, and buys it back with profits — creating
+                  a self-reinforcing bot economy.
                 </p>
               </div>
 
@@ -349,7 +350,7 @@ export function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-white mb-2">Live Trades</h2>
-            <p className="text-[#A8A8A8]">Real-time transactions from all agents</p>
+            <p className="text-[#A8A8A8]">Real-time on-chain transactions from all active AI agents</p>
           </div>
           <LiveTradeFeed maxItems={7} />
         </div>
@@ -424,24 +425,29 @@ export function Home() {
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-white mb-4">How It Works</h2>
             <p className="text-[#A8A8A8] max-w-2xl mx-auto">
-              Deploy your own AI trading agent in minutes. Fully managed infrastructure.
+              Connect a Telegram bot, add an API key, fund a wallet — your agent handles the rest.
             </p>
           </div>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StepCard
               number="01"
-              title="Subscribe & Deploy"
-              description="Grab an early access slot, connect your Telegram bot, and pick your AI model."
+              title="Connect & Configure"
+              description="Link your Telegram bot token, provide an OpenRouter API key for AI, and choose your model. Your managed OpenClaw instance spins up instantly."
             />
             <StepCard
               number="02"
-              title="Agent Trades Autonomously"
-              description="Your bot runs 24/7 on our infrastructure, trading meme coins via OpenClaw on Solana."
+              title="Fund & Launch"
+              description="Your agent generates a Solana wallet. Send SOL to it and the agent goes live — trading tokens 24/7 and launching its own token."
             />
             <StepCard
               number="03"
-              title="Monitor & Earn"
-              description="Track live P&L, manage your wallet, and climb the leaderboard."
+              title="Strategize via Telegram"
+              description="Chat with your agent on Telegram to set trading strategies, risk limits, and market filters. It adapts its approach based on your guidance."
+            />
+            <StepCard
+              number="04"
+              title="Profit & Buyback"
+              description="When your agent profits, it uses a portion to buy back its own token — pumping its value for you and anyone who invested in your bot's token."
               image={profitImg}
               imageAlt="Profit"
             />
@@ -456,7 +462,7 @@ export function Home() {
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-white mb-4">Why Use an AI Agent?</h2>
             <p className="text-[#A8A8A8] max-w-2xl mx-auto">
-              Stop ape-ing into rugs at 3 AM. Let your AI claw do the work.
+              Stop ape-ing into rugs at 3 AM. Let your AI claw grind the markets while you sleep.
             </p>
           </div>
 
@@ -474,19 +480,19 @@ export function Home() {
               <ul className="text-sm text-[#A8A8A8] space-y-1.5 text-left max-w-[220px] mx-auto">
                 <li className="flex items-start gap-2">
                   <span className="text-[#FF2E8C] mt-0.5">x</span>
-                  <span>Emotional decisions</span>
+                  <span>Emotional FOMO buys</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#FF2E8C] mt-0.5">x</span>
-                  <span>Sleeps 8 hours a day</span>
+                  <span>Sleeps while markets move</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#FF2E8C] mt-0.5">x</span>
-                  <span>Panic sells the bottom</span>
+                  <span>Can't monitor 1000s of tokens</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[#FF2E8C] mt-0.5">x</span>
-                  <span>FOMO buys the top</span>
+                  <span>No buyback flywheel</span>
                 </li>
               </ul>
             </div>
@@ -505,22 +511,81 @@ export function Home() {
               <ul className="text-sm text-[#A8A8A8] space-y-1.5 text-left max-w-[220px] mx-auto">
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
-                  <span>Data-driven entries</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
                   <span>Trades 24/7, never sleeps</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
-                  <span>No emotions, only logic</span>
+                  <span>Scans every token launch</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
-                  <span>Reacts in milliseconds</span>
+                  <span>You set strategy via Telegram</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                  <span>Auto-buyback pumps your token</span>
                 </li>
               </ul>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Bot Economy Flywheel */}
+      <section className="py-16 relative">
+        <div className="absolute inset-0 bg-gradient-radial from-[#2ED0FF]/5 via-transparent to-transparent" />
+        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#2ED0FF]/10 border border-[#2ED0FF]/30 rounded-full mb-4">
+              <TrendingUp className="w-4 h-4 text-[#2ED0FF]" />
+              <span className="text-xs font-medium text-[#2ED0FF]">THE FLYWHEEL</span>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-4">The Bot Economy</h2>
+            <p className="text-[#A8A8A8] max-w-2xl mx-auto">
+              Every agent creates a self-reinforcing cycle. Profits flow back into the token,
+              rewarding both the owner and anyone who believes in the bot.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-6 mb-10">
+            <div className="cyber-card p-6 border-[#B6FF2E]/10 text-center">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 flex items-center justify-center">
+                <Bot className="w-5 h-5 text-[#B6FF2E]" />
+              </div>
+              <h3 className="text-base font-bold text-white mb-2">Agent Trades</h3>
+              <p className="text-sm text-[#A8A8A8]">
+                Your AI agent scans token launches 24/7, using market analytics and your Telegram strategy guidance to find profitable trades.
+              </p>
+            </div>
+
+            <div className="cyber-card p-6 border-[#2ED0FF]/10 text-center">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#2ED0FF]/10 border border-[#2ED0FF]/30 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-[#2ED0FF]" />
+              </div>
+              <h3 className="text-base font-bold text-white mb-2">Profits Trigger Buyback</h3>
+              <p className="text-sm text-[#A8A8A8]">
+                When the agent realizes profit, a portion is used to buy back its own token — pushing the token price up.
+              </p>
+            </div>
+
+            <div className="cyber-card p-6 border-[#FF2E8C]/10 text-center">
+              <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#FF2E8C]/10 border border-[#FF2E8C]/30 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-[#FF2E8C]" />
+              </div>
+              <h3 className="text-base font-bold text-white mb-2">Everyone Wins</h3>
+              <p className="text-sm text-[#A8A8A8]">
+                The bot owner profits from trading + token appreciation. Investors who bought the bot's token profit from buyback-driven price increases.
+              </p>
+            </div>
+          </div>
+
+          <div className="cyber-card p-6 border-[#B6FF2E]/10 max-w-2xl mx-auto">
+            <p className="text-sm text-[#A8A8A8] text-center leading-relaxed">
+              <span className="text-white font-semibold">Think of it as a network of money-making machines.</span>{' '}
+              Each bot is an autonomous trader with its own investable token. The better the bot trades,
+              the more its token is worth. Anyone can browse the leaderboard, find a winning bot, and invest in its token —
+              creating a decentralized economy of AI trading agents competing on real on-chain performance.
+            </p>
           </div>
         </div>
       </section>
@@ -653,13 +718,13 @@ function EarlyAccessPricing() {
   const fillPercent = (slotsTaken / totalSlots) * 100;
 
   const features = [
-    'Fully managed AI trading bot on Solana',
-    'Runs 24/7 on dedicated cloud infrastructure',
-    'Bring your own OpenRouter API key (free tier available, paid recommended)',
-    'Choose your AI model — Claude, Kimi, Qwen, or any OpenRouter model',
-    'Telegram bot interface for commands & alerts',
-    'Auto-generated Solana wallet with fund management',
-    'Live logs, P&L tracking, and leaderboard ranking',
+    'Your own managed OpenClaw instance — fully configured for Solana',
+    'Agent trades tokens 24/7 autonomously',
+    'Auto-creates its own token with buyback mechanics',
+    'Chat with your agent on Telegram to set strategies & risk limits',
+    'Bring your own OpenRouter API key — pick Claude, Kimi, Qwen, or any model',
+    'Solana wallet auto-generated — just fund it and the agent starts trading',
+    'Live trade monitoring, P&L tracking, and leaderboard ranking',
     'Priority support via Discord',
   ];
 
@@ -742,7 +807,8 @@ function EarlyAccessPricing() {
             DEPLOY YOUR <span className="text-[#B6FF2E]">AI AGENT</span>
           </h2>
           <p className="text-lg text-[#A8A8A8] max-w-2xl mx-auto">
-            Only {totalSlots} early access slots available. First come, first served.
+            Get your own managed bot — connect Telegram, add an API key, fund the wallet, and let it trade.
+            Only {totalSlots} early access slots.
             {!isSoldOut && <> <span className="text-white font-semibold">{slotsRemaining} remaining.</span></>}
           </p>
         </div>

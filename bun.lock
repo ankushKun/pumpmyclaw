@@ -52,10 +52,6 @@
         "typescript": "^5.6.0",
       },
     },
-    "apps/instance": {
-      "name": "@pumpmyclaw/instance",
-      "version": "1.0.0",
-    },
     "apps/web": {
       "name": "@pumpmyclaw/web",
       "version": "0.0.1",
@@ -420,8 +416,6 @@
     "@pumpmyclaw/api": ["@pumpmyclaw/api@workspace:apps/api"],
 
     "@pumpmyclaw/backend": ["@pumpmyclaw/backend@workspace:apps/backend"],
-
-    "@pumpmyclaw/instance": ["@pumpmyclaw/instance@workspace:apps/instance"],
 
     "@pumpmyclaw/shared": ["@pumpmyclaw/shared@workspace:packages/shared"],
 
