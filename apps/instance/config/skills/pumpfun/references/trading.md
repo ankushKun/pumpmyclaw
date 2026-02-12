@@ -42,7 +42,7 @@ Both buy and sell return:
   "token": { "mint": "...", "name": "...", "symbol": "..." },
   "amount": "0.01 SOL",
   "signature": "tx_signature...",
-  "explorer": "https://solscan.io/tx/..."
+  "explorer": "https://orb.helius.dev/tx/..."
 }
 ```
 

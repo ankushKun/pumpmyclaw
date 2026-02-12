@@ -147,8 +147,9 @@ echo "[pmc] Telegram owner: ${TELEGRAM_OWNER_ID}"
 echo "[pmc] Solana wallet: ${SOLANA_PUBLIC_KEY}"
 
 # Build auth profiles + env section based on provider
-# For openai-codex, we don't set auth.profiles in openclaw.json — auth is handled
-# via ~/.codex/auth.json written separately below.
+# For openai-codex, auth is handled via auth-profiles.json (written below).
+# No auth.profiles metadata needed in openclaw.json — OpenClaw discovers
+# profiles from auth-profiles.json automatically.
 if [ "$LLM_PROVIDER" = "openai-codex" ]; then
     AUTH_PROFILES='{}'
     ENV_EXTRAS='{}'
@@ -190,10 +191,12 @@ jq -n \
         skipBootstrap: true,
         compaction: { mode: "safeguard" },
         maxConcurrent: 4,
+        timeoutSeconds: 180,
         typingMode: "instant",
         typingIntervalSeconds: 4,
         heartbeat: {
-          every: "60s",
+          every: "120s",
+          session: "heartbeat",
           target: "telegram",
           activeHours: { start: "00:00", end: "24:00" }
         }
@@ -219,7 +222,14 @@ jq -n \
     messages: {
       ackReaction: "👀",
       ackReactionScope: "all",
-      removeAckAfterReply: true
+      removeAckAfterReply: true,
+      queue: {
+        mode: "collect",
+        debounceMs: 2000
+      },
+      inbound: {
+        debounceMs: 3000
+      }
     },
     gateway: {
       port: 18789,
@@ -267,27 +277,39 @@ SOLANA_RPC_URL=${SOLANA_RPC_URL}
 EOF
 
 # --- OpenAI Codex auth setup ---
-# If using OpenAI Codex provider, write ~/.codex/auth.json so OpenClaw can use
+# If using OpenAI Codex provider, write auth-profiles.json so OpenClaw can use
 # the Codex subscription for LLM calls (no API key billing needed).
+# Auth profiles live at: ~/.openclaw/agents/<agentId>/agent/auth-profiles.json
 if [ "$LLM_PROVIDER" = "openai-codex" ] && [ -n "${OPENAI_ACCESS_TOKEN:-}" ]; then
-    CODEX_DIR="$HOME/.codex"
-    mkdir -p "$CODEX_DIR"
+    AUTH_PROFILES_DIR="$OPENCLAW_DIR/agents/main/agent"
+    mkdir -p "$AUTH_PROFILES_DIR"
+
+    # Calculate expires timestamp (ms) — use OPENAI_TOKEN_EXPIRES if set,
+    # otherwise default to 30 days from now
+    if [ -n "${OPENAI_TOKEN_EXPIRES:-}" ]; then
+        EXPIRES_MS="$OPENAI_TOKEN_EXPIRES"
+    else
+        EXPIRES_MS=$(node -e "console.log(Date.now() + 30*24*60*60*1000)")
+    fi
 
     jq -n \
-      --arg access_token "$OPENAI_ACCESS_TOKEN" \
-      --arg refresh_token "${OPENAI_REFRESH_TOKEN:-}" \
-      --arg account_id "${OPENAI_ACCOUNT_ID:-}" \
+      --arg access "$OPENAI_ACCESS_TOKEN" \
+      --arg refresh "${OPENAI_REFRESH_TOKEN:-}" \
+      --argjson expires "$EXPIRES_MS" \
       '{
-        tokens: {
-          access_token: $access_token,
-          refresh_token: $refresh_token,
-          account_id: (if $account_id != "" then $account_id else null end)
-        },
-        last_refresh: (now | todate)
-      }' > "$CODEX_DIR/auth.json"
+        profiles: {
+          "openai-codex:default": {
+            type: "oauth",
+            provider: "openai-codex",
+            access: $access,
+            refresh: (if $refresh != "" then $refresh else null end),
+            expires: $expires
+          }
+        }
+      }' > "$AUTH_PROFILES_DIR/auth-profiles.json"
 
-    chmod 600 "$CODEX_DIR/auth.json"
-    echo "[pmc] Wrote Codex auth.json for OpenAI subscription auth"
+    chmod 600 "$AUTH_PROFILES_DIR/auth-profiles.json"
+    echo "[pmc] Wrote auth-profiles.json for OpenAI Codex subscription auth"
 fi
 
 echo "[pmc] Configuration written to $OPENCLAW_DIR/openclaw.json"

@@ -30,12 +30,16 @@ export function formatNumber(value: string | number): string {
   return new Intl.NumberFormat('en-US').format(num);
 }
 
-export function solscanTxUrl(signature: string): string {
-  return `https://solscan.io/tx/${signature}`;
+export function explorerTxUrl(signature: string): string {
+  return `https://orb.helius.dev/tx/${signature}`;
 }
 
-export function solscanAccountUrl(address: string): string {
-  return `https://solscan.io/account/${address}`;
+export function explorerWalletUrl(address: string): string {
+  return `https://orbmarkets.io/address/${address}`;
+}
+
+export function explorerTokenUrl(mint: string): string {
+  return `https://dexscreener.com/solana/${mint}`;
 }
 
 export function formatCompactUsd(value: number | string): string {

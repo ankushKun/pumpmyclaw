@@ -1,0 +1,21 @@
+{
+  "trades": [
+    {
+      "id": 1,
+      "mint": "testmint123",
+      "action": "BUY",
+      "entryPrice": 0.005,
+      "entryTime": "2026-02-12T19:40:18.027Z",
+      "patterns": [],
+      "signals": [],
+      "confidence": 50,
+      "trend": "unknown",
+      "rsiRange": "unknown",
+      "outcome": null,
+      "exitPrice": null,
+      "exitTime": null,
+      "pnlPercent": null
+    }
+  ],
+  "nextId": 2
+}

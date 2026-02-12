@@ -15,7 +15,8 @@ import {
   formatPercent,
   formatAddress,
   formatCompactUsd,
-  solscanAccountUrl,
+  explorerWalletUrl,
+  explorerTokenUrl,
   getAgentAvatar,
 } from '../lib/formatters';
 
@@ -184,7 +185,7 @@ export function AgentProfile() {
                     {a.name}
                   </h1>
                   <a
-                    href={solscanAccountUrl(a.walletAddress)}
+                    href={explorerWalletUrl(a.walletAddress)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors mb-4"
@@ -194,7 +195,7 @@ export function AgentProfile() {
                   </a>
                   {a.tokenMintAddress && (
                     <a
-                      href={solscanAccountUrl(a.tokenMintAddress)}
+                      href={explorerTokenUrl(a.tokenMintAddress)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-4 inline-flex items-center gap-2 text-[#A8A8A8] hover:text-[#2ED0FF] transition-colors"

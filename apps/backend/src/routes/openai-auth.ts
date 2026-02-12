@@ -88,7 +88,7 @@ async function storeTokens(
         openaiRefreshToken: refreshToken ? encrypt(refreshToken) : null,
         openaiAccountId: accountId,
         openaiTokenExpires: expiresAt,
-        model: "openai-codex/o4-mini",
+        model: "openai-codex/gpt-5.3-codex",
       })
       .where(eq(instances.id, instance.id));
 
@@ -115,6 +115,7 @@ async function storeTokens(
               openaiAccessToken: accessToken,
               openaiRefreshToken: refreshToken || undefined,
               openaiAccountId: accountId || undefined,
+              openaiTokenExpires: expiresAt,
             });
             await db
               .update(instances)
@@ -185,7 +186,7 @@ openaiAuthRoutes.post("/exchange", async (c) => {
       status: "authorized",
       accountId,
       expiresAt,
-      model: "openai-codex/o4-mini",
+      model: "openai-codex/gpt-5.3-codex",
     });
   } catch (err) {
     console.error("[openai-auth] Exchange error:", err);

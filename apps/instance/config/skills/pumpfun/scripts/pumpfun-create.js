@@ -328,7 +328,7 @@ async function createToken(name, symbol, description, imagePath, config, devBuyS
         return {
             success: true,
             token: { name, symbol, mint: mint.publicKey, description: description || `${name} - A Pump.fun memecoin`, metadataUri: ipfs.metadataUri },
-            transaction: { signature: txSignature, explorer: `https://solscan.io/tx/${txSignature}` },
+            transaction: { signature: txSignature, explorer: `https://orb.helius.dev/tx/${txSignature}` },
             links: { pumpfun: `https://pump.fun/coin/${mint.publicKey}`, dexscreener: `https://dexscreener.com/solana/${mint.publicKey}` }
         };
     } finally {

@@ -86,5 +86,5 @@ jq -n \
         confirmations: (if $confirmations != "null" and $confirmations != "" then ($confirmations | tonumber) else null end),
         confirmationStatus: $confirmationStatus,
         error: (if $error != "" then $error else null end),
-        explorer: ("https://solscan.io/tx/" + $signature)
+        explorer: ("https://orb.helius.dev/tx/" + $signature)
     }'

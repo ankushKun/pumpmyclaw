@@ -194,7 +194,7 @@ Output: JSON with transaction signature
                 to: toAddress,
                 amount: amountSol,
                 lamports,
-                explorer: `https://solscan.io/tx/${txSignature}`
+                explorer: `https://orb.helius.dev/tx/${txSignature}`
             }, null, 2));
         }
         

@@ -664,6 +664,7 @@ admin.post("/api/update-all", async (c) => {
             config.openaiRefreshToken = decrypt(instance.openaiRefreshToken);
           }
           config.openaiAccountId = instance.openaiAccountId || undefined;
+          config.openaiTokenExpires = instance.openaiTokenExpires || undefined;
         }
 
         return config;
@@ -878,6 +879,7 @@ admin.post("/update-all", async (c) => {
             config.openaiRefreshToken = decrypt(instance.openaiRefreshToken);
           }
           config.openaiAccountId = instance.openaiAccountId || undefined;
+          config.openaiTokenExpires = instance.openaiTokenExpires || undefined;
         }
 
         return config;

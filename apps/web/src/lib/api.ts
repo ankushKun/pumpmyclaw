@@ -62,6 +62,23 @@ export interface WalletToken {
   mint: string;
   balance: string;
   decimals: number;
+  // DexScreener enrichment
+  name: string | null;
+  symbol: string | null;
+  priceUsd: number | null;
+  valueUsd: number | null;
+  priceChange: Record<string, number> | null;
+  marketCap: number | null;
+  fdv: number | null;
+  liquidity: number | null;
+  imageUrl: string | null;
+  dexUrl: string | null;
+  dexId: string | null;
+  // Cost basis / P&L from TRADES.json
+  costBasisSOL: number | null;
+  currentValueSOL: number | null;
+  pnlPercent: number | null;
+  boughtAt: string | null;
 }
 
 export interface WalletTransaction {
@@ -70,7 +87,48 @@ export interface WalletTransaction {
   type: string;
   success: boolean;
   solChange: string | null;
-  tokenChanges: Array<{ mint: string; change: string }> | null;
+  tokenChanges: Array<{
+    mint: string;
+    change: string;
+    symbol: string | null;
+    name: string | null;
+    imageUrl: string | null;
+  }> | null;
+  profitSOL: number | null;
+}
+
+export interface DayStats {
+  profit: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface WalletStats {
+  today: DayStats;
+  week: Array<DayStats & { date: string }>;
+  allTime: DayStats;
+  activePositions: number;
+}
+
+export interface LiquidateResult {
+  success: boolean;
+  summary: {
+    tokensFound: number;
+    tokensSold: number;
+    tokensFailed: number;
+    solTransferred: boolean;
+    transferSignature: string | null;
+  };
+  results: Array<{
+    step: string;
+    success: boolean;
+    signature?: string;
+    error?: string;
+    mint?: string;
+    symbol?: string;
+  }>;
 }
 
 class BackendClient {
@@ -249,6 +307,18 @@ class BackendClient {
 
   async getWalletTransactions(id: number, limit = 20): Promise<{ transactions: WalletTransaction[] }> {
     return this.request<{ transactions: WalletTransaction[] }>(`/api/instances/${id}/wallet/transactions?limit=${limit}`);
+  }
+
+  async getWalletStats(id: number): Promise<WalletStats> {
+    return this.request<WalletStats>(`/api/instances/${id}/wallet/stats`);
+  }
+
+  /** Liquidate: sell all tokens and transfer all SOL to user's wallet */
+  async liquidate(id: number, destinationWallet: string): Promise<LiquidateResult> {
+    return this.request<LiquidateResult>(`/api/instances/${id}/liquidate`, {
+      method: 'POST',
+      body: JSON.stringify({ destinationWallet }),
+    });
   }
 
   // ── OpenAI Codex Auth (PKCE flow) ──────────────────────────────

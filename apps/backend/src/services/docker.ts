@@ -45,6 +45,8 @@ export interface InstanceConfig {
   openaiRefreshToken?: string;
   /** OpenAI account ID */
   openaiAccountId?: string;
+  /** Token expiry timestamp (ms since epoch) */
+  openaiTokenExpires?: number;
 }
 
 /**
@@ -378,6 +380,9 @@ export async function createInstance(config: InstanceConfig): Promise<string> {
   }
   if (config.openaiAccountId) {
     envVars.push(`OPENAI_ACCOUNT_ID=${config.openaiAccountId}`);
+  }
+  if (config.openaiTokenExpires) {
+    envVars.push(`OPENAI_TOKEN_EXPIRES=${config.openaiTokenExpires}`);
   }
 
   const container = await docker.createContainer({

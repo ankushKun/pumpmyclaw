@@ -37,56 +37,49 @@ export const MODELS: readonly ModelDef[] = [
     provider: "openrouter",
   },
   {
-    id: "openrouter/qwen/qwen3-coder:free",
-    name: "Qwen3 Coder",
-    desc: "Solid free option, 262k context. May have rate limits.",
+    id: "openrouter/openai/gpt-oss-120b:free",
+    name: "GPT-OSS 120B",
+    desc: "Free OpenAI open-source model. May have rate limits.",
     free: true,
     provider: "openrouter",
   },
-  // ── OpenAI Codex models ───────────────────────────────────────
+  // ── OpenAI Codex models (ChatGPT subscription via OAuth) ─────
   {
-    id: "openai-codex/o4-mini",
-    name: "o4-mini",
-    desc: "Fast reasoning, great value",
+    id: "openai-codex/gpt-5.3-codex",
+    name: "GPT-5.3 Codex",
+    desc: "Latest Codex model, 266k context",
     provider: "openai-codex",
     badge: "Recommended",
   },
   {
-    id: "openai-codex/o3",
-    name: "o3",
-    desc: "Most capable reasoning model",
+    id: "openai-codex/gpt-5.2-codex",
+    name: "GPT-5.2 Codex",
+    desc: "Previous-gen Codex, 266k context",
     provider: "openai-codex",
   },
   {
-    id: "openai-codex/gpt-4.1",
-    name: "GPT-4.1",
-    desc: "Best for coding, 1M context",
+    id: "openai-codex/gpt-5.2",
+    name: "GPT-5.2",
+    desc: "General-purpose, 266k context",
     provider: "openai-codex",
   },
   {
-    id: "openai-codex/gpt-4.1-mini",
-    name: "GPT-4.1 Mini",
-    desc: "Fast coding model, low cost",
+    id: "openai-codex/gpt-5.1-codex-max",
+    name: "GPT-5.1 Codex Max",
+    desc: "Max-capability Codex, 266k context",
     provider: "openai-codex",
   },
   {
-    id: "openai-codex/gpt-4.1-nano",
-    name: "GPT-4.1 Nano",
-    desc: "Fastest, lowest cost",
+    id: "openai-codex/gpt-5.1-codex-mini",
+    name: "GPT-5.1 Codex Mini",
+    desc: "Lighter Codex variant, 266k context",
     provider: "openai-codex",
   },
   {
-    id: "openai-codex/o4-mini-high",
-    name: "o4-mini (high)",
-    desc: "o4-mini with high reasoning effort",
+    id: "openai-codex/gpt-5.1",
+    name: "GPT-5.1",
+    desc: "General-purpose, 266k context",
     provider: "openai-codex",
-  },
-  {
-    id: "openai-codex/codex-mini-latest",
-    name: "Codex Mini",
-    desc: "Optimized for Codex CLI tasks",
-    provider: "openai-codex",
-    badge: "Codex",
   },
 ];
 
@@ -99,7 +92,7 @@ export function getModelsForProvider(provider: LlmProvider): readonly ModelDef[]
 }
 
 export const DEFAULT_MODEL = MODELS[0].id;
-export const DEFAULT_OPENAI_MODEL = "openai-codex/o4-mini";
+export const DEFAULT_OPENAI_MODEL = "openai-codex/gpt-5.3-codex";
 
 /**
  * Get the display name for a model ID.

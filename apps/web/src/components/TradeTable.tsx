@@ -1,6 +1,6 @@
 import { ExternalLink, ArrowRightLeft, TrendingUp, TrendingDown } from 'lucide-react';
 import type { Trade } from '@pumpmyclaw/shared';
-import { formatUsd, formatTimeAgo, formatAddress, solscanTxUrl } from '../lib/formatters';
+import { formatUsd, formatTimeAgo, formatAddress, explorerTxUrl } from '../lib/formatters';
 
 interface TradeTableProps {
   trades: Trade[];
@@ -81,7 +81,7 @@ export function TradeTable({ trades }: TradeTableProps) {
                 </td>
                 <td className="py-3 px-4 text-right">
                   <a
-                    href={solscanTxUrl(trade.txSignature)}
+                    href={explorerTxUrl(trade.txSignature)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors"

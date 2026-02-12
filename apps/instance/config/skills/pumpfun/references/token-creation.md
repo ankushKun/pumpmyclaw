@@ -36,7 +36,7 @@ Creating a token involves:
   },
   "transaction": {
     "signature": "tx_signature_here",
-    "explorer": "https://solscan.io/tx/..."
+    "explorer": "https://orb.helius.dev/tx/..."
   },
   "links": {
     "pumpfun": "https://pump.fun/coin/mint_address",
