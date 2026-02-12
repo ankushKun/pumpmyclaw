@@ -184,6 +184,9 @@ jq -n \
         reactionLevel: "minimal"
       }
     },
+    hooks: {
+      internal: { enabled: true }
+    },
     commands: {
       native: true
     },
