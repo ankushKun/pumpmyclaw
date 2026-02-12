@@ -36,7 +36,68 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="3. Eligibility">
+          <Section title="3. Experimental Nature of the Service">
+            <div className="p-4 bg-[#FF8C2E]/5 border border-[#FF8C2E]/20 rounded-xl space-y-3">
+              <p className="text-[#d4d4d4] font-semibold">
+                Pump My Claw is an experimental project under active development.
+              </p>
+              <p>
+                The Service is provided on an "as-is" and "as-available" basis.
+                While we are committed to maintaining all systems at peak
+                efficiency and reliability, we make no guarantees that every
+                feature will function as intended at all times. Bugs, unexpected
+                behavior, breaking changes, and periods of instability may occur
+                as we iterate on the platform.
+              </p>
+              <p>
+                By using the Service, you acknowledge and accept that you are
+                participating in an early-stage product. We will make every
+                reasonable effort to minimize disruptions, communicate known
+                issues promptly, and resolve problems as quickly as possible —
+                but we cannot promise a flawless experience.
+              </p>
+            </div>
+          </Section>
+
+          <Section title="4. AI Model Selection & Agent Performance">
+            <p className="mb-3">
+              You are responsible for selecting the AI model that powers your
+              trading agent. This choice has a direct and significant impact on
+              how your agent reasons, makes decisions, and executes trades.
+            </p>
+            <ul className="list-disc list-inside space-y-2 text-[#A8A8A8]">
+              <li>
+                <span className="text-[#d4d4d4]">Model quality matters</span> —
+                A more capable, higher-quality language model will generally
+                produce more coherent analysis, better risk assessment, and
+                smarter trade execution. A lower-quality or poorly suited model
+                may make irrational decisions, misinterpret market data, or
+                trade erratically — potentially leading to rapid loss of funds.
+              </li>
+              <li>
+                <span className="text-[#d4d4d4]">No model is infallible</span> —
+                Even the best AI models can and will make poor trades. Language
+                models are not financial oracles; they are probabilistic systems
+                that can hallucinate, misread context, or fail to adapt to
+                sudden market conditions.
+              </li>
+              <li>
+                <span className="text-[#d4d4d4]">Your choice, your responsibility</span> —
+                We provide the infrastructure; you choose the brain. We are not
+                liable for losses caused by the behavior of any AI model you
+                select, regardless of whether it is accessed through a free or
+                paid tier on OpenRouter.
+              </li>
+            </ul>
+            <p className="mt-3 text-[#A8A8A8]">
+              We recommend researching available models on OpenRouter and
+              selecting one that balances capability with cost for your use case.
+              Model performance on the leaderboard is public — use it as a
+              reference, not a guarantee.
+            </p>
+          </Section>
+
+          <Section title="5. Eligibility">
             <p>
               You must be at least 18 years old to use the Service. By using the
               Service, you represent that you are of legal age and have the
@@ -46,7 +107,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="4. Account & Authentication">
+          <Section title="6. Account & Authentication">
             <p>
               You authenticate via Telegram. You are responsible for maintaining
               the security of your Telegram account. You must not share your
@@ -55,7 +116,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="5. Subscription & Payment">
+          <Section title="7. Subscription & Payment">
             <ul className="list-disc list-inside space-y-2 text-[#A8A8A8]">
               <li>
                 <span className="text-[#d4d4d4]">Billing</span> —
@@ -78,7 +139,7 @@ export function Terms() {
             </ul>
           </Section>
 
-          <Section title="6. User Responsibilities">
+          <Section title="8. User Responsibilities">
             <p className="mb-3">You agree to:</p>
             <ul className="list-disc list-inside space-y-2 text-[#A8A8A8]">
               <li>Provide valid API keys (Telegram Bot Token, OpenRouter key) for your agent</li>
@@ -89,7 +150,7 @@ export function Terms() {
             </ul>
           </Section>
 
-          <Section title="7. Financial Risk Disclaimer">
+          <Section title="9. Financial Risk Disclaimer">
             <div className="p-4 bg-[#FF2E8C]/5 border border-[#FF2E8C]/20 rounded-xl space-y-3">
               <p className="text-[#d4d4d4] font-semibold">
                 IMPORTANT: Trading cryptocurrencies involves substantial risk of loss.
@@ -119,7 +180,7 @@ export function Terms() {
             </div>
           </Section>
 
-          <Section title="8. Intellectual Property">
+          <Section title="10. Intellectual Property">
             <p>
               All content, code, branding, and design of the Service are owned
               by Pump My Claw. You may not copy, modify, or redistribute any
@@ -129,7 +190,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="9. Service Availability">
+          <Section title="11. Service Availability">
             <p>
               We strive for high availability but do not guarantee uninterrupted
               service. The Service may experience downtime for maintenance,
@@ -139,7 +200,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="10. Limitation of Liability">
+          <Section title="12. Limitation of Liability">
             <p>
               To the maximum extent permitted by law, Pump My Claw and its
               operators shall not be liable for any indirect, incidental,
@@ -151,7 +212,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="11. Indemnification">
+          <Section title="13. Indemnification">
             <p>
               You agree to indemnify and hold harmless Pump My Claw, its
               operators, and affiliates from any claims, damages, or expenses
@@ -160,7 +221,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="12. Termination">
+          <Section title="14. Termination">
             <p>
               We reserve the right to suspend or terminate your account at our
               discretion if you violate these terms, abuse the Service, or
@@ -171,7 +232,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="13. Third-Party Services">
+          <Section title="15. Third-Party Services">
             <p>
               The Service integrates with third-party providers including
               Telegram, OpenRouter, Solana, Helius, DexScreener, and Dodo
@@ -181,7 +242,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="14. Governing Law">
+          <Section title="16. Governing Law">
             <p>
               These terms shall be governed by and construed in accordance with
               applicable law. Any disputes arising from these terms or your use
@@ -190,7 +251,7 @@ export function Terms() {
             </p>
           </Section>
 
-          <Section title="15. Contact">
+          <Section title="17. Contact">
             <p>
               For questions about these Terms & Conditions, contact us via our
               Telegram support channel.
