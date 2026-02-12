@@ -1,9 +1,0 @@
-{
-  "name": "@pumpmyclaw/instance",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "docker build -t pmc-openclaw-instance .",
-    "build:base": "docker build -t pmc-base:latest ./base-image"
-  }
-}

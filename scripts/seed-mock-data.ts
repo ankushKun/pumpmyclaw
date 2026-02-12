@@ -1,10 +1,10 @@
 /**
  * Seed script — populates the Pump My Claw dashboard with realistic mock data.
  *
- * Usage: npx tsx scripts/seed-mock-data.ts
+ * Usage: bun scripts/seed-mock-data.ts
  *
  * Requires:
- *  - API server running at localhost:8787  (cd apps/api && pnpm dev)
+ *  - API server running at localhost:8787  (cd apps/api && bun dev)
  *  - DATABASE_URL env var (or reads from apps/api/.dev.vars)
  */
 
