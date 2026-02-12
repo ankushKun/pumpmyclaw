@@ -83,16 +83,46 @@ ACTIVE_POSITIONS=$(echo "$TRACK_JSON" | jq -r '.activePositions // 0' 2>/dev/nul
 TOTAL_PROFIT=$(echo "$TRACK_JSON" | jq -r '.totalProfitSOL // 0' 2>/dev/null) || TOTAL_PROFIT="0"
 RAW_POSITIONS=$(echo "$TRACK_JSON" | jq -c '.positions // {}' 2>/dev/null) || RAW_POSITIONS="{}"
 
+# --- 2b. Daily P/L via pumpfun-track.js daily ---
+DAILY_JSON="{}"
+if [ -x "$TRACK_SCRIPT" ]; then
+    DAILY_JSON=$("$TRACK_SCRIPT" daily 2>/dev/null) || true
+    if [ -z "$DAILY_JSON" ] || ! echo "$DAILY_JSON" | jq -e '.' >/dev/null 2>&1; then
+        DAILY_JSON='{"today":{"profitSOL":0,"trades":0,"winRate":0},"allTime":{"winRate":0}}'
+    fi
+fi
+TODAY_PROFIT=$(echo "$DAILY_JSON" | jq -r '.today.profitSOL // 0' 2>/dev/null) || TODAY_PROFIT="0"
+TODAY_TRADES=$(echo "$DAILY_JSON" | jq -r '.today.trades // 0' 2>/dev/null) || TODAY_TRADES="0"
+TODAY_WINRATE=$(echo "$DAILY_JSON" | jq -r '.today.winRate // 0' 2>/dev/null) || TODAY_WINRATE="0"
+ALLTIME_WINRATE=$(echo "$DAILY_JSON" | jq -r '.allTime.winRate // 0' 2>/dev/null) || ALLTIME_WINRATE="0"
+
 # Validate RAW_POSITIONS is valid JSON object
 if ! echo "$RAW_POSITIONS" | jq -e '.' >/dev/null 2>&1; then
     RAW_POSITIONS="{}"
     ACTIVE_POSITIONS="0"
 fi
 
-# --- 5. Enrich positions with live price data ---
+# --- 5. Enrich positions with live price data via DexScreener (single batch call) ---
 ENRICHED_POSITIONS="$RAW_POSITIONS"
 if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
     TEMP_POSITIONS="{}"
+
+    # Collect all mints for a single batch DexScreener API call
+    ALL_MINTS=$(echo "$RAW_POSITIONS" | jq -r 'keys[]' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    DEX_DATA="{}"
+    if [ -n "$ALL_MINTS" ]; then
+        DEX_RAW=$(curl -sf --max-time 10 \
+            "https://api.dexscreener.com/tokens/v1/solana/${ALL_MINTS}" 2>/dev/null) || DEX_RAW="[]"
+        if echo "$DEX_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            # Index by base token address: pick best pair per token (prefer pumpfun, then highest liquidity)
+            DEX_DATA=$(echo "$DEX_RAW" | jq -c '
+                group_by(.baseToken.address) |
+                map(sort_by(if .dexId == "pumpfun" then 0 else 1 end, -(.liquidity.usd // 0)) | .[0]) |
+                map({key: .baseToken.address, value: .}) |
+                from_entries
+            ' 2>/dev/null) || DEX_DATA="{}"
+        fi
+    fi
 
     for MINT in $(echo "$RAW_POSITIONS" | jq -r 'keys[]' 2>/dev/null); do
         POS_DATA=$(echo "$RAW_POSITIONS" | jq -c --arg m "$MINT" '.[$m]' 2>/dev/null) || continue
@@ -105,32 +135,31 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         case "$COST_SOL" in ''|null) COST_SOL="0" ;; esac
         case "$AGE_MIN" in ''|null) AGE_MIN="0" ;; esac
         case "$HELD_TOKENS" in ''|null) HELD_TOKENS="0" ;; esac
-        # Truncate AGE_MIN to integer for bash -gt comparisons
         AGE_MIN=$(printf '%.0f' "$AGE_MIN" 2>/dev/null) || AGE_MIN="0"
 
-        # Fetch current market data — timeout quickly, never block
-        COIN_DATA=$(curl -sf --max-time 6 \
-            -H "Accept: application/json" \
-            -H "Origin: https://pump.fun" \
-            "https://frontend-api-v3.pump.fun/coins/${MINT}?sync=true" 2>/dev/null) || COIN_DATA="{}"
+        # Get DexScreener data for this mint from batch result
+        PAIR_DATA=$(echo "$DEX_DATA" | jq -c --arg m "$MINT" '.[$m] // {}' 2>/dev/null) || PAIR_DATA="{}"
 
-        if ! echo "$COIN_DATA" | jq -e '.' >/dev/null 2>&1; then
-            COIN_DATA="{}"
+        MARKET_CAP=$(echo "$PAIR_DATA" | jq -r '.marketCap // 0' 2>/dev/null) || MARKET_CAP="0"
+        TOKEN_SYMBOL=$(echo "$PAIR_DATA" | jq -r '.baseToken.symbol // "???"' 2>/dev/null) || TOKEN_SYMBOL="???"
+        TOKEN_NAME=$(echo "$PAIR_DATA" | jq -r '.baseToken.name // ""' 2>/dev/null) || TOKEN_NAME=""
+        PRICE_NATIVE=$(echo "$PAIR_DATA" | jq -r '.priceNative // 0' 2>/dev/null) || PRICE_NATIVE="0"
+        PRICE_USD=$(echo "$PAIR_DATA" | jq -r '.priceUsd // 0' 2>/dev/null) || PRICE_USD="0"
+        PRICE_CHANGE_H1=$(echo "$PAIR_DATA" | jq -r '.priceChange.h1 // 0' 2>/dev/null) || PRICE_CHANGE_H1="0"
+
+        # Determine if graduated (not on pumpfun dex = graduated)
+        DEX_ID=$(echo "$PAIR_DATA" | jq -r '.dexId // ""' 2>/dev/null) || DEX_ID=""
+        IS_COMPLETE="false"
+        if [ -n "$DEX_ID" ] && [ "$DEX_ID" != "pumpfun" ] && [ "$DEX_ID" != "" ]; then
+            IS_COMPLETE="true"
         fi
 
-        MARKET_CAP=$(echo "$COIN_DATA" | jq -r '.usd_market_cap // 0' 2>/dev/null) || MARKET_CAP="0"
-        IS_COMPLETE=$(echo "$COIN_DATA" | jq -r '.complete // false' 2>/dev/null) || IS_COMPLETE="false"
-        TOKEN_SYMBOL=$(echo "$COIN_DATA" | jq -r '.symbol // "???"' 2>/dev/null) || TOKEN_SYMBOL="???"
-        REAL_SOL=$(echo "$COIN_DATA" | jq -r '.real_sol_reserves // 0' 2>/dev/null) || REAL_SOL="0"
-        REAL_TOKENS=$(echo "$COIN_DATA" | jq -r '.real_token_reserves // 0' 2>/dev/null) || REAL_TOKENS="0"
-
-        # Estimate current SOL value from bonding curve
+        # Calculate current SOL value from native price
         CURRENT_VALUE_SOL="0"
         PNL_PCT="0"
-
-        if [ "$REAL_TOKENS" != "0" ] && [ "$REAL_TOKENS" != "null" ] && \
+        if [ "$PRICE_NATIVE" != "0" ] && [ "$PRICE_NATIVE" != "null" ] && \
            [ "$HELD_TOKENS" != "0" ] && [ "$HELD_TOKENS" != "null" ]; then
-            CURRENT_VALUE_SOL=$(safe_bc "scale=9; $HELD_TOKENS * ($REAL_SOL / $REAL_TOKENS)" "0")
+            CURRENT_VALUE_SOL=$(safe_bc "scale=9; $HELD_TOKENS * $PRICE_NATIVE" "0")
             if [ "$COST_SOL" != "0" ] && [ "$COST_SOL" != "null" ]; then
                 PNL_PCT=$(safe_bc "scale=1; (($CURRENT_VALUE_SOL - $COST_SOL) / $COST_SOL) * 100" "0")
             fi
@@ -153,6 +182,7 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         TEMP_POSITIONS=$(echo "$TEMP_POSITIONS" | jq -c \
             --arg m "$MINT" \
             --arg sym "$TOKEN_SYMBOL" \
+            --arg name "$TOKEN_NAME" \
             --arg cost "$COST_SOL" \
             --arg val "$CURRENT_VALUE_SOL" \
             --arg pnl "$PNL_PCT" \
@@ -161,8 +191,11 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
             --arg complete "$IS_COMPLETE" \
             --arg signal "$SELL_SIGNAL" \
             --arg tokens "$HELD_TOKENS" \
+            --arg priceUsd "$PRICE_USD" \
+            --arg priceChangeH1 "$PRICE_CHANGE_H1" \
             '. + {($m): {
                 symbol: $sym,
+                name: $name,
                 costSOL: ($cost | tonumber? // 0),
                 currentValueSOL: ($val | tonumber? // 0),
                 pnlPercent: ($pnl | tonumber? // 0),
@@ -170,6 +203,8 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
                 marketCap: ($mcap | tonumber? // 0),
                 graduated: ($complete == "true"),
                 tokens: ($tokens | tonumber? // 0),
+                priceUsd: ($priceUsd | tonumber? // 0),
+                priceChangeH1: ($priceChangeH1 | tonumber? // 0),
                 action: $signal
             }}' 2>/dev/null) || true
     done
@@ -178,6 +213,109 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
     if echo "$TEMP_POSITIONS" | jq -e '.' >/dev/null 2>&1; then
         ENRICHED_POSITIONS="$TEMP_POSITIONS"
     fi
+fi
+
+# --- 5b. Check on-chain token balances (catches untracked holdings) ---
+ONCHAIN_BALANCES="[]"
+BALANCES_SCRIPT="$SCRIPT_DIR/pumpfun-balances.sh"
+if [ -x "$BALANCES_SCRIPT" ] && [ -n "${SOLANA_PUBLIC_KEY:-}" ]; then
+    BALANCES_RAW=$("$BALANCES_SCRIPT" "$SOLANA_PUBLIC_KEY" 20 2>/dev/null) || true
+    if [ -n "$BALANCES_RAW" ] && echo "$BALANCES_RAW" | jq -e '.' >/dev/null 2>&1; then
+        # Filter to tokens with actual balance > 0
+        ONCHAIN_BALANCES=$(echo "$BALANCES_RAW" | jq -c '[.[] | select(.balance != null and .balance != "0" and (.balance | tonumber? // 0) > 0)]' 2>/dev/null) || ONCHAIN_BALANCES="[]"
+    fi
+fi
+
+# Merge on-chain holdings that are NOT already in enriched positions
+if [ "$ONCHAIN_BALANCES" != "[]" ]; then
+    # Collect untracked mints for a batch DexScreener lookup
+    UNTRACKED_MINTS=""
+    for ROW in $(echo "$ONCHAIN_BALANCES" | jq -r '.[] | @base64' 2>/dev/null); do
+        _decode_mint() { echo "$ROW" | base64 --decode 2>/dev/null | jq -r '.mint // empty' 2>/dev/null; }
+        UM=$(_decode_mint)
+        [ -z "$UM" ] && continue
+        ALREADY=$(echo "$ENRICHED_POSITIONS" | jq -r --arg m "$UM" 'has($m)' 2>/dev/null) || ALREADY="false"
+        [ "$ALREADY" = "true" ] && continue
+        if [ -n "$UNTRACKED_MINTS" ]; then
+            UNTRACKED_MINTS="${UNTRACKED_MINTS},${UM}"
+        else
+            UNTRACKED_MINTS="$UM"
+        fi
+    done
+
+    # Batch DexScreener lookup for untracked tokens
+    UNTRACKED_DEX="{}"
+    if [ -n "$UNTRACKED_MINTS" ]; then
+        UDEX_RAW=$(curl -sf --max-time 10 \
+            "https://api.dexscreener.com/tokens/v1/solana/${UNTRACKED_MINTS}" 2>/dev/null) || UDEX_RAW="[]"
+        if echo "$UDEX_RAW" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            UNTRACKED_DEX=$(echo "$UDEX_RAW" | jq -c '
+                group_by(.baseToken.address) |
+                map(sort_by(if .dexId == "pumpfun" then 0 else 1 end, -(.liquidity.usd // 0)) | .[0]) |
+                map({key: .baseToken.address, value: .}) |
+                from_entries
+            ' 2>/dev/null) || UNTRACKED_DEX="{}"
+        fi
+    fi
+
+    for ROW in $(echo "$ONCHAIN_BALANCES" | jq -r '.[] | @base64' 2>/dev/null); do
+        _decode() { echo "$ROW" | base64 --decode 2>/dev/null | jq -r "$1" 2>/dev/null; }
+        OC_MINT=$(_decode '.mint')
+        OC_BALANCE=$(_decode '.balance')
+        OC_SYMBOL=$(_decode '.symbol // "???"')
+
+        # Skip if already tracked in enriched positions
+        ALREADY=$(echo "$ENRICHED_POSITIONS" | jq -r --arg m "$OC_MINT" 'has($m)' 2>/dev/null) || ALREADY="false"
+        if [ "$ALREADY" = "true" ]; then
+            continue
+        fi
+
+        # Skip zero/null balances
+        case "$OC_BALANCE" in ''|null|0|0.0) continue ;; esac
+
+        # Enrich with DexScreener data
+        UD_PAIR=$(echo "$UNTRACKED_DEX" | jq -c --arg m "$OC_MINT" '.[$m] // {}' 2>/dev/null) || UD_PAIR="{}"
+        UD_SYMBOL=$(echo "$UD_PAIR" | jq -r '.baseToken.symbol // empty' 2>/dev/null)
+        UD_NAME=$(echo "$UD_PAIR" | jq -r '.baseToken.name // ""' 2>/dev/null)
+        UD_PRICE_NATIVE=$(echo "$UD_PAIR" | jq -r '.priceNative // 0' 2>/dev/null)
+        UD_PRICE_USD=$(echo "$UD_PAIR" | jq -r '.priceUsd // 0' 2>/dev/null)
+        UD_MCAP=$(echo "$UD_PAIR" | jq -r '.marketCap // 0' 2>/dev/null)
+
+        # Use DexScreener symbol if available, fallback to pump.fun
+        [ -n "$UD_SYMBOL" ] && OC_SYMBOL="$UD_SYMBOL"
+
+        # Calculate SOL value for untracked holding
+        OC_VALUE_SOL="0"
+        if [ "$UD_PRICE_NATIVE" != "0" ] && [ "$UD_PRICE_NATIVE" != "null" ]; then
+            OC_VALUE_SOL=$(safe_bc "scale=9; $OC_BALANCE * $UD_PRICE_NATIVE" "0")
+        fi
+
+        # Add as untracked holding with enriched data
+        ENRICHED_POSITIONS=$(echo "$ENRICHED_POSITIONS" | jq -c \
+            --arg m "$OC_MINT" \
+            --arg sym "$OC_SYMBOL" \
+            --arg name "$UD_NAME" \
+            --arg bal "$OC_BALANCE" \
+            --arg val "$OC_VALUE_SOL" \
+            --arg mcap "$UD_MCAP" \
+            --arg priceUsd "$UD_PRICE_USD" \
+            '. + {($m): {
+                symbol: $sym,
+                name: $name,
+                costSOL: 0,
+                currentValueSOL: ($val | tonumber? // 0),
+                pnlPercent: 0,
+                ageMinutes: 0,
+                marketCap: ($mcap | tonumber? // 0),
+                graduated: false,
+                tokens: ($bal | tonumber? // 0),
+                priceUsd: ($priceUsd | tonumber? // 0),
+                action: "HOLD",
+                untracked: true
+            }}' 2>/dev/null) || true
+
+        ACTIVE_POSITIONS=$((ACTIVE_POSITIONS + 1))
+    done
 fi
 
 HAS_TOKEN="false"
@@ -198,6 +336,9 @@ fi
 
 WALLET_ADDRESS="${SOLANA_PUBLIC_KEY:-unknown}"
 
+# Count on-chain tokens
+ONCHAIN_TOKEN_COUNT=$(echo "$ONCHAIN_BALANCES" | jq 'length' 2>/dev/null) || ONCHAIN_TOKEN_COUNT="0"
+
 jq -n \
     --arg sol "$SOL_BALANCE" \
     --arg mode "$MODE" \
@@ -210,12 +351,24 @@ jq -n \
     --arg has_token "$HAS_TOKEN" \
     --arg pmc_registered "$PMC_REGISTERED" \
     --arg pmc_agent_id "$PMC_AGENT_ID" \
+    --arg onchain_count "$ONCHAIN_TOKEN_COUNT" \
+    --arg today_profit "$TODAY_PROFIT" \
+    --arg today_trades "$TODAY_TRADES" \
+    --arg today_winrate "$TODAY_WINRATE" \
+    --arg alltime_winrate "$ALLTIME_WINRATE" \
     '{
         sol_balance: ($sol | tonumber? // 0),
         mode: $mode,
         wallet_address: $wallet,
         active_positions: ($active | tonumber? // 0),
+        onchain_token_count: ($onchain_count | tonumber? // 0),
         total_profit_sol: ($profit | tonumber? // 0),
+        today: {
+            profit_sol: ($today_profit | tonumber? // 0),
+            trades: ($today_trades | tonumber? // 0),
+            win_rate: ($today_winrate | tonumber? // 0)
+        },
+        alltime_win_rate: ($alltime_winrate | tonumber? // 0),
         positions: $positions,
         my_token: {
             name: $token_name,

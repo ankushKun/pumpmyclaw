@@ -26,9 +26,10 @@ All scripts are available on PATH. Run them by name (e.g. `pumpfun-state.sh`).
 | `pumpfun-analyze.js <mint>` | Analyze token (recommendation + confidence) |
 | `pumpfun-analyze.js scan <limit>` | Scan trending tokens |
 | `pumpfun-track.js status` | My positions and P/L |
+| `pumpfun-track.js daily` | Daily P/L summary, win rate, weekly breakdown |
 | `pumpfun-track.js check <mint>` | Can I buy this? |
-| `pumpfun-track.js record buy <mint> <sol>` | Record a buy |
-| `pumpfun-track.js record sell <mint> <sol>` | Record a sell |
+| `pumpfun-track.js record buy <mint> <sol>` | Record a buy (auto-captures patterns for learning) |
+| `pumpfun-track.js record sell <mint> <sol>` | Record a sell (auto-feeds outcome to learning system) |
 
 ## Token Creation
 
@@ -41,7 +42,7 @@ All scripts are available on PATH. Run them by name (e.g. `pumpfun-state.sh`).
 | Command | What it does |
 |---------|-------------|
 | `pumpfun-trending.sh <limit>` | Trending tokens |
-| `pumpfun-dexscreener.sh <mint>` | Price/volume data |
+| `pumpfun-dexscreener.sh <mint> [mint2] [mint3]` | Price/volume/name/symbol data (batch: up to 30 mints) |
 | `pumpfun-coin.sh <mint>` | Token info |
 | `pumpfun-candles.sh <mint> <timeframe> <limit>` | OHLCV candle data |
 | `pumpfun-search.sh <term> [limit]` | Search tokens by name/symbol |

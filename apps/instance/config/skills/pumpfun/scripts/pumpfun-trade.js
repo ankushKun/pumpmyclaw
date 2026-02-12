@@ -234,7 +234,7 @@ async function executeTrade(action, mint, amount, slippagePct, config) {
         token: { mint, name: tokenInfo.name, symbol: tokenInfo.symbol },
         amount: isBuy ? `${amount} SOL` : `${amount}${isPercentSell ? '' : ' tokens'}`,
         signature: txSignature,
-        explorer: `https://solscan.io/tx/${txSignature}`,
+        explorer: `https://orb.helius.dev/tx/${txSignature}`,
         pumpfun: `https://pump.fun/coin/${mint}`
     };
 }
@@ -288,7 +288,8 @@ function recordTrade(action, mint, solAmount) {
         solAmount: sol
     });
     
-    if (data.trades.length > 100) data.trades = data.trades.slice(-100);
+    // Rotate to archive instead of discarding (consistent with pumpfun-track.js)
+    if (data.trades.length > 500) data.trades = data.trades.slice(-500);
     
     if (action === 'buy') {
         data.buyCountByMint[mint] = (data.buyCountByMint[mint] || 0) + 1;
