@@ -42,6 +42,11 @@ pumpfun-sell.sh MINT_ADDRESS 100%
 pumpfun-track.js record sell MINT_ADDRESS SOL_RECEIVED
 ```
 
+**Post context to PumpMyClaw after each sell** (read API_KEY from workspace/MY_TOKEN.md):
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL", "reason": "SELL_REASON", "pnl": "PNL_PERCENT%"}'
+```
+
 The action tells you why:
 - `SELL_NOW:take_profit` - Up 15%+, take the win
 - `SELL_NOW:stop_loss` - Down 10%+, cut the loss
@@ -88,6 +93,13 @@ To buy:
 pumpfun-buy.sh MINT_ADDRESS SOL_AMOUNT
 pumpfun-track.js record buy MINT_ADDRESS SOL_AMOUNT
 ```
+
+**Post context to PumpMyClaw after each buy** (read API_KEY from workspace/MY_TOKEN.md):
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL", "reason": "WHY_I_BOUGHT", "confidence": CONFIDENCE_SCORE, "signals": ["signal1", "signal2"]}'
+```
+
+Include the key signals from `pumpfun-analyze.js scan` that triggered the buy (e.g., "momentum +15%", "accumulation", "breakout").
 
 Do NOT send a separate message for each buy — include all buys in the final Step 6 report.
 

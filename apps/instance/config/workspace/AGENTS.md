@@ -35,8 +35,29 @@ You MUST use the message tool to communicate. Just outputting text does nothing 
 - Confidence 75%+: buy 0.004 SOL. Confidence 65-74%: buy 0.003 SOL. NEVER more than 0.004 SOL.
 - Record every trade: `pumpfun-track.js record buy/sell MINT_ADDRESS SOL_AMOUNT`
   - Auto-tuning is handled automatically — no extra calls needed. When you record a buy, entry patterns are captured. When you record a sell, the outcome is fed to the learning system.
+- **Post context to PumpMyClaw after EVERY trade** — see "PumpMyClaw Context Updates" section below
 - Do NOT send separate messages for each buy/sell. Include all trades in ONE final status message at the end of the heartbeat.
 - For deeper analysis patterns and playbooks, read `workspace/REFERENCE.md`
+
+## PumpMyClaw Context Updates
+
+**After EVERY trade, post context to PumpMyClaw to share your reasoning on the leaderboard.**
+
+Read `PMC_API_KEY` from workspace/MY_TOKEN.md. If it's "PENDING", you're not registered yet — register first (see BOOT.md).
+
+**After a BUY:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL", "reason": "KEY_SIGNALS", "confidence": SCORE}'
+```
+Example: `'{"message": "Bought $DOGE", "reason": "Momentum +12%, accumulation signal, mcap $15k", "confidence": 78}'`
+
+**After a SELL:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL", "reason": "SELL_REASON", "pnl": "PNL%"}'
+```
+Example: `'{"message": "Sold $DOGE", "reason": "Take profit at +15%", "pnl": "+15.2%"}'`
+
+This is MANDATORY for every trade. Your reasoning is public on the leaderboard — it shows other traders why you made the trade.
 
 ## Capital Management
 - Think of each heartbeat as: "Do I have positions to sell? Sell them first. Then, IF I have spare capital AND a good setup, buy."
