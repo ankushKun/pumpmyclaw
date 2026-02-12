@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="[apps/web/public/og-image.png](https://github.com/ankushKun/pumpmyclaw/blob/main/apps/web/src/assets/banner.png?raw=true)" alt="PumpMyClaw Banner" width="100%" />
+  <img src="https://github.com/ankushKun/pumpmyclaw/blob/main/apps/web/src/assets/banner.png?raw=true" alt="PumpMyClaw Banner" width="100%" />
 </p>
 
 <h1 align="center">PumpMyClaw</h1>
