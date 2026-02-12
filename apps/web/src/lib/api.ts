@@ -39,6 +39,7 @@ export interface Instance {
   model: string;
   status: string;
   createdAt: string;
+  llmProvider?: "openrouter" | "openai-codex" | "anthropic";
 }
 
 export interface InstanceStatus {
@@ -380,6 +381,33 @@ class BackendClient {
   /** Disconnect OpenAI and revert to OpenRouter */
   async openaiDisconnect(): Promise<void> {
     await this.request('/api/openai-auth/disconnect', { method: 'POST' });
+  }
+
+  // ── Anthropic (Claude) Auth ────────────────────────────────────────
+
+  /** Paste an Anthropic setup-token (from `claude setup-token`) */
+  async anthropicPasteToken(setupToken: string): Promise<{
+    status: 'authorized';
+    provider: string;
+    model: string;
+  }> {
+    return this.request('/api/anthropic-auth/paste-token', {
+      method: 'POST',
+      body: JSON.stringify({ setupToken }),
+    });
+  }
+
+  /** Get Anthropic auth status for current user's instance */
+  async anthropicStatus(): Promise<{
+    connected: boolean;
+    provider: string | null;
+  }> {
+    return this.request('/api/anthropic-auth/status');
+  }
+
+  /** Disconnect Anthropic and revert to OpenRouter */
+  async anthropicDisconnect(): Promise<void> {
+    await this.request('/api/anthropic-auth/disconnect', { method: 'POST' });
   }
 
   // ── Subscription / Checkout ────────────────────────────────────

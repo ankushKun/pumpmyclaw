@@ -19,6 +19,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { completedTokens } from "./openai-auth";
+import { completedAnthropicTokens } from "./anthropic-auth";
 
 type Variables = { userId: number };
 const instanceRoutes = new Hono<{ Variables: Variables }>();
@@ -158,7 +159,12 @@ async function fetchDexScreenerTokens(mints: string[]): Promise<Map<string, DexS
 function buildDockerConfig(
   instance: Instance,
   user: { id: number; telegramId: string },
-  overrides?: { telegramBotToken?: string; openrouterApiKey?: string; model?: string }
+  overrides?: { 
+    telegramBotToken?: string; 
+    openrouterApiKey?: string; 
+    model?: string;
+    anthropicSetupToken?: string;
+  }
 ): docker.InstanceConfig {
   const telegramBotToken =
     overrides?.telegramBotToken || decrypt(instance.telegramBotToken);
@@ -186,6 +192,16 @@ function buildDockerConfig(
     config.openaiTokenExpires = instance.openaiTokenExpires || undefined;
   }
 
+  // Add Anthropic setup-token if using Anthropic provider
+  if (instance.llmProvider === "anthropic") {
+    // Use override (plaintext) if available, otherwise decrypt from DB
+    if (overrides?.anthropicSetupToken) {
+      config.anthropicSetupToken = overrides.anthropicSetupToken;
+    } else if (instance.anthropicSetupToken) {
+      config.anthropicSetupToken = decrypt(instance.anthropicSetupToken);
+    }
+  }
+
   return config;
 }
 
@@ -203,7 +219,7 @@ const createSchema = z.object({
   telegramBotUsername: z.string().min(1).optional(),
   openrouterApiKey: z.string().default(""),
   model: z.string().min(1).optional(),
-  llmProvider: z.enum(["openrouter", "openai-codex"]).default("openrouter"),
+  llmProvider: z.enum(["openrouter", "openai-codex", "anthropic"]).default("openrouter"),
 });
 
 const updateSchema = z.object({
@@ -275,7 +291,11 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
   }
 
   const llmProvider = parsed.data.llmProvider;
-  const model = parsed.data.model || (llmProvider === "openai-codex" ? "openai-codex/gpt-5.3-codex" : DEFAULT_MODEL);
+  const model = parsed.data.model || (
+    llmProvider === "openai-codex" ? "openai-codex/gpt-5.3-codex" :
+    llmProvider === "anthropic" ? "anthropic/claude-sonnet-4-20250514" :
+    DEFAULT_MODEL
+  );
 
   // Validate provider-specific requirements
   if (llmProvider === "openrouter" && !parsed.data.openrouterApiKey) {
@@ -290,6 +310,16 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
       return c.json({ error: "OpenAI authentication required. Please connect your OpenAI account first." }, 400);
     }
     completedTokens.delete(userId); // Consume the tokens
+  }
+
+  // For Anthropic, retrieve setup-token from the completed auth flow
+  let anthropicToken: { setupToken: string } | undefined;
+  if (llmProvider === "anthropic") {
+    anthropicToken = completedAnthropicTokens.get(userId);
+    if (!anthropicToken) {
+      return c.json({ error: "Anthropic authentication required. Please paste your setup-token first." }, 400);
+    }
+    completedAnthropicTokens.delete(userId); // Consume the token
   }
 
   // Encrypt sensitive data before storing
@@ -314,6 +344,9 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
         openaiAccountId: openaiTokens.accountId,
         openaiTokenExpires: openaiTokens.expiresAt,
       }),
+      ...(anthropicToken && {
+        anthropicSetupToken: encrypt(anthropicToken.setupToken),
+      }),
     })
     .returning();
 
@@ -324,6 +357,7 @@ instanceRoutes.post("/", instanceCreationRateLimit, async (c) => {
         telegramBotToken: parsed.data.telegramBotToken,
         openrouterApiKey: parsed.data.openrouterApiKey,
         model,
+        anthropicSetupToken: anthropicToken?.setupToken,
       })
     );
 

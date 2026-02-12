@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth";
 import instanceRoutes from "./routes/instances";
 import adminRoutes from "./routes/admin";
 import openaiAuthRoutes from "./routes/openai-auth";
+import anthropicAuthRoutes from "./routes/anthropic-auth";
 import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
 import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
@@ -135,6 +136,9 @@ app.route("/api/instances", instanceRoutes);
 
 // ── OpenAI Codex auth routes (protected) ──────────────────────────
 app.route("/api/openai-auth", openaiAuthRoutes);
+
+// ── Anthropic (Claude) auth routes (protected) ────────────────────
+app.route("/api/anthropic-auth", anthropicAuthRoutes);
 
 // ── Subscription routes (protected — checkout, status) ────────────
 app.route("/api", subscriptionRoutes);

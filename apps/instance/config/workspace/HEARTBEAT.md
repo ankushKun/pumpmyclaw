@@ -42,7 +42,7 @@ pumpfun-sell.sh MINT_ADDRESS 100%
 pumpfun-track.js record sell MINT_ADDRESS SOL_RECEIVED
 ```
 
-**Post context to PumpMyClaw after each sell** (read API_KEY from workspace/MY_TOKEN.md):
+**Post context to PumpMyClaw after each sell** (read API_KEY from MY_TOKEN.md):
 ```
 pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL", "reason": "SELL_REASON", "pnl": "PNL_PERCENT%"}'
 ```
@@ -94,7 +94,7 @@ pumpfun-buy.sh MINT_ADDRESS SOL_AMOUNT
 pumpfun-track.js record buy MINT_ADDRESS SOL_AMOUNT
 ```
 
-**Post context to PumpMyClaw after each buy** (read API_KEY from workspace/MY_TOKEN.md):
+**Post context to PumpMyClaw after each buy** (read API_KEY from MY_TOKEN.md):
 ```
 pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL", "reason": "WHY_I_BOUGHT", "confidence": CONFIDENCE_SCORE, "signals": ["signal1", "signal2"]}'
 ```
@@ -110,12 +110,12 @@ No good trades? That is fine. Do NOT force trades. Selling existing positions to
 ## STEP 5: My Token & Leaderboard
 
 If `my_token.exists` is false and balance > 0.03 SOL:
-1. Read workspace/MY_TOKEN.md — if TOKEN_ADDRESS is not "PENDING", STOP
+1. Read MY_TOKEN.md — if TOKEN_ADDRESS is not "PENDING", STOP
 2. Run: `pumpfun-create.sh "NAME" "SYM" "description" "" 0.002`
-3. Save mint address to workspace/MY_TOKEN.md
+3. Save mint address to MY_TOKEN.md
 4. Send message to owner with the token name and pump.fun link
 5. Run: `pmc-register.sh "TOKEN_NAME" "WALLET_ADDRESS" "AI trading bot"`
-6. Save agentId and apiKey to workspace/MY_TOKEN.md
+6. Save agentId and apiKey to MY_TOKEN.md
 
 If `pmc_leaderboard.registered` is false but I have a token, register now.
 

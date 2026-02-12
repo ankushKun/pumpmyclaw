@@ -1,7 +1,7 @@
 /**
  * LLM provider types.
  */
-export type LlmProvider = "openrouter" | "openai-codex";
+export type LlmProvider = "openrouter" | "openai-codex" | "anthropic";
 
 /**
  * Model definition.
@@ -81,6 +81,33 @@ export const MODELS: readonly ModelDef[] = [
     desc: "General-purpose, 266k context",
     provider: "openai-codex",
   },
+  // ── Anthropic models (Claude subscription via setup-token) ────
+  {
+    id: "anthropic/claude-opus-4-6",
+    name: "Claude Opus 4.6",
+    desc: "Latest & most capable Claude model",
+    provider: "anthropic",
+    badge: "Recommended - Best",
+  },
+  {
+    id: "anthropic/claude-opus-4-5",
+    name: "Claude Opus 4.5",
+    desc: "Previous Opus, extremely capable",
+    provider: "anthropic",
+  },
+  {
+    id: "anthropic/claude-sonnet-4-5",
+    name: "Claude Sonnet 4.5",
+    desc: "Fast & highly capable, great for coding",
+    provider: "anthropic",
+    badge: "Best Value",
+  },
+  {
+    id: "anthropic/claude-haiku-4-5",
+    name: "Claude Haiku 4.5",
+    desc: "Fastest Claude model, good quality",
+    provider: "anthropic",
+  },
 ];
 
 /** Sentinel value for the "enter your own model" option */
@@ -93,6 +120,7 @@ export function getModelsForProvider(provider: LlmProvider): readonly ModelDef[]
 
 export const DEFAULT_MODEL = MODELS[0].id;
 export const DEFAULT_OPENAI_MODEL = "openai-codex/gpt-5.3-codex";
+export const DEFAULT_ANTHROPIC_MODEL = "anthropic/claude-opus-4-6";
 
 /**
  * Get the display name for a model ID.

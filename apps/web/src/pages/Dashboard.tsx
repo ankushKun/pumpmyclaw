@@ -115,6 +115,15 @@ export function Dashboard() {
   const [showOpenaiWarning, setShowOpenaiWarning] = useState(false);
   const pkceRef = useRef<PKCEParams | null>(null);
 
+  // Anthropic (Claude) auth (settings tab) — setup-token flow
+  const [anthropicStatus, setAnthropicStatus] = useState<{
+    connected: boolean;
+    provider: string | null;
+  } | null>(null);
+  const [anthropicLoading, setAnthropicLoading] = useState(false);
+  const [anthropicSetupToken, setAnthropicSetupToken] = useState("");
+  const [showAnthropicInput, setShowAnthropicInput] = useState(false);
+
   // Fund wallet
   const { connection } = useConnection();
   const {
@@ -772,9 +781,15 @@ export function Dashboard() {
   const saveSettings = async () => {
     if (!instance) return;
     const updates: { model?: string; openrouterApiKey?: string } = {};
+    
+    // Determine active provider for custom model prefix
+    const activeProvider = anthropicStatus?.connected ? "anthropic" : 
+                          openaiStatus?.connected ? "openai-codex" : 
+                          "openrouter";
+    
     const resolvedModel =
       settingsModel === CUSTOM_MODEL_ID
-        ? `openrouter/${customSettingsModel}`
+        ? `${activeProvider}/${customSettingsModel}`
         : settingsModel;
     if (resolvedModel && resolvedModel !== instance.model)
       updates.model = resolvedModel;
@@ -927,6 +942,74 @@ export function Dashboard() {
       });
     } finally {
       setOpenaiLoading(false);
+    }
+  };
+
+  // ── Anthropic (Claude) auth handlers ─────────────────────────────────
+  const fetchAnthropicStatus = useCallback(async () => {
+    try {
+      const status = await backend.anthropicStatus();
+      setAnthropicStatus(status);
+    } catch {
+      // ignore - user might not have anthropic connected
+    }
+  }, []);
+
+  // Fetch anthropic status when settings tab opens
+  useEffect(() => {
+    if (activeTab === "settings" && instance) {
+      fetchAnthropicStatus();
+    }
+  }, [activeTab, instance?.id, fetchAnthropicStatus]);
+
+  const handleAnthropicSubmit = async () => {
+    if (!anthropicSetupToken.trim()) return;
+    setAnthropicLoading(true);
+    try {
+      await backend.anthropicPasteToken(anthropicSetupToken.trim());
+      await fetchAnthropicStatus();
+      setAnthropicSetupToken("");
+      setShowAnthropicInput(false);
+      setAlertModal({
+        open: true,
+        title: "Claude Connected",
+        message: "Your Claude subscription is now active. Your bot is restarting.",
+        type: "success",
+      });
+      setInstance((prev) => prev ? { ...prev, status: "restarting" } : null);
+    } catch (err) {
+      setAlertModal({
+        open: true,
+        title: "Connection Failed",
+        message: err instanceof Error ? err.message : "Failed to connect Claude",
+        type: "error",
+      });
+    } finally {
+      setAnthropicLoading(false);
+    }
+  };
+
+  const disconnectAnthropic = async () => {
+    setAnthropicLoading(true);
+    try {
+      await backend.anthropicDisconnect();
+      await fetchAnthropicStatus();
+      setAlertModal({
+        open: true,
+        title: "Claude Disconnected",
+        message: "Reverted to OpenRouter. Your bot is restarting.",
+        type: "success",
+      });
+      setInstance((prev) => prev ? { ...prev, status: "restarting" } : null);
+    } catch (err) {
+      setAlertModal({
+        open: true,
+        title: "Disconnect Failed",
+        message: err instanceof Error ? err.message : "Failed to disconnect",
+        type: "error",
+      });
+    } finally {
+      setAnthropicLoading(false);
     }
   };
 
@@ -2237,219 +2320,358 @@ export function Dashboard() {
 
         {/* SETTINGS TAB */}
         {activeTab === "settings" && (
-          <div className="animate-fade-in">
-            {/* OpenAI Provider Card — full width above the grid */}
-            <div className="cyber-card p-5 mb-4">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-4 h-4 text-[#B6FF2E]" />
-                <h3 className="text-sm font-semibold">AI Provider</h3>
-              </div>
-
-              {openaiStatus?.connected ? (
-                /* Connected to OpenAI */
-                <div className="space-y-3">
-                  <div className="p-3 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Check className="w-4 h-4 text-[#B6FF2E]" />
-                        <span className="text-sm font-medium text-[#B6FF2E]">OpenAI Connected</span>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold uppercase">
-                        Codex
-                      </span>
-                    </div>
-                    {openaiStatus.accountId && (
-                      <p className="text-xs text-[#A8A8A8] mt-1.5 mono">{openaiStatus.accountId}</p>
-                    )}
-                    {openaiStatus.expired && (
-                      <p className="text-xs text-[#FF2E8C] mt-1.5">Token expired — reconnect to refresh</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    {openaiStatus.expired && (
-                      <button
-                        onClick={() => setShowOpenaiWarning(true)}
-                        disabled={openaiLoading || openaiWaitingForCode}
-                        className="btn-primary text-xs py-2 px-3 flex-1 justify-center"
-                      >
-                        {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                        Reconnect
-                      </button>
-                    )}
-                    <button
-                      onClick={disconnectOpenai}
-                      disabled={openaiLoading}
-                      className="text-xs py-2 px-3 text-[#A8A8A8] border border-white/10 rounded-full hover:text-[#FF2E8C] hover:border-[#FF2E8C]/30 transition-all inline-flex items-center gap-1.5 justify-center flex-1"
-                    >
-                      <Unplug className="w-3 h-3" />
-                      Disconnect & Use OpenRouter
-                    </button>
-                  </div>
-                </div>
-              ) : openaiWaitingForCode ? (
-                /* Waiting for user to paste callback URL */
-                <div className="space-y-3">
-                  <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                    <p className="text-sm text-white font-medium mb-2">
-                      Paste the callback URL
-                    </p>
-                    <p className="text-xs text-[#A8A8A8] mb-3 leading-relaxed">
-                      After signing in with OpenAI, you'll be redirected to a page that won't load.
-                      That's expected! Copy the <span className="text-white">full URL</span> from your browser's address bar and paste it below.
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-xs"
-                        placeholder="http://localhost:1455/auth/callback?code=..."
-                        value={openaiCallbackUrl}
-                        onChange={(e) => setOpenaiCallbackUrl(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleCallbackUrlSubmit()}
-                      />
-                      <button
-                        onClick={handleCallbackUrlSubmit}
-                        disabled={openaiLoading || !openaiCallbackUrl}
-                        className="btn-primary text-xs py-2.5 px-4 whitespace-nowrap"
-                      >
-                        {openaiLoading ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <>
-                            <ClipboardPaste className="w-3.5 h-3.5" />
-                            Submit
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  <button
-                    onClick={cancelOpenaiAuth}
-                    className="btn-secondary text-xs py-2 px-3 w-full justify-center"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                /* Not connected — show connect option */
-                <div className="space-y-3">
-                  <div className="p-3 bg-white/5 rounded-lg">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="w-2 h-2 rounded-full bg-[#A8A8A8]" />
-                      <span className="text-sm text-[#A8A8A8]">Using OpenRouter</span>
-                    </div>
-                    <p className="text-xs text-[#A8A8A8]">
-                      Connect your ChatGPT Plus/Pro subscription to use OpenAI models without an API key.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowOpenaiWarning(true)}
-                    disabled={openaiLoading}
-                    className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5"
-                  >
-                    {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                    Connect OpenAI Account
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Model & API Key */}
-              <div className="cyber-card p-5">
-                <div className="flex items-center gap-2 mb-5">
+          <div className="animate-fade-in space-y-4">
+            {/* Active Provider & Model Card */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-[#B6FF2E]" />
                   <h3 className="text-sm font-semibold">AI Model</h3>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                      Model
-                    </label>
-                    <select
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
-                      value={settingsModel}
-                      onChange={(e) => {
-                        setSettingsModel(e.target.value);
-                        if (e.target.value !== CUSTOM_MODEL_ID)
-                          setCustomSettingsModel("");
-                      }}
-                    >
-                      {MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                          {m.free ? " (FREE)" : ""}
-                        </option>
-                      ))}
-                      <option value={CUSTOM_MODEL_ID}>Enter your own</option>
-                    </select>
-                    {settingsModel === CUSTOM_MODEL_ID && (
-                      <input
-                        type="text"
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mt-2 mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
-                        placeholder="e.g. google/gemini-2.5-flash"
-                        value={customSettingsModel}
-                        onChange={(e) => setCustomSettingsModel(e.target.value)}
-                        autoFocus
-                      />
-                    )}
+                {/* Current provider badge */}
+                <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase ${
+                  anthropicStatus?.connected 
+                    ? "bg-[#B6FF2E]/20 text-[#B6FF2E]" 
+                    : openaiStatus?.connected 
+                    ? "bg-[#B6FF2E]/20 text-[#B6FF2E]"
+                    : "bg-white/10 text-[#A8A8A8]"
+                }`}>
+                  {anthropicStatus?.connected ? "Claude" : openaiStatus?.connected ? "OpenAI" : "OpenRouter"}
+                </span>
+              </div>
+
+              {/* Model Selection */}
+              <div className="space-y-4">
+                {/* Model list - only show usable models */}
+                <div className="space-y-1.5">
+                  {(() => {
+                    // Determine which provider is active
+                    const activeProvider = anthropicStatus?.connected ? "anthropic" : 
+                                          openaiStatus?.connected ? "openai-codex" : 
+                                          "openrouter";
+                    
+                    // Only show models for the active provider
+                    const availableModels = MODELS.filter(m => m.provider === activeProvider);
+                    
+                    return (
+                      <>
+                        {availableModels.map((m) => (
+                          <label
+                            key={m.id}
+                            className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
+                              settingsModel === m.id
+                                ? "bg-[#B6FF2E]/10 border border-[#B6FF2E]/30"
+                                : "bg-white/5 border border-transparent hover:border-white/10"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="model"
+                              value={m.id}
+                              checked={settingsModel === m.id}
+                              onChange={() => {
+                                setSettingsModel(m.id);
+                                setCustomSettingsModel("");
+                              }}
+                              className="sr-only"
+                            />
+                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                              settingsModel === m.id ? "border-[#B6FF2E] bg-[#B6FF2E]" : "border-white/30"
+                            }`}>
+                              {settingsModel === m.id && <div className="w-1.5 h-1.5 rounded-full bg-black" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{m.name}</span>
+                                {m.badge && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold">
+                                    {m.badge}
+                                  </span>
+                                )}
+                                {m.free && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-semibold">
+                                    FREE
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-[#A8A8A8] truncate">{m.desc}</p>
+                            </div>
+                          </label>
+                        ))}
+
+                        {/* Custom model option */}
+                        <label
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
+                            settingsModel === CUSTOM_MODEL_ID
+                              ? "bg-[#B6FF2E]/10 border border-[#B6FF2E]/30"
+                              : "bg-white/5 border border-transparent hover:border-white/10"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="model"
+                            value={CUSTOM_MODEL_ID}
+                            checked={settingsModel === CUSTOM_MODEL_ID}
+                            onChange={() => setSettingsModel(CUSTOM_MODEL_ID)}
+                            className="sr-only"
+                          />
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                            settingsModel === CUSTOM_MODEL_ID ? "border-[#B6FF2E] bg-[#B6FF2E]" : "border-white/30"
+                          }`}>
+                            {settingsModel === CUSTOM_MODEL_ID && <div className="w-1.5 h-1.5 rounded-full bg-black" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium">Custom Model ID</span>
+                            <p className="text-xs text-[#A8A8A8]">Enter any model identifier</p>
+                          </div>
+                        </label>
+
+                        {/* Custom model input */}
+                        {settingsModel === CUSTOM_MODEL_ID && (
+                          <div className="pl-7 pr-1 pb-1">
+                            <input
+                              type="text"
+                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
+                              placeholder={
+                                anthropicStatus?.connected ? "e.g. claude-3-5-haiku-20241022" :
+                                openaiStatus?.connected ? "e.g. gpt-4o" :
+                                "e.g. google/gemini-2.5-flash"
+                              }
+                              value={customSettingsModel}
+                              onChange={(e) => setCustomSettingsModel(e.target.value)}
+                              autoFocus
+                            />
+                            <p className="text-[10px] text-[#A8A8A8] mt-1.5">
+                              {anthropicStatus?.connected ? "Will use: anthropic/" :
+                               openaiStatus?.connected ? "Will use: openai-codex/" :
+                               "Will use: openrouter/"}{customSettingsModel || "..."}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Save button */}
+                <button
+                  onClick={saveSettings}
+                  className="btn-primary w-full text-sm py-2.5 justify-center"
+                  disabled={actionLoading === "settings"}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${actionLoading === "settings" ? "animate-spin" : ""}`} />
+                  {actionLoading === "settings" ? "Saving..." : "Save & Restart Bot"}
+                </button>
+              </div>
+            </div>
+
+            {/* Provider Connections */}
+            <div className="cyber-card p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <Zap className="w-4 h-4 text-[#B6FF2E]" />
+                <h3 className="text-sm font-semibold">Provider Connections</h3>
+              </div>
+              
+              <div className="space-y-3">
+                {/* OpenRouter */}
+                <div className={`p-4 rounded-lg border transition-all ${
+                  !anthropicStatus?.connected && !openaiStatus?.connected
+                    ? "bg-[#B6FF2E]/5 border-[#B6FF2E]/20"
+                    : "bg-white/5 border-white/10"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        !anthropicStatus?.connected && !openaiStatus?.connected ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                      }`}>
+                        <Cpu className={`w-4 h-4 ${!anthropicStatus?.connected && !openaiStatus?.connected ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">OpenRouter</span>
+                          {!anthropicStatus?.connected && !openaiStatus?.connected && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold">ACTIVE</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#A8A8A8]">API key access to many models</p>
+                      </div>
+                    </div>
                   </div>
-                  <div>
+                  {/* API Key input for OpenRouter */}
+                  <div className="mt-3 pt-3 border-t border-white/10">
                     <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                      OpenRouter API Key
-                      <span className="text-white/30 ml-1">(leave blank to keep current)</span>
+                      API Key <span className="text-white/30">(leave blank to keep current)</span>
                     </label>
                     <input
                       type="password"
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors"
                       placeholder="sk-or-..."
                       value={settingsOrKey}
                       onChange={(e) => setSettingsOrKey(e.target.value)}
                     />
                   </div>
-                  <div className="bg-[#FBBF24]/5 border border-[#FBBF24]/10 rounded-lg px-3 py-2">
-                    <p className="text-xs text-[#FBBF24]/80">
-                      Saving will stop and restart your bot with the new configuration.
-                    </p>
+                </div>
+
+                {/* OpenAI Codex */}
+                <div className={`p-4 rounded-lg border transition-all ${
+                  openaiStatus?.connected ? "bg-[#B6FF2E]/5 border-[#B6FF2E]/20" : "bg-white/5 border-white/10"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        openaiStatus?.connected ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                      }`}>
+                        <Zap className={`w-4 h-4 ${openaiStatus?.connected ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">OpenAI (ChatGPT)</span>
+                          {openaiStatus?.connected && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold">CONNECTED</span>
+                          )}
+                          {openaiStatus?.expired && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#FF2E8C]/20 text-[#FF2E8C] font-semibold">EXPIRED</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#A8A8A8]">
+                          {openaiStatus?.connected 
+                            ? openaiStatus.accountId || "ChatGPT Plus/Pro subscription" 
+                            : "Use your ChatGPT subscription"}
+                        </p>
+                      </div>
+                    </div>
+                    {openaiStatus?.connected ? (
+                      <button
+                        onClick={disconnectOpenai}
+                        disabled={openaiLoading}
+                        className="text-xs py-1.5 px-3 text-[#A8A8A8] border border-white/10 rounded-full hover:text-[#FF2E8C] hover:border-[#FF2E8C]/30 transition-all"
+                      >
+                        {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Disconnect"}
+                      </button>
+                    ) : openaiWaitingForCode ? (
+                      <button onClick={cancelOpenaiAuth} className="text-xs py-1.5 px-3 text-[#A8A8A8] border border-white/10 rounded-full">
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowOpenaiWarning(true)}
+                        disabled={openaiLoading}
+                        className="text-xs py-1.5 px-3 text-[#B6FF2E] border border-[#B6FF2E]/30 rounded-full hover:bg-[#B6FF2E]/10 transition-all"
+                      >
+                        {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Connect"}
+                      </button>
+                    )}
                   </div>
-                  <button
-                    onClick={saveSettings}
-                    className="btn-primary w-full text-sm py-2.5 justify-center"
-                    disabled={actionLoading === "settings"}
-                  >
-                    <RefreshCw
-                      className={`w-3.5 h-3.5 ${actionLoading === "settings" ? "animate-spin" : ""}`}
-                    />
-                    {actionLoading === "settings"
-                      ? "Saving..."
-                      : "Save & Restart Bot"}
-                  </button>
+                  {/* Callback URL input when waiting */}
+                  {openaiWaitingForCode && (
+                    <div className="mt-3 pt-3 border-t border-white/10">
+                      <p className="text-xs text-[#A8A8A8] mb-2">Paste the callback URL from your browser:</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white mono text-xs focus:outline-none focus:border-[#B6FF2E]/50"
+                          placeholder="http://localhost:1455/auth/callback?code=..."
+                          value={openaiCallbackUrl}
+                          onChange={(e) => setOpenaiCallbackUrl(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleCallbackUrlSubmit()}
+                        />
+                        <button onClick={handleCallbackUrlSubmit} disabled={!openaiCallbackUrl} className="btn-primary text-xs py-2 px-3">
+                          {openaiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Submit"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Anthropic Claude */}
+                <div className={`p-4 rounded-lg border transition-all ${
+                  anthropicStatus?.connected ? "bg-[#B6FF2E]/5 border-[#B6FF2E]/20" : "bg-white/5 border-white/10"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        anthropicStatus?.connected ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                      }`}>
+                        <Zap className={`w-4 h-4 ${anthropicStatus?.connected ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">Anthropic (Claude)</span>
+                          {anthropicStatus?.connected && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#B6FF2E]/20 text-[#B6FF2E] font-semibold">CONNECTED</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#A8A8A8]">
+                          {anthropicStatus?.connected ? "Claude Pro/Max subscription" : "Use your Claude subscription"}
+                        </p>
+                      </div>
+                    </div>
+                    {anthropicStatus?.connected ? (
+                      <button
+                        onClick={disconnectAnthropic}
+                        disabled={anthropicLoading}
+                        className="text-xs py-1.5 px-3 text-[#A8A8A8] border border-white/10 rounded-full hover:text-[#FF2E8C] hover:border-[#FF2E8C]/30 transition-all"
+                      >
+                        {anthropicLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Disconnect"}
+                      </button>
+                    ) : showAnthropicInput ? (
+                      <button onClick={() => { setShowAnthropicInput(false); setAnthropicSetupToken(""); }} className="text-xs py-1.5 px-3 text-[#A8A8A8] border border-white/10 rounded-full">
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowAnthropicInput(true)}
+                        disabled={anthropicLoading}
+                        className="text-xs py-1.5 px-3 text-[#B6FF2E] border border-[#B6FF2E]/30 rounded-full hover:bg-[#B6FF2E]/10 transition-all"
+                      >
+                        {anthropicLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Connect"}
+                      </button>
+                    )}
+                  </div>
+                  {/* Setup token input when connecting */}
+                  {showAnthropicInput && (
+                    <div className="mt-3 pt-3 border-t border-white/10">
+                      <p className="text-xs text-[#A8A8A8] mb-2">
+                        Run <span className="text-white mono bg-white/10 px-1 py-0.5 rounded text-[10px]">claude setup-token</span> and paste below:
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white mono text-xs focus:outline-none focus:border-[#B6FF2E]/50"
+                          placeholder="sk-ant-oat01-..."
+                          value={anthropicSetupToken}
+                          onChange={(e) => setAnthropicSetupToken(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleAnthropicSubmit()}
+                        />
+                        <button onClick={handleAnthropicSubmit} disabled={!anthropicSetupToken} className="btn-primary text-xs py-2 px-3">
+                          {anthropicLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Submit"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
 
-              {/* Danger Zone */}
-              <div className="cyber-card p-5 border-[#FF2E8C]/10">
-                <div className="flex items-center gap-2 mb-5">
-                  <Trash2 className="w-4 h-4 text-[#FF2E8C]" />
-                  <h3 className="text-sm font-semibold">Danger Zone</h3>
-                </div>
-                <div className="bg-[#FF2E8C]/5 border border-[#FF2E8C]/10 rounded-lg p-4 mb-4">
-                  <h4 className="text-sm font-medium mb-1">Delete Instance</h4>
-                  <p className="text-xs text-[#A8A8A8] mb-3">
-                    Permanently stop your bot and delete all instance data. Your
-                    wallet data is preserved on the server but the container and
-                    configuration will be removed. This cannot be undone.
-                  </p>
-                  <button
-                    onClick={() => setDeleteModalOpen(true)}
-                    className="text-sm py-2 px-4 text-[#FF2E8C] border border-[#FF2E8C]/30 rounded-full hover:bg-[#FF2E8C]/10 transition-all inline-flex items-center gap-2"
-                    disabled={actionLoading !== null}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {actionLoading === "delete"
-                      ? "Deleting..."
-                      : "Delete Instance"}
-                  </button>
-                </div>
+            {/* Danger Zone */}
+            <div className="cyber-card p-5 border-[#FF2E8C]/10">
+              <div className="flex items-center gap-2 mb-4">
+                <Trash2 className="w-4 h-4 text-[#FF2E8C]" />
+                <h3 className="text-sm font-semibold">Danger Zone</h3>
+              </div>
+              <div className="bg-[#FF2E8C]/5 border border-[#FF2E8C]/10 rounded-lg p-4">
+                <h4 className="text-sm font-medium mb-1">Delete Instance</h4>
+                <p className="text-xs text-[#A8A8A8] mb-3">
+                  Permanently stop your bot and delete all instance data. Wallet data is preserved but the container will be removed.
+                </p>
+                <button
+                  onClick={() => setDeleteModalOpen(true)}
+                  className="text-sm py-2 px-4 text-[#FF2E8C] border border-[#FF2E8C]/30 rounded-full hover:bg-[#FF2E8C]/10 transition-all inline-flex items-center gap-2"
+                  disabled={actionLoading !== null}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {actionLoading === "delete" ? "Deleting..." : "Delete Instance"}
+                </button>
               </div>
             </div>
           </div>

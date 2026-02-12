@@ -34,6 +34,13 @@ if [ "$LLM_PROVIDER" = "openai-codex" ]; then
     fi
     # OpenRouter key may be empty for OpenAI-only setups
     OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+elif [ "$LLM_PROVIDER" = "anthropic" ]; then
+    if [ -z "${ANTHROPIC_SETUP_TOKEN:-}" ]; then
+        echo "[pmc] ERROR: ANTHROPIC_SETUP_TOKEN is required for anthropic provider"
+        exit 1
+    fi
+    # OpenRouter key may be empty for Anthropic-only setups
+    OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 else
     if [ -z "${OPENROUTER_API_KEY:-}" ]; then
         echo "[pmc] ERROR: OPENROUTER_API_KEY is required for openrouter provider"
@@ -147,10 +154,13 @@ echo "[pmc] Telegram owner: ${TELEGRAM_OWNER_ID}"
 echo "[pmc] Solana wallet: ${SOLANA_PUBLIC_KEY}"
 
 # Build auth profiles + env section based on provider
-# For openai-codex, auth is handled via auth-profiles.json (written below).
+# For openai-codex and anthropic, auth is handled via auth-profiles.json (written below).
 # No auth.profiles metadata needed in openclaw.json — OpenClaw discovers
 # profiles from auth-profiles.json automatically.
 if [ "$LLM_PROVIDER" = "openai-codex" ]; then
+    AUTH_PROFILES='{}'
+    ENV_EXTRAS='{}'
+elif [ "$LLM_PROVIDER" = "anthropic" ]; then
     AUTH_PROFILES='{}'
     ENV_EXTRAS='{}'
 else
@@ -310,6 +320,32 @@ if [ "$LLM_PROVIDER" = "openai-codex" ] && [ -n "${OPENAI_ACCESS_TOKEN:-}" ]; th
 
     chmod 600 "$AUTH_PROFILES_DIR/auth-profiles.json"
     echo "[pmc] Wrote auth-profiles.json for OpenAI Codex subscription auth"
+fi
+
+# --- Anthropic (Claude) auth setup ---
+# If using Anthropic provider, write the setup-token to auth-profiles.json.
+# The setup-token is obtained by running `claude setup-token` on the user's machine.
+# Format: type "oauth" with "access" field (same as OpenAI Codex format).
+if [ "$LLM_PROVIDER" = "anthropic" ] && [ -n "${ANTHROPIC_SETUP_TOKEN:-}" ]; then
+    echo "[pmc] Configuring Anthropic Claude subscription auth..."
+    AUTH_PROFILES_DIR="$OPENCLAW_DIR/agents/main/agent"
+    mkdir -p "$AUTH_PROFILES_DIR"
+    
+    # Write auth-profiles.json with OAuth format (access token)
+    # Note: Anthropic setup-tokens use the same OAuth format as other providers
+    jq -n \
+      --arg access "$ANTHROPIC_SETUP_TOKEN" \
+      '{
+        profiles: {
+          "anthropic:default": {
+            type: "oauth",
+            provider: "anthropic",
+            access: $access
+          }
+        }
+      }' > "$AUTH_PROFILES_DIR/auth-profiles.json"
+    chmod 600 "$AUTH_PROFILES_DIR/auth-profiles.json"
+    echo "[pmc] Wrote auth-profiles.json for Anthropic Claude subscription"
 fi
 
 echo "[pmc] Configuration written to $OPENCLAW_DIR/openclaw.json"

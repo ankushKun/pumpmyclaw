@@ -26,7 +26,7 @@ export const instances = sqliteTable("instances", {
   model: text("model")
     .notNull()
     .default("openrouter/qwen/qwen3-coder:free"),
-  /** "openrouter" | "openai-codex" — which LLM provider is active */
+  /** "openrouter" | "openai-codex" | "anthropic" — which LLM provider is active */
   llmProvider: text("llm_provider").notNull().default("openrouter"),
   /** Encrypted OpenAI Codex OAuth access token (JWT) */
   openaiAccessToken: text("openai_access_token"),
@@ -36,6 +36,8 @@ export const instances = sqliteTable("instances", {
   openaiAccountId: text("openai_account_id"),
   /** Timestamp (ms) when the OpenAI access token expires */
   openaiTokenExpires: integer("openai_token_expires"),
+  /** Encrypted Anthropic setup-token (from `claude setup-token`) */
+  anthropicSetupToken: text("anthropic_setup_token"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date()
   ),

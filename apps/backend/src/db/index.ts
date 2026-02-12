@@ -79,4 +79,11 @@ for (const col of [
   }
 }
 
+// Migration: Add Anthropic setup-token field to instances
+try {
+  sqlite.exec(`ALTER TABLE instances ADD COLUMN anthropic_setup_token TEXT;`);
+} catch {
+  // Column already exists, ignore
+}
+
 export const db = drizzle(sqlite, { schema });

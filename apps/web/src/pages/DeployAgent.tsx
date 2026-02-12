@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CheckCircle, ExternalLink, Bot, Key, Cpu, Loader2, User, LogOut, Zap, Shield, Lock, Clock, Sparkles, Check, Unplug, ClipboardPaste, AlertTriangle } from 'lucide-react';
-import { MODELS, CUSTOM_MODEL_ID, getModelsForProvider, DEFAULT_OPENAI_MODEL, type LlmProvider } from '../lib/models';
+import { MODELS, CUSTOM_MODEL_ID, getModelsForProvider, DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL, type LlmProvider } from '../lib/models';
 import { useAuth } from '../lib/auth';
 import { backend } from '../lib/api';
 import { generatePKCE, getAuthorizeUrl, extractCodeFromUrl, type PKCEParams } from '../lib/openai-pkce';
@@ -278,6 +278,11 @@ export function DeployAgent() {
   const [openaiCallbackUrl, setOpenaiCallbackUrl] = useState("");
   const [showOpenaiWarning, setShowOpenaiWarning] = useState(false);
   const pkceRef = useRef<PKCEParams | null>(null);
+  // Step 3 (Anthropic): setup-token auth
+  const [anthropicConnected, setAnthropicConnected] = useState(false);
+  const [anthropicLoading, setAnthropicLoading] = useState(false);
+  const [anthropicSetupToken, setAnthropicSetupToken] = useState("");
+  const [showAnthropicInput, setShowAnthropicInput] = useState(false);
   // Step 4: Model
   const providerModels = llmProvider ? getModelsForProvider(llmProvider) : [];
   const [model, setModel] = useState(MODELS[0].id);
@@ -486,6 +491,29 @@ export function DeployAgent() {
     setCustomModelId("");
   };
 
+  // ── Anthropic setup-token auth ──────────────────────────────────
+  const handleAnthropicSubmit = async () => {
+    if (!anthropicSetupToken.trim()) return;
+    setAnthropicLoading(true);
+    setError("");
+    try {
+      await backend.anthropicPasteToken(anthropicSetupToken.trim());
+      setAnthropicConnected(true);
+      setShowAnthropicInput(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect Claude");
+    } finally {
+      setAnthropicLoading(false);
+    }
+  };
+
+  const cancelAnthropicAuth = () => {
+    setShowAnthropicInput(false);
+    setAnthropicSetupToken("");
+    setAnthropicLoading(false);
+    setError("");
+  };
+
   const validate = async (): Promise<boolean> => {
     setError("");
 
@@ -545,6 +573,11 @@ export function DeployAgent() {
           setError("Please connect your OpenAI account first");
           return false;
         }
+      } else if (llmProvider === "anthropic") {
+        if (!anthropicConnected) {
+          setError("Please connect your Claude account first");
+          return false;
+        }
       }
     }
 
@@ -552,6 +585,8 @@ export function DeployAgent() {
       if (!customModelId.trim()) {
         setError(llmProvider === "openrouter"
           ? "Enter a model ID (e.g. google/gemini-2.5-flash)"
+          : llmProvider === "anthropic"
+          ? "Enter a model ID (e.g. claude-sonnet-4-20250514)"
           : "Enter a model ID (e.g. o4-mini)");
         return false;
       }
@@ -572,7 +607,11 @@ export function DeployAgent() {
       // Final step - store config and navigate to dashboard for creation
       const provider = llmProvider || "openrouter";
       const resolvedModel = model === CUSTOM_MODEL_ID
-        ? (provider === "openrouter" ? `openrouter/${customModelId}` : `openai-codex/${customModelId}`)
+        ? (provider === "openrouter" 
+            ? `openrouter/${customModelId}` 
+            : provider === "anthropic"
+            ? `anthropic/${customModelId}`
+            : `openai-codex/${customModelId}`)
         : model;
       sessionStorage.setItem("pmc_deploy_config", JSON.stringify({
         telegramBotToken,
@@ -997,6 +1036,35 @@ export function DeployAgent() {
                     </div>
                   </div>
                 </button>
+
+                {/* Claude (Anthropic) card */}
+                <button
+                  onClick={() => handleProviderChange("anthropic")}
+                  className={`w-full text-left rounded-lg border transition-all ${
+                    llmProvider === "anthropic"
+                      ? "bg-white/10 border-[#B6FF2E]/50"
+                      : "bg-white/5 border-white/10 hover:border-white/20"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 p-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                      llmProvider === "anthropic" ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                    }`}>
+                      <Zap className={`w-4 h-4 ${llmProvider === "anthropic" ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${llmProvider === "anthropic" ? "text-white" : "text-[#A8A8A8]"}`}>
+                        Claude Subscription
+                      </p>
+                      <p className="text-xs text-[#A8A8A8]">Use your Pro/Max plan</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      llmProvider === "anthropic" ? "border-[#B6FF2E]" : "border-white/20"
+                    }`}>
+                      {llmProvider === "anthropic" && <div className="w-2.5 h-2.5 rounded-full bg-[#B6FF2E]" />}
+                    </div>
+                  </div>
+                </button>
               </div>
 
               {/* OpenRouter panel */}
@@ -1206,6 +1274,120 @@ export function DeployAgent() {
                   )}
                 </div>
               )}
+
+              {/* Anthropic (Claude) panel */}
+              {llmProvider === "anthropic" && (
+                <div>
+                  <div className="bg-white/5 rounded-lg p-4 mb-5">
+                    <p className="text-xs text-[#A8A8A8] leading-relaxed">
+                      Use your existing <span className="text-white font-medium">Claude Pro</span> or{" "}
+                      <span className="text-white font-medium">Max</span> subscription to power your agent.
+                      No API key needed — just paste your setup token.
+                    </p>
+                  </div>
+
+                  {anthropicConnected ? (
+                    /* Connected state */
+                    <div className="p-4 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-5 h-5 text-[#B6FF2E]" />
+                          <span className="font-semibold text-[#B6FF2E]">Claude Connected</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setAnthropicConnected(false);
+                            setError("");
+                          }}
+                          className="text-xs text-[#A8A8A8] hover:text-[#FF2E8C] transition-colors flex items-center gap-1"
+                        >
+                          <Unplug className="w-3 h-3" />
+                          Disconnect
+                        </button>
+                      </div>
+                      <p className="text-xs text-[#A8A8A8] mt-2">
+                        Your Claude account is linked. Click Next to choose your model.
+                      </p>
+                    </div>
+                  ) : showAnthropicInput ? (
+                    /* Waiting for user to paste setup token */
+                    <div className="space-y-4">
+                      <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                        <p className="text-sm text-white font-medium mb-2">
+                          Paste your setup token
+                        </p>
+                        <p className="text-xs text-[#A8A8A8] mb-3 leading-relaxed">
+                          Run <span className="text-white mono bg-white/10 px-1.5 py-0.5 rounded">claude setup-token</span> in your terminal,
+                          then copy the token and paste it below.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 focus:ring-1 focus:ring-[#B6FF2E]/25 transition-all mono text-xs"
+                            placeholder="Paste setup token..."
+                            value={anthropicSetupToken}
+                            onChange={(e) => setAnthropicSetupToken(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAnthropicSubmit()}
+                          />
+                          <button
+                            onClick={handleAnthropicSubmit}
+                            disabled={anthropicLoading || !anthropicSetupToken}
+                            className="btn-primary text-xs py-2.5 px-4 whitespace-nowrap"
+                          >
+                            {anthropicLoading ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <>
+                                <ClipboardPaste className="w-3.5 h-3.5" />
+                                Submit
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        onClick={cancelAnthropicAuth}
+                        className="btn-secondary text-xs py-2 px-3 w-full justify-center"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    /* Initial state — connect button */
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-3">
+                        <InstructionStep number={1}>
+                          Open your terminal and run{" "}
+                          <code className="px-1.5 py-0.5 bg-white/10 rounded text-[#B6FF2E] text-xs">claude setup-token</code>
+                        </InstructionStep>
+                        <InstructionStep number={2}>
+                          Copy the token that is displayed
+                        </InstructionStep>
+                        <InstructionStep number={3}>
+                          Click "Connect Claude Account" and paste the token
+                        </InstructionStep>
+                      </div>
+                      <button
+                        onClick={() => setShowAnthropicInput(true)}
+                        disabled={anthropicLoading}
+                        className="btn-primary w-full text-sm py-3 justify-center"
+                      >
+                        {anthropicLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4" />
+                            Connect Claude Account
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1224,12 +1406,14 @@ export function DeployAgent() {
 
               {/* Provider badge */}
               <div className="p-3 bg-white/5 rounded-lg mb-4 flex items-center gap-2 text-sm">
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-[#B6FF2E]/20 text-[#B6FF2E] uppercase">
-                  {llmProvider === "openai-codex" ? "OpenAI" : "OpenRouter"}
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase bg-[#B6FF2E]/20 text-[#B6FF2E]">
+                  {llmProvider === "openai-codex" ? "OpenAI" : llmProvider === "anthropic" ? "Anthropic" : "OpenRouter"}
                 </span>
                 <span className="text-[#A8A8A8] text-xs">
                   {llmProvider === "openai-codex"
                     ? "Models available through your ChatGPT subscription"
+                    : llmProvider === "anthropic"
+                    ? "Models available through your Claude subscription"
                     : "Models available through OpenRouter"}
                 </span>
               </div>
@@ -1338,6 +1522,8 @@ export function DeployAgent() {
                           openrouter.ai/models
                         </a>
                       </>
+                    ) : llmProvider === "anthropic" ? (
+                      "Enter a Claude model ID (e.g. claude-sonnet-4-20250514)"
                     ) : (
                       "Enter an OpenAI model ID (e.g. o4-mini)"
                     )}
@@ -1346,7 +1532,7 @@ export function DeployAgent() {
                     <input
                       type="text"
                       className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 text-sm mono"
-                      placeholder={llmProvider === "openrouter" ? "e.g. google/gemini-2.5-flash" : "e.g. o4-mini"}
+                      placeholder={llmProvider === "openrouter" ? "e.g. google/gemini-2.5-flash" : llmProvider === "anthropic" ? "e.g. claude-sonnet-4-20250514" : "e.g. o4-mini"}
                       value={customModelId}
                       onChange={(e) => setCustomModelId(e.target.value)}
                       onClick={(e) => e.stopPropagation()}

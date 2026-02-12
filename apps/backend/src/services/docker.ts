@@ -37,7 +37,7 @@ export interface InstanceConfig {
   telegramBotToken: string;
   openrouterApiKey: string;
   model: string;
-  /** "openrouter" | "openai-codex" */
+  /** "openrouter" | "openai-codex" | "anthropic" */
   llmProvider?: string;
   /** Plaintext OpenAI access token (JWT) — only set when llmProvider is "openai-codex" */
   openaiAccessToken?: string;
@@ -47,6 +47,8 @@ export interface InstanceConfig {
   openaiAccountId?: string;
   /** Token expiry timestamp (ms since epoch) */
   openaiTokenExpires?: number;
+  /** Plaintext Anthropic setup-token — only set when llmProvider is "anthropic" */
+  anthropicSetupToken?: string;
 }
 
 /**
@@ -385,6 +387,11 @@ export async function createInstance(config: InstanceConfig, options?: { start?:
   }
   if (config.openaiTokenExpires) {
     envVars.push(`OPENAI_TOKEN_EXPIRES=${config.openaiTokenExpires}`);
+  }
+
+  // Add Anthropic setup-token if present
+  if (config.anthropicSetupToken) {
+    envVars.push(`ANTHROPIC_SETUP_TOKEN=${config.anthropicSetupToken}`);
   }
 
   const container = await docker.createContainer({

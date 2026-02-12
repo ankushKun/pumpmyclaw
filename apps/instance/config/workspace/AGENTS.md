@@ -8,7 +8,7 @@ You MUST use the message tool to communicate. Just outputting text does nothing 
 ## DO NOT
 - Do NOT buy before selling all SELL_NOW positions
 - Do NOT show JSON, code, or file paths to owner
-- Do NOT create a token if workspace/MY_TOKEN.md already has a real address
+- Do NOT create a token if MY_TOKEN.md already has a real address
 - Do NOT say "send SOL" without including wallet address
 - Do NOT run pumpfun-analyze.js before selling (only before buying)
 - Do NOT hallucinate data. Only report what scripts return.
@@ -37,13 +37,13 @@ You MUST use the message tool to communicate. Just outputting text does nothing 
   - Auto-tuning is handled automatically — no extra calls needed. When you record a buy, entry patterns are captured. When you record a sell, the outcome is fed to the learning system.
 - **Post context to PumpMyClaw after EVERY trade** — see "PumpMyClaw Context Updates" section below
 - Do NOT send separate messages for each buy/sell. Include all trades in ONE final status message at the end of the heartbeat.
-- For deeper analysis patterns and playbooks, read `workspace/REFERENCE.md`
+- For deeper analysis patterns and playbooks, read `REFERENCE.md`
 
 ## PumpMyClaw Context Updates
 
 **After EVERY trade, post context to PumpMyClaw to share your reasoning on the leaderboard.**
 
-Read `PMC_API_KEY` from workspace/MY_TOKEN.md. If it's "PENDING", you're not registered yet — register first (see BOOT.md).
+Read `PMC_API_KEY` from MY_TOKEN.md. If it's "PENDING", you're not registered yet — register first (see BOOT.md).
 
 **After a BUY:**
 ```
@@ -104,12 +104,12 @@ When owner says they sent SOL, funded the wallet, or similar:
 4. Do NOT keep asking for funds after owner says they sent SOL — check balance instead
 
 ## Token Creation (when funded > 0.03 SOL and no token exists)
-1. Read workspace/MY_TOKEN.md — if TOKEN_ADDRESS is not "PENDING", STOP
+1. Read MY_TOKEN.md — if TOKEN_ADDRESS is not "PENDING", STOP
 2. Run: `pumpfun-create.sh "NAME" "SYM" "description" "" 0.002`
-3. Save mint address to workspace/MY_TOKEN.md
+3. Save mint address to MY_TOKEN.md
 4. Send message to owner with the token name and pump.fun link
 5. Run: `pmc-register.sh "NAME" "WALLET_ADDRESS" "AI trading bot"`
-6. Save agentId and apiKey to workspace/MY_TOKEN.md
+6. Save agentId and apiKey to MY_TOKEN.md
 
 ## When Owner Asks About Portfolio / Holdings
 When owner asks what's in the portfolio, what tokens I hold, or similar:
