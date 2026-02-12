@@ -857,11 +857,11 @@ function EarlyAccessPricing() {
 
                     {/* Auth badge + CTA */}
                     <div className="space-y-3">
-                      <PricingAuthBadge
-                        user={user!}
+                      {user && <PricingAuthBadge
+                        user={user}
                         telegramData={telegramData}
                         onLogout={logout}
-                      />
+                      />}
                       <Link
                         to={hasInstance ? '/dashboard' : '/deploy'}
                         className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2"
@@ -991,11 +991,11 @@ function EarlyAccessPricing() {
                     ) : (
                       /* Logged in but no subscription - show checkout */
                       <div className="space-y-3">
-                        <PricingAuthBadge
-                          user={user!}
+                        {user && <PricingAuthBadge
+                          user={user}
                           telegramData={telegramData}
                           onLogout={logout}
-                        />
+                        />}
                         <button
                           onClick={handleSubscribe}
                           disabled={checkoutLoading}

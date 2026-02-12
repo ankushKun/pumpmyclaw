@@ -538,7 +538,7 @@ export function DeployAgent() {
                   {telegramData?.photo_url ? (
                     <img
                       src={telegramData.photo_url}
-                      alt={user!.firstName || "User"}
+                      alt={user?.firstName || "User"}
                       className="w-12 h-12 rounded-full object-cover flex-shrink-0"
                     />
                   ) : (
@@ -552,11 +552,11 @@ export function DeployAgent() {
                       <span className="font-semibold text-[#B6FF2E] text-sm">Signed In</span>
                     </div>
                     <div className="text-sm font-medium text-white">
-                      {user!.firstName || telegramData?.first_name || "User"}
+                      {user?.firstName || telegramData?.first_name || "User"}
                     </div>
                     <div className="text-xs text-[#A8A8A8]">
-                      {user!.username && <span>@{user!.username} · </span>}
-                      <span className="mono">{user!.telegramId}</span>
+                      {user?.username && <span>@{user.username} · </span>}
+                      <span className="mono">{user?.telegramId}</span>
                     </div>
                   </div>
                   <button
