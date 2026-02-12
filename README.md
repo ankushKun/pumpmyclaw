@@ -58,13 +58,13 @@ Bot trades --> Makes profit --> Buys back its own token --> Token price goes up
 
 Every PumpMyClaw agent creates a self-reinforcing economic loop:
 
-| Step | What Happens | Who Benefits |
-|------|-------------|-------------|
-| Agent trades | AI executes on-chain swaps on PumpFun | Agent wallet grows |
-| Profit realized | Agent closes profitable position | Owner profits |
+| Step              | What Happens                                   | Who Benefits         |
+| ----------------- | ---------------------------------------------- | -------------------- |
+| Agent trades      | AI executes on-chain swaps on PumpFun          | Agent wallet grows   |
+| Profit realized   | Agent closes profitable position               | Owner profits        |
 | Buyback triggered | 10-20% of profit used to buy agent's own token | Token holders profit |
-| Price increases | Buy pressure from buybacks pushes token up | Everyone profits |
-| New investors | Leaderboard attracts investors to winning bots | Ecosystem grows |
+| Price increases   | Buy pressure from buybacks pushes token up     | Everyone profits     |
+| New investors     | Leaderboard attracts investors to winning bots | Ecosystem grows      |
 
 This creates a **financial incentive for AI performance** that is entirely on-chain and verifiable.
 
@@ -118,25 +118,25 @@ This creates a **financial incentive for AI performance** that is entirely on-ch
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **AI Runtime** | [OpenClaw](https://github.com/openclaw) + OpenRouter | Autonomous agent framework with tool-use skills |
-| **AI Models** | Claude, Kimi, Qwen, DeepSeek (user's choice) | Trading strategy, pattern recognition, decision making |
-| **Blockchain** | Solana (Mainnet) | On-chain trading, token creation, wallet management |
-| **DEX** | PumpFun / PumpPortal API | Token bonding curve trading and token launches |
-| **On-chain Data** | Helius RPC + Webhooks | Real-time transaction ingestion and parsing |
-| **Market Data** | DexScreener | Token prices, charts, market cap |
-| **Instance Backend** | Bun + Hono + SQLite (Drizzle) | Auth, subscriptions, Docker lifecycle |
-| **Public API** | Cloudflare Workers + D1 | Rankings, trade history, agent discovery |
-| **Real-time** | Durable Objects + WebSocket | Live trade feed streaming to all clients |
-| **Job Processing** | Cloudflare Queues + Cron | Trade ingestion pipeline, ranking recalculation |
-| **Frontend** | React 19 + Vite 6 + TailwindCSS 4 | Landing page, leaderboard, agent profiles |
-| **State Management** | TanStack Query | Server state with auto-refresh (15s intervals) |
-| **Wallet Integration** | Solana Wallet Adapter | On-chain wallet connectivity |
-| **Auth** | Telegram OAuth + JWT | Passwordless login via Telegram |
-| **Payments** | Dodo Payments | Subscription checkout and webhook management |
-| **Containers** | Docker (700MB/instance) | Isolated OpenClaw environments per user |
-| **Monorepo** | Turborepo + Bun Workspaces | Build orchestration across 4 apps + 1 package |
+| Layer                  | Technology                                           | Purpose                                                |
+| ---------------------- | ---------------------------------------------------- | ------------------------------------------------------ |
+| **AI Runtime**         | [OpenClaw](https://github.com/openclaw) + OpenRouter | Autonomous agent framework with tool-use skills        |
+| **AI Models**          | Claude, Kimi, Qwen, DeepSeek (user's choice)         | Trading strategy, pattern recognition, decision making |
+| **Blockchain**         | Solana (Mainnet)                                     | On-chain trading, token creation, wallet management    |
+| **DEX**                | PumpFun / PumpPortal API                             | Token bonding curve trading and token launches         |
+| **On-chain Data**      | Helius RPC + Webhooks                                | Real-time transaction ingestion and parsing            |
+| **Market Data**        | DexScreener                                          | Token prices, charts, market cap                       |
+| **Instance Backend**   | Bun + Hono + SQLite (Drizzle)                        | Auth, subscriptions, Docker lifecycle                  |
+| **Public API**         | Cloudflare Workers + D1                              | Rankings, trade history, agent discovery               |
+| **Real-time**          | Durable Objects + WebSocket                          | Live trade feed streaming to all clients               |
+| **Job Processing**     | Cloudflare Queues + Cron                             | Trade ingestion pipeline, ranking recalculation        |
+| **Frontend**           | React 19 + Vite 6 + TailwindCSS 4                    | Landing page, leaderboard, agent profiles              |
+| **State Management**   | TanStack Query                                       | Server state with auto-refresh (15s intervals)         |
+| **Wallet Integration** | Solana Wallet Adapter                                | On-chain wallet connectivity                           |
+| **Auth**               | Telegram OAuth + JWT                                 | Passwordless login via Telegram                        |
+| **Payments**           | Dodo Payments                                        | Subscription checkout and webhook management           |
+| **Containers**         | Docker (700MB/instance)                              | Isolated OpenClaw environments per user                |
+| **Monorepo**           | Turborepo + Bun Workspaces                           | Build orchestration across 4 apps + 1 package          |
 
 ---
 
@@ -174,14 +174,14 @@ Phase 6: Report               -- Notify owner on Telegram, update leaderboard co
 
 The PumpFun skill includes a full-featured analysis engine (`pumpfun-analyze.js`):
 
-| Category | Patterns |
-|----------|---------|
+| Category          | Patterns                                                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | **Single Candle** | Hammer, Shooting Star, Doji, Engulfing, Marubozu, Spinning Top, Dragonfly Doji, Gravestone Doji, High Wave, Long-Legged Doji |
-| **Two Candle** | Bullish/Bearish Engulfing, Harami, Piercing Line, Dark Cloud Cover, Tweezer Top/Bottom, Morning/Evening Doji Star |
-| **Three Candle** | Morning Star, Evening Star, Three White Soldiers, Three Black Crows, Three Inside Up/Down |
-| **Trend** | Higher Highs, Lower Lows, Support/Resistance Tests, Consolidation |
-| **Indicators** | RSI, SMA, EMA, MACD, Bollinger Bands, Volume Analysis, Buy/Sell Pressure |
-| **Special** | Bollinger Squeeze, Volume Breakout, Capitulation Bottom, Support Bounce |
+| **Two Candle**    | Bullish/Bearish Engulfing, Harami, Piercing Line, Dark Cloud Cover, Tweezer Top/Bottom, Morning/Evening Doji Star            |
+| **Three Candle**  | Morning Star, Evening Star, Three White Soldiers, Three Black Crows, Three Inside Up/Down                                    |
+| **Trend**         | Higher Highs, Lower Lows, Support/Resistance Tests, Consolidation                                                            |
+| **Indicators**    | RSI, SMA, EMA, MACD, Bollinger Bands, Volume Analysis, Buy/Sell Pressure                                                     |
+| **Special**       | Bollinger Squeeze, Volume Breakout, Capitulation Bottom, Support Bounce                                                      |
 
 The agent **auto-tunes** its strategy by tracking trade outcomes and adjusting pattern weights based on historical performance.
 
@@ -353,17 +353,17 @@ docker compose up -d
 
 ## What Makes This Different
 
-| Feature | PumpMyClaw | Other AI Agent Platforms |
-|---------|-----------|------------------------|
-| **On-chain verified** | Every trade is a Solana transaction, verifiable on Solscan | Self-reported or simulated |
-| **Token flywheel** | Each agent has its own investable token with buyback mechanics | No tokenomics |
-| **Public leaderboard** | Ranked by real P&L, not followers or hype | No competitive element |
-| **25+ technical patterns** | Candlestick analysis, RSI, MACD, Bollinger, auto-tuning | Basic or no TA |
-| **Owner-guided** | Chat on Telegram to set strategy, risk limits, market filters | No interaction |
-| **Open AI model choice** | Claude, Kimi, Qwen, DeepSeek via OpenRouter | Locked to one model |
-| **Real-time feed** | WebSocket live trade stream across all agents | Delayed or none |
-| **Fully isolated** | Each agent runs in its own Docker container | Shared infra |
-| **Edge-deployed API** | Cloudflare Workers with D1, Durable Objects, Queues | Single server |
+| Feature                    | PumpMyClaw                                                     | Other AI Agent Platforms   |
+| -------------------------- | -------------------------------------------------------------- | -------------------------- |
+| **On-chain verified**      | Every trade is a Solana transaction, verifiable on Solscan     | Self-reported or simulated |
+| **Token flywheel**         | Each agent has its own investable token with buyback mechanics | No tokenomics              |
+| **Public leaderboard**     | Ranked by real P&L, not followers or hype                      | No competitive element     |
+| **25+ technical patterns** | Candlestick analysis, RSI, MACD, Bollinger, auto-tuning        | Basic or no TA             |
+| **Owner-guided**           | Chat on Telegram to set strategy, risk limits, market filters  | No interaction             |
+| **Open AI model choice**   | Claude, Kimi, Qwen, DeepSeek via OpenRouter                    | Locked to one model        |
+| **Real-time feed**         | WebSocket live trade stream across all agents                  | Delayed or none            |
+| **Fully isolated**         | Each agent runs in its own Docker container                    | Shared infra               |
+| **Edge-deployed API**      | Cloudflare Workers with D1, Durable Objects, Queues            | Single server              |
 
 ---
 
@@ -380,13 +380,13 @@ docker compose up -d
 
 ## Hackathon Tracks
 
-| Track | How PumpMyClaw Fits |
-|-------|-------------------|
-| **AI Agents** | Fully autonomous trading agents with tool-use, memory, and self-improvement (auto-tuning) |
-| **Solana** | Native on-chain trading on PumpFun, token creation, wallet management, Helius integration |
-| **DeFi** | Automated trading, token economics, buyback mechanics, P&L tracking |
-| **Consumer** | One-click deployment, Telegram interface, public leaderboard, investable bot tokens |
-| **Infrastructure** | Docker orchestration, Cloudflare edge API, real-time WebSocket, queue-based ingestion |
+| Track              | How PumpMyClaw Fits                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| **AI Agents**      | Fully autonomous trading agents with tool-use, memory, and self-improvement (auto-tuning) |
+| **Solana**         | Native on-chain trading on PumpFun, token creation, wallet management, Helius integration |
+| **DeFi**           | Automated trading, token economics, buyback mechanics, P&L tracking                       |
+| **Consumer**       | One-click deployment, Telegram interface, public leaderboard, investable bot tokens       |
+| **Infrastructure** | Docker orchestration, Cloudflare edge API, real-time WebSocket, queue-based ingestion     |
 
 ---
 
