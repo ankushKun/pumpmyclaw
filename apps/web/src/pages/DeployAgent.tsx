@@ -264,8 +264,8 @@ export function DeployAgent() {
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [botUsername, setBotUsername] = useState("");
   const [botName, setBotName] = useState("");
-  // Step 3: LLM Provider
-  const [llmProvider, setLlmProvider] = useState<LlmProvider>("openrouter");
+  // Step 3: LLM Provider (null = not yet chosen)
+  const [llmProvider, setLlmProvider] = useState<LlmProvider | null>(null);
   // Step 3 (OpenRouter): API key
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [keyInfo, setKeyInfo] = useState<OpenRouterKeyInfo | null>(null);
@@ -279,7 +279,7 @@ export function DeployAgent() {
   const [showOpenaiWarning, setShowOpenaiWarning] = useState(false);
   const pkceRef = useRef<PKCEParams | null>(null);
   // Step 4: Model
-  const providerModels = getModelsForProvider(llmProvider);
+  const providerModels = llmProvider ? getModelsForProvider(llmProvider) : [];
   const [model, setModel] = useState(MODELS[0].id);
   const [customModelId, setCustomModelId] = useState("");
   // Shared
@@ -520,6 +520,10 @@ export function DeployAgent() {
     }
 
     if (step === 3) {
+      if (!llmProvider) {
+        setError("Please choose a provider");
+        return false;
+      }
       if (llmProvider === "openrouter") {
         if (!openrouterApiKey.startsWith("sk-or-")) {
           setError("API key should start with sk-or-");
@@ -566,15 +570,16 @@ export function DeployAgent() {
       setStep(step + 1);
     } else {
       // Final step - store config and navigate to dashboard for creation
+      const provider = llmProvider || "openrouter";
       const resolvedModel = model === CUSTOM_MODEL_ID
-        ? (llmProvider === "openrouter" ? `openrouter/${customModelId}` : `openai-codex/${customModelId}`)
+        ? (provider === "openrouter" ? `openrouter/${customModelId}` : `openai-codex/${customModelId}`)
         : model;
       sessionStorage.setItem("pmc_deploy_config", JSON.stringify({
         telegramBotToken,
-        openrouterApiKey: llmProvider === "openrouter" ? openrouterApiKey : "",
+        openrouterApiKey: provider === "openrouter" ? openrouterApiKey : "",
         botUsername,
         model: resolvedModel,
-        llmProvider,
+        llmProvider: provider,
       }));
       navigate("/dashboard");
     }
@@ -933,32 +938,63 @@ export function DeployAgent() {
                 </div>
               </div>
 
-              {/* Provider tabs */}
-              <div className="flex gap-2 mb-6">
+              {/* Provider cards */}
+              <div className="space-y-3 mb-6">
+                {/* OpenRouter card */}
                 <button
                   onClick={() => handleProviderChange("openrouter")}
-                  className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all border ${
+                  className={`w-full text-left rounded-lg border transition-all ${
                     llmProvider === "openrouter"
-                      ? "bg-white/10 border-[#B6FF2E]/50 text-white"
-                      : "bg-white/5 border-transparent text-[#A8A8A8] hover:border-white/10"
+                      ? "bg-white/10 border-[#B6FF2E]/50"
+                      : "bg-white/5 border-white/10 hover:border-white/20"
                   }`}
                 >
-                  <div className="flex items-center justify-center gap-2">
-                    <Key className="w-4 h-4" />
-                    OpenRouter API Key
+                  <div className="flex items-center gap-3 p-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                      llmProvider === "openrouter" ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                    }`}>
+                      <Key className={`w-4 h-4 ${llmProvider === "openrouter" ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${llmProvider === "openrouter" ? "text-white" : "text-[#A8A8A8]"}`}>
+                        OpenRouter API Key
+                      </p>
+                      <p className="text-xs text-[#A8A8A8]">Pay-per-use, many models</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      llmProvider === "openrouter" ? "border-[#B6FF2E]" : "border-white/20"
+                    }`}>
+                      {llmProvider === "openrouter" && <div className="w-2.5 h-2.5 rounded-full bg-[#B6FF2E]" />}
+                    </div>
                   </div>
                 </button>
+
+                {/* ChatGPT card */}
                 <button
                   onClick={() => handleProviderChange("openai-codex")}
-                  className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all border ${
+                  className={`w-full text-left rounded-lg border transition-all ${
                     llmProvider === "openai-codex"
-                      ? "bg-white/10 border-[#B6FF2E]/50 text-white"
-                      : "bg-white/5 border-transparent text-[#A8A8A8] hover:border-white/10"
+                      ? "bg-white/10 border-[#B6FF2E]/50"
+                      : "bg-white/5 border-white/10 hover:border-white/20"
                   }`}
                 >
-                  <div className="flex items-center justify-center gap-2">
-                    <Zap className="w-4 h-4" />
-                    ChatGPT Subscription
+                  <div className="flex items-center gap-3 p-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                      llmProvider === "openai-codex" ? "bg-[#B6FF2E]/20" : "bg-white/10"
+                    }`}>
+                      <Zap className={`w-4 h-4 ${llmProvider === "openai-codex" ? "text-[#B6FF2E]" : "text-[#A8A8A8]"}`} />
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-sm font-semibold ${llmProvider === "openai-codex" ? "text-white" : "text-[#A8A8A8]"}`}>
+                        ChatGPT Subscription
+                      </p>
+                      <p className="text-xs text-[#A8A8A8]">Use your Plus/Pro plan</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                      llmProvider === "openai-codex" ? "border-[#B6FF2E]" : "border-white/20"
+                    }`}>
+                      {llmProvider === "openai-codex" && <div className="w-2.5 h-2.5 rounded-full bg-[#B6FF2E]" />}
+                    </div>
                   </div>
                 </button>
               </div>
