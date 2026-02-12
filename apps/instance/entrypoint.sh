@@ -70,6 +70,18 @@ if [ -d "$BUNDLED_WORKSPACE" ] && [ "$(ls -A "$BUNDLED_WORKSPACE" 2>/dev/null)" 
     done
 fi
 
+# ── Symlink skill scripts into workspace ─────────────────────────────
+# Weak LLMs often prepend "./" to commands, which bypasses PATH and looks
+# in the cwd (workspace dir). Symlinks ensure scripts work either way.
+for scripts_dir in "$OPENCLAW_DIR"/skills/*/scripts; do
+    [ -d "$scripts_dir" ] || continue
+    for script in "$scripts_dir"/*; do
+        [ -f "$script" ] || continue
+        script_name=$(basename "$script")
+        ln -sf "$script" "$OPENCLAW_DIR/workspace/$script_name" 2>/dev/null || true
+    done
+done
+
 chown -R openclaw:openclaw "$OPENCLAW_DIR"
 
 # ── Run as openclaw user ────────────────────────────────────────────

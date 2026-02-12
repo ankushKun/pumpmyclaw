@@ -161,6 +161,7 @@ jq -n \
         model: { primary: $model },
         models: { ($model): {} },
         workspace: $workspace,
+        skipBootstrap: true,
         compaction: { mode: "safeguard" },
         maxConcurrent: 4,
         typingMode: "instant",
