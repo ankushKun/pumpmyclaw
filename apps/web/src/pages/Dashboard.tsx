@@ -1860,53 +1860,38 @@ export function Dashboard() {
       {showOpenaiWarning && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
           <div onClick={() => setShowOpenaiWarning(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <div className="relative bg-[#0B0B0B] border border-[#FBBF24]/30 rounded-xl max-w-[440px] w-full shadow-2xl">
-            <div className="px-5 py-4 border-b border-[#FBBF24]/20 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#FBBF24]/10 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-4 h-4 text-[#FBBF24]" />
+          <div className="relative bg-[#0B0B0B] border border-[#FBBF24]/30 rounded-xl max-w-[400px] w-full shadow-2xl">
+            <div className="p-6 space-y-5">
+              <div className="flex justify-center">
+                <div className="w-12 h-12 rounded-full bg-[#FBBF24]/10 flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6 text-[#FBBF24]" />
+                </div>
               </div>
-              <h3 className="text-lg font-bold m-0">Before you continue</h3>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="bg-[#FBBF24]/5 border border-[#FBBF24]/20 rounded-lg p-4">
-                <p className="text-sm text-white font-semibold mb-2">
-                  You will need to copy-paste a URL back here
-                </p>
-                <p className="text-xs text-[#A8A8A8] leading-relaxed m-0">
-                  After signing in with OpenAI, you will be redirected to a page that
-                  <span className="text-[#FBBF24] font-medium"> will NOT load</span> — this is expected and normal.
-                </p>
+              <div className="text-center space-y-3">
+                <h3 className="text-xl font-bold m-0">The next page will be blank</h3>
+                <p className="text-base text-[#FBBF24] font-bold m-0">That's normal. Don't close it.</p>
               </div>
-              <div className="space-y-2.5">
-                <div className="flex items-start gap-3">
-                  <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">1</span>
-                  <p className="text-xs text-[#A8A8A8] m-0">A new tab will open with the OpenAI sign-in page. Sign in and authorize access.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">2</span>
-                  <p className="text-xs text-[#A8A8A8] m-0">You'll land on a blank page — <span className="text-white font-medium">copy the entire URL</span> from your browser's address bar.</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">3</span>
-                  <p className="text-xs text-[#A8A8A8] m-0">Come back to this tab and paste the URL into the input field.</p>
-                </div>
+              <div className="bg-white/5 rounded-lg p-4 space-y-3">
+                <p className="text-sm text-white font-bold m-0">1. Sign in to OpenAI</p>
+                <p className="text-sm text-white font-bold m-0">2. You'll see a blank page — <span className="text-[#FBBF24]">copy the URL</span></p>
+                <p className="text-sm text-white font-bold m-0">3. Come back here and paste it</p>
               </div>
             </div>
-            <div className="px-5 py-4 border-t border-white/10 flex justify-end gap-2">
-              <button
-                onClick={() => setShowOpenaiWarning(false)}
-                className="btn-secondary text-sm py-2 px-4"
-              >
-                Cancel
-              </button>
+            <div className="px-6 pb-6 flex flex-col gap-2">
               <button
                 onClick={() => {
                   setShowOpenaiWarning(false);
                   startOpenaiAuth();
                 }}
-                className="btn-primary text-sm py-2 px-4"
+                className="btn-primary w-full text-sm py-3 justify-center"
               >
-                I understand, open OpenAI
+                Got it, open OpenAI
+              </button>
+              <button
+                onClick={() => setShowOpenaiWarning(false)}
+                className="w-full text-xs py-2 text-[#A8A8A8] hover:text-white transition-colors"
+              >
+                Cancel
               </button>
             </div>
           </div>
