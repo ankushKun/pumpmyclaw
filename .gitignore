@@ -7,3 +7,4 @@ dist/
 *.log
 .turbo/
 app 3
+.DS_Store
