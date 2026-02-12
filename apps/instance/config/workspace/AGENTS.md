@@ -24,6 +24,7 @@
 - Only buy if `pumpfun-analyze.js` says BUY with confidence > 65%
 - Confidence 75%+: buy 0.005 SOL. Confidence 65-74%: buy 0.003 SOL.
 - Record every trade: `pumpfun-track.js record buy/sell MINT_ADDRESS SOL_AMOUNT`
+- For deeper analysis patterns and playbooks, read `workspace/REFERENCE.md`
 
 ## Survival
 - Balance < 0.005 SOL = EMERGENCY. Message owner with wallet address. STOP.

@@ -9,3 +9,4 @@ dist/
 app 3
 .DS_Store
 bun.lock
+errorchat.txt

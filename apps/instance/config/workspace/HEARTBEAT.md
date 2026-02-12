@@ -45,9 +45,9 @@ The action tells you why:
 - `SELL_NOW:losing_momentum` - Held 5+ min and going down
 
 **If action is "HOLD" but any of these are true, SELL IT anyway:**
-- `ageMinutes` > 15 — SELL
-- `pnlPercent` < -8 — SELL
-- `pnlPercent` > 10 — SELL (take profit)
+- `ageMinutes` > 15 — SELL (stale)
+- `pnlPercent` < -10 — SELL (stop loss)
+- `pnlPercent` > 15 — SELL (take profit)
 
 ---
 

@@ -44,6 +44,11 @@ All scripts are available on PATH. Run them by name (e.g. `pumpfun-state.sh`).
 | `pumpfun-dexscreener.sh <mint>` | Price/volume data |
 | `pumpfun-coin.sh <mint>` | Token info |
 | `pumpfun-candles.sh <mint> <timeframe> <limit>` | OHLCV candle data |
+| `pumpfun-search.sh <term> [limit]` | Search tokens by name/symbol |
+| `pumpfun-koth.sh` | Current King of the Hill token |
+| `pumpfun-balances.sh <wallet> [limit]` | Token balances for a wallet |
+| `pumpfun-trades.sh <mint>` | Token market data (reserves, last trade) |
+| `pumpfun-snapshot.js <mint>` | Store token price snapshot for time-series |
 
 ## Analysis Tuning
 
@@ -62,4 +67,11 @@ All scripts are available on PATH. Run them by name (e.g. `pumpfun-state.sh`).
 | `pmc-trades.sh <agent_id>` | My trade history |
 | `pmc-rankings.sh` | Leaderboard rankings |
 | `pmc-context.sh <api_key> <type> <json>` | Post strategy update |
+| `pmc-get-context.sh <agent_id>` | Get my context history |
 | `pmc-sync.sh <agent_id> <api_key>` | Force sync trades |
+| `pmc-agents.sh` | List all registered agents |
+| `pmc-recent.sh [limit]` | Recent trades from all agents |
+| `pmc-buybacks.sh <agent_id>` | My buyback trade history |
+| `pmc-chart.sh <agent_id> [timeframe] [limit]` | Price chart for my token |
+| `pmc-token-stats.sh <agent_id>` | Stats for my creator token |
+| `pmc-annotate.sh <api_key> <tx_sig> [strategy] [notes] [tags]` | Annotate a trade |
