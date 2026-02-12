@@ -279,7 +279,17 @@ function getBuyCount(mint) {
 
 function recordTrade(action, mint, solAmount) {
     const data = loadTrades();
-    const sol = parseFloat(solAmount) || 0;
+    let sol = parseFloat(solAmount) || 0;
+    
+    // Sanity check: reject obviously bogus SOL amounts
+    // Values like 100 (from "100%" parsed) are clearly wrong for micro-trading
+    if (action === 'buy' && sol > 0.1) {
+        console.error(`[trade] WARNING: buy amount ${sol} SOL exceeds safety cap, clamping to 0.1`);
+        sol = 0.1;
+    } else if (action === 'sell' && sol > 0.5) {
+        console.error(`[trade] WARNING: sell amount ${sol} SOL seems bogus, setting to 0`);
+        sol = 0;
+    }
     
     data.trades.push({
         timestamp: new Date().toISOString(),

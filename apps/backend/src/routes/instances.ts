@@ -707,6 +707,7 @@ type TradesData = {
     solAmount: number;
     tokenAmount: number | null;
     profitSOL?: number;
+    costBasisSOL?: number;
   }>;
   buyCountByMint: Record<string, number>;
   totalProfitSOL: number;
@@ -1243,21 +1244,23 @@ instanceRoutes.get("/:id/wallet/transactions", async (c) => {
 
       // For sells, solAmount might be 0 (auto-recorded before SOL received is known)
       // or a bogus value like 100 (from "100%" token sell parsed as number).
-      // Use profitSOL + cost basis if available, otherwise show null.
+      // Compute real SOL received from costBasisSOL + profitSOL if available.
       let solChange: string | null = null;
       if (trade.action === "buy") {
         solChange = (-trade.solAmount).toFixed(6);
       } else if (trade.action === "sell") {
-        if (trade.solAmount > 0 && trade.solAmount < 1) {
-          // Reasonable sell SOL amount (< 1 SOL for our micro-trades)
+        // Try to compute actual SOL received
+        if (trade.solAmount > 0 && trade.solAmount < 0.5) {
+          // Reasonable sell SOL amount recorded directly
           solChange = trade.solAmount.toFixed(6);
-        } else if (trade.profitSOL != null) {
-          // We have profit data — we can reconstruct approximate SOL received
-          // but just show profit instead of bogus raw amount
-          solChange = null;
-        } else {
-          solChange = null;
+        } else if (trade.costBasisSOL != null && trade.profitSOL != null) {
+          // Compute from cost basis + profit: solReceived = cost + profit
+          const computed = trade.costBasisSOL + trade.profitSOL;
+          if (computed > 0) {
+            solChange = computed.toFixed(6);
+          }
         }
+        // If neither works, solChange stays null (won't display amount)
       }
 
       return {

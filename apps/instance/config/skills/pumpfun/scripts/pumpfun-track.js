@@ -284,7 +284,19 @@ function getDailySummary() {
 function recordTrade(action, mint, solAmount, tokenAmount = null) {
   const data = loadTrades();
   const timestamp = new Date().toISOString();
-  const sol = parseFloat(solAmount) || 0;
+  let sol = parseFloat(solAmount) || 0;
+  
+  // Sanity check: reject obviously bogus SOL amounts
+  // - Buys are capped at 0.1 SOL for micro-trading safety
+  // - Sells should never exceed what we might have received (cap at 0.5 SOL)
+  // - Values like 100 (from "100%" parsed) are clearly wrong
+  if (action === 'buy' && sol > 0.1) {
+    console.error(`[track] WARNING: buy amount ${sol} SOL exceeds safety cap, clamping to 0.1`);
+    sol = 0.1;
+  } else if (action === 'sell' && sol > 0.5) {
+    console.error(`[track] WARNING: sell amount ${sol} SOL seems bogus (likely from "100%" parsed), setting to 0`);
+    sol = 0;
+  }
   
   // Duplicate protection: reject if same mint+action was recorded in the last 60 seconds
   const now = Date.now();
@@ -351,12 +363,15 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
   } else if (action === 'sell') {
     // Calculate profit if we have position data
     let profitSOL = 0;
+    let costBasisSOL = 0;
     if (data.positions && data.positions[mint]) {
       const pos = data.positions[mint];
-      if (pos.totalCostSOL > 0) {
-        profitSOL = sol - pos.totalCostSOL;
+      costBasisSOL = pos.totalCostSOL || 0;
+      if (costBasisSOL > 0) {
+        profitSOL = sol - costBasisSOL;
         data.totalProfitSOL = (data.totalProfitSOL || 0) + profitSOL;
         trade.profitSOL = profitSOL;
+        trade.costBasisSOL = costBasisSOL;  // Store for display: solReceived = profitSOL + costBasisSOL
       }
       // Clear position
       delete data.positions[mint];
