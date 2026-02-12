@@ -107,12 +107,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Check if user has a running instance
         backend.getInstances().then((list) => {
           setHasInstance(list.length > 0);
-        }).catch(() => { /* ignore */ });
+        }).catch(() => { setHasInstance(false); });
         // Revalidate subscription in background (cache already restored above)
         backend.getSubscription().then(({ subscription }) => {
           const isActive = subscription?.status === 'active';
           setHasSubscription(isActive); // Updates both state and cache
-        }).catch(() => { /* ignore */ });
+        }).catch(() => { setHasSubscription(false); });
       } catch {
         localStorage.removeItem(STORAGE_KEY);
       }
