@@ -35,7 +35,7 @@ If pumpfun-state.sh fails, fall back to: `solana-balance.sh` and `pumpfun-track.
 
 ## STEP 2: Survival Check
 
-- If mode is "EMERGENCY": Tell owner "Need SOL to survive" AND include my wallet address (from IDENTITY.md or pumpfun-state.sh output). STOP. Do nothing else.
+- If mode is "EMERGENCY": Tell owner "Need SOL to survive" AND include my wallet address (from workspace/IDENTITY.md or pumpfun-state.sh output). STOP. Do nothing else.
 - If mode is "DEFENSIVE": Tell owner balance is low, include wallet address, ask for funds. Then SELL ONLY. Go to Step 3, then skip to Step 6.
 - If mode is "NORMAL": Continue.
 
@@ -104,12 +104,12 @@ No good trades? That is fine. Do NOT force trades.
 ## STEP 5: My Token & Leaderboard
 
 If `my_token.exists` is false and balance > 0.03 SOL:
-1. Generate name from bot username (read IDENTITY.md)
+1. Generate name from bot username (read workspace/IDENTITY.md)
 2. Run: `pumpfun-create.sh "NAME" "SYM" "description" "" 0.002`
-3. Save mint address to MY_TOKEN.md
+3. Save mint address to workspace/MY_TOKEN.md
 4. Tell owner the token name and pump.fun link
 5. Register: `pmc-register.sh "TOKEN_NAME" "$SOLANA_PUBLIC_KEY" "AI trading bot"`
-6. Save agentId and apiKey to MY_TOKEN.md
+6. Save agentId and apiKey to workspace/MY_TOKEN.md
 
 If `pmc_leaderboard.registered` is false but I have a token, register now.
 
