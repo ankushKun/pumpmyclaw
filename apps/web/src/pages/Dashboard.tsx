@@ -250,6 +250,8 @@ export function Dashboard() {
   // Auto-refresh logs when tab is active
   useEffect(() => {
     if (activeTab !== "logs" || !instance) return;
+    // Reset scroll tracking when switching to logs tab so we auto-scroll to bottom
+    isUserScrolledUp.current = false;
     const fetchLogs = async () => {
       try {
         const content = await backend.getInstanceLogs(instance.id);
@@ -266,6 +268,24 @@ export function Dashboard() {
     const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
   }, [activeTab, instance?.id]);
+
+  // Smooth-scroll to bottom when logs tab becomes active
+  const prevTabRef = useRef<Tab>("overview");
+  useEffect(() => {
+    if (activeTab === "logs" && prevTabRef.current !== "logs") {
+      const tid = setTimeout(() => {
+        if (logsContainerRef.current) {
+          logsContainerRef.current.scrollTo({
+            top: logsContainerRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }
+      }, 150);
+      prevTabRef.current = activeTab;
+      return () => clearTimeout(tid);
+    }
+    prevTabRef.current = activeTab;
+  }, [activeTab]);
 
   // Periodically refresh instance status
   useEffect(() => {

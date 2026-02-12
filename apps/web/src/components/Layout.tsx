@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Zap, User } from 'lucide-react';
+import { User } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useAuth } from '../lib/auth';
+import appIcon from '../assets/icon-transparent.png';
 
 /**
  * Global handler: intercept clicks on hash links and smooth-scroll to
@@ -53,9 +54,11 @@ export function Layout({ children }: { children: ReactNode }) {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-8 h-8 bg-[#B6FF2E] rounded-lg flex items-center justify-center group-hover:glow-lime transition-all">
-                <Zap className="w-5 h-5 text-black" />
-              </div>
+              <img
+                src={appIcon}
+                alt="Pump My Claw"
+                className="w-8 h-8 rounded-lg object-cover group-hover:shadow-[0_0_12px_rgba(182,255,46,0.4)] transition-all"
+              />
               <span className="font-bold text-lg tracking-tight text-white">
                 Pump My Claw
               </span>

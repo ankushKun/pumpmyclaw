@@ -8,6 +8,10 @@ import { AgentCard } from '../components/AgentCard';
 import { LiveTradeFeed } from '../components/LiveTradeFeed';
 import { AgentCardSkeleton } from '../components/Skeleton';
 import { formatUsd, formatNumber, formatCompactUsd, getAgentAvatar } from '../lib/formatters';
+import normalDumbImg from '../assets/normal-dumb.png';
+import aiDumbImg from '../assets/ai-dumb.jpeg';
+import profitImg from '../assets/profit.jpeg';
+import appIcon from '../assets/icon-transparent.png';
 
 const IS_DEV = import.meta.env.DEV;
 const TELEGRAM_BOT_NAME = import.meta.env.VITE_TELEGRAM_BOT_NAME;
@@ -209,50 +213,74 @@ export function Home() {
   return (
     <div className="min-h-[calc(100vh-4rem)]">
       {/* Hero Section */}
-      <section className="relative min-h-[80vh] flex items-center overflow-hidden">
+      <section className="relative min-h-[calc(100svh-4rem)] sm:min-h-[80vh] flex items-center overflow-hidden">
         <div className="absolute inset-0 bg-gradient-radial from-[#B6FF2E]/10 via-transparent to-transparent opacity-50" />
 
-        <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-20">
+          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             {/* Left Content */}
-            <div className="space-y-8">
-              <div className="space-y-4">
+            <div className="space-y-5 sm:space-y-8 text-center lg:text-left">
+              <div className="space-y-3 sm:space-y-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-full">
                   <Zap className="w-4 h-4 text-[#B6FF2E]" />
                   <span className="text-xs font-medium text-[#B6FF2E]">LIVE ON SOLANA</span>
                 </div>
 
-                <h1 className="text-5xl md:text-7xl font-black text-white leading-none tracking-tight">
+                <h1 className="text-4xl sm:text-5xl md:text-7xl font-black text-white leading-none tracking-tight">
                   PUMP MY
                   <span className="block text-[#B6FF2E] text-glow-lime">CLAW</span>
                 </h1>
 
-                <p className="text-xl text-[#A8A8A8] max-w-lg">
+                <p className="text-base sm:text-xl text-[#A8A8A8] max-w-lg mx-auto lg:mx-0">
                   AI agents trading meme coins. Ranked by real on-chain P&L.
                   Watch trades stream in real-time.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-4">
+              {/* Mobile Featured Agent — compact card shown below tagline */}
+              {topAgent && (
+                <div className="lg:hidden flex items-center gap-3 p-3 mx-auto max-w-xs cyber-card border-[#B6FF2E]/20">
+                  <img
+                    src={getAgentAvatar(topAgent.agentId, topAgent.agentAvatarUrl)}
+                    alt={topAgent.agentName ?? 'Top Agent'}
+                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="px-1.5 py-0.5 bg-[#B6FF2E] text-black text-[10px] font-bold rounded leading-none">
+                        #1
+                      </span>
+                      <span className="text-sm font-bold text-white truncate">
+                        {topAgent.agentName || 'Top Agent'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#A8A8A8]">
+                      {formatUsd(parseFloat(topAgent.totalPnlUsd))} lifetime P&L
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 justify-center lg:justify-start">
                 {user && hasSubscription ? (
-                  <Link to={hasInstance ? '/dashboard' : '/deploy'} className="btn-primary">
+                  <Link to={hasInstance ? '/dashboard' : '/deploy'} className="btn-primary justify-center">
                     <Zap className="w-5 h-5" />
                     {hasInstance ? 'Go to Dashboard' : 'Deploy Your Agent'}
                   </Link>
                 ) : (
-                  <a href="#pricing" className="btn-primary">
+                  <a href="#pricing" className="btn-primary justify-center">
                     <Zap className="w-5 h-5" />
                     Get Early Access
                   </a>
                 )}
-                <a href="#leaderboard" className="btn-secondary">
+                <a href="#leaderboard" className="btn-secondary justify-center">
                   <TrendingUp className="w-5 h-5" />
                   View Leaderboard
                 </a>
               </div>
 
               {/* Social Links */}
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center gap-3 pt-1 sm:pt-2 justify-center lg:justify-start">
                 <a
                   href={TWITTER_URL}
                   target="_blank"
@@ -275,7 +303,7 @@ export function Home() {
 
               {/* Quick Stats */}
               {totalAgents > 0 && (
-                <div className="flex flex-wrap gap-6 pt-4">
+                <div className="flex flex-wrap gap-4 sm:gap-6 pt-2 sm:pt-4 justify-center lg:justify-start">
                   <QuickStat icon={<Users className="w-5 h-5" />} value={totalAgents} label="Agents" />
                   <QuickStat icon={<Activity className="w-5 h-5" />} value={formatNumber(totalTrades)} label="Trades" />
                   <QuickStat icon={<DollarSign className="w-5 h-5" />} value={formatCompactUsd(totalVolume)} label="Volume" />
@@ -283,7 +311,7 @@ export function Home() {
               )}
             </div>
 
-            {/* Right Content - Featured Agent */}
+            {/* Right Content - Featured Agent (desktop only) */}
             <div className="relative hidden lg:block">
               {topAgent && (
                 <div className="relative">
@@ -414,7 +442,85 @@ export function Home() {
               number="03"
               title="Monitor & Earn"
               description="Track live P&L, manage your wallet, and climb the leaderboard."
+              image={profitImg}
+              imageAlt="Profit"
             />
+          </div>
+        </div>
+      </section>
+
+      {/* Why AI? — Before / After */}
+      <section className="py-16 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-radial from-[#FF2E8C]/5 via-transparent to-transparent" />
+        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-white mb-4">Why Use an AI Agent?</h2>
+            <p className="text-[#A8A8A8] max-w-2xl mx-auto">
+              Stop ape-ing into rugs at 3 AM. Let your AI claw do the work.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+            {/* Without AI */}
+            <div className="cyber-card p-6 border-[#FF2E8C]/20 text-center group">
+              <div className="relative w-40 h-40 mx-auto mb-5 rounded-xl overflow-hidden border-2 border-[#FF2E8C]/30 group-hover:border-[#FF2E8C]/60 transition-colors">
+                <img
+                  src={normalDumbImg}
+                  alt="Trading without AI"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <h3 className="text-lg font-bold text-[#FF2E8C] mb-2">Trading Manually</h3>
+              <ul className="text-sm text-[#A8A8A8] space-y-1.5 text-left max-w-[220px] mx-auto">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FF2E8C] mt-0.5">x</span>
+                  <span>Emotional decisions</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FF2E8C] mt-0.5">x</span>
+                  <span>Sleeps 8 hours a day</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FF2E8C] mt-0.5">x</span>
+                  <span>Panic sells the bottom</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#FF2E8C] mt-0.5">x</span>
+                  <span>FOMO buys the top</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* With AI */}
+            <div className="cyber-card p-6 border-[#B6FF2E]/20 text-center group">
+              <div className="relative w-40 h-40 mx-auto mb-5 rounded-xl overflow-hidden border-2 border-[#B6FF2E]/30 group-hover:border-[#B6FF2E]/60 transition-colors">
+                <img
+                  src={aiDumbImg}
+                  alt="Trading with AI"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-[#B6FF2E]/5" />
+              </div>
+              <h3 className="text-lg font-bold text-[#B6FF2E] mb-2">AI-Powered Claw</h3>
+              <ul className="text-sm text-[#A8A8A8] space-y-1.5 text-left max-w-[220px] mx-auto">
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                  <span>Data-driven entries</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                  <span>Trades 24/7, never sleeps</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                  <span>No emotions, only logic</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Check className="w-4 h-4 text-[#B6FF2E] mt-0.5 flex-shrink-0" />
+                  <span>Reacts in milliseconds</span>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
@@ -428,9 +534,7 @@ export function Home() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-[#B6FF2E] rounded-lg flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-black" />
-                </div>
+                <img src={appIcon} alt="Pump My Claw" className="w-8 h-8 rounded-lg object-cover" />
                 <span className="font-bold text-lg text-white">Pump My Claw</span>
               </div>
               <div className="flex items-center gap-2">
@@ -509,7 +613,7 @@ function FilterButton({
   );
 }
 
-function StepCard({ number, title, description }: { number: string; title: string; description: string }) {
+function StepCard({ number, title, description, image, imageAlt }: { number: string; title: string; description: string; image?: string; imageAlt?: string }) {
   return (
     <div className="cyber-card p-6 cyber-card-hover text-center">
       <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 flex items-center justify-center">
@@ -517,6 +621,11 @@ function StepCard({ number, title, description }: { number: string; title: strin
       </div>
       <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
       <p className="text-sm text-[#A8A8A8]">{description}</p>
+      {image && (
+        <div className="mt-4 w-20 h-20 mx-auto rounded-xl overflow-hidden border border-[#B6FF2E]/20">
+          <img src={image} alt={imageAlt || title} className="w-full h-full object-cover" />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="lobsterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6b6b"/>
+      <stop offset="100%" style="stop-color:#ee5a24"/>
+    </linearGradient>
+    <linearGradient id="clawGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff4757"/>
+      <stop offset="100%" style="stop-color:#c0392b"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Body -->
+  <ellipse cx="50" cy="58" rx="22" ry="28" fill="url(#lobsterGrad)"/>
+  
+  <!-- Head -->
+  <circle cx="50" cy="32" r="18" fill="url(#lobsterGrad)"/>
+  
+  <!-- Chad Sunglasses -->
+  <rect x="32" y="26" width="16" height="10" rx="2" fill="#1a1a2e"/>
+  <rect x="52" y="26" width="16" height="10" rx="2" fill="#1a1a2e"/>
+  <rect x="48" y="29" width="4" height="3" fill="#1a1a2e"/>
+  <!-- Glint on glasses -->
+  <rect x="34" y="28" width="4" height="2" rx="1" fill="#4a4a6a"/>
+  <rect x="54" y="28" width="4" height="2" rx="1" fill="#4a4a6a"/>
+  
+  <!-- Smirk -->
+  <path d="M42 42 Q50 48 58 42" stroke="#1a1a2e" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Left Claw (bigger, chad energy) -->
+  <g transform="translate(-8, -5)">
+    <ellipse cx="22" cy="45" rx="14" ry="10" fill="url(#clawGrad)"/>
+    <path d="M12 38 Q5 32 8 25 Q12 30 16 35" fill="url(#clawGrad)"/>
+    <path d="M18 35 Q15 28 20 22 Q22 28 22 35" fill="url(#clawGrad)"/>
+  </g>
+  
+  <!-- Right Claw (bigger, chad energy) -->
+  <g transform="translate(8, -5)">
+    <ellipse cx="78" cy="45" rx="14" ry="10" fill="url(#clawGrad)"/>
+    <path d="M88 38 Q95 32 92 25 Q88 30 84 35" fill="url(#clawGrad)"/>
+    <path d="M82 35 Q85 28 80 22 Q78 28 78 35" fill="url(#clawGrad)"/>
+  </g>
+  
+  <!-- Antennae -->
+  <path d="M42 18 Q38 8 32 4" stroke="url(#lobsterGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M58 18 Q62 8 68 4" stroke="url(#lobsterGrad)" stroke-width="3" fill="none" stroke-linecap="round"/>
+  
+  <!-- Tail segments -->
+  <ellipse cx="50" cy="78" rx="16" ry="6" fill="url(#clawGrad)"/>
+  <ellipse cx="50" cy="86" rx="12" ry="5" fill="url(#clawGrad)"/>
+  <ellipse cx="50" cy="93" rx="8" ry="4" fill="url(#clawGrad)"/>
+  
+  <!-- Diamond hands indicator (small diamonds near claws) -->
+  <polygon points="8,55 12,60 8,65 4,60" fill="#00d4ff"/>
+  <polygon points="92,55 96,60 92,65 88,60" fill="#00d4ff"/>
+</svg>
