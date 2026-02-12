@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
 export function Privacy() {
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   return (
     <div className="min-h-[calc(100vh-4rem)] py-16">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -127,7 +130,7 @@ export function Privacy() {
               <li>Cancel your subscription at any time</li>
             </ul>
             <p className="mt-3">
-              To exercise these rights, contact us via Telegram support.
+              To exercise these rights, contact us through Discord support on our Discord server.
             </p>
           </Section>
 
@@ -161,7 +164,7 @@ export function Privacy() {
           <Section title="11. Contact">
             <p>
               If you have questions about this Privacy Policy, please reach out
-              to us via our Telegram support channel.
+              to us through Discord support on our Discord server.
             </p>
           </Section>
         </div>

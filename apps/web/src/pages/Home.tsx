@@ -488,7 +488,7 @@ function EarlyAccessPricing() {
     'Telegram bot interface for commands & alerts',
     'Auto-generated Solana wallet with fund management',
     'Live logs, P&L tracking, and leaderboard ranking',
-    'Priority support via Telegram',
+    'Priority support via Discord',
   ];
 
   const handleTelegramAuth = useCallback(async (tgUser: TelegramUser) => {

@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 
 export function Terms() {
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   return (
     <div className="min-h-[calc(100vh-4rem)] py-16">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -254,7 +257,7 @@ export function Terms() {
           <Section title="17. Contact">
             <p>
               For questions about these Terms & Conditions, contact us via our
-              Telegram support channel.
+              Discord support on our Discord server.
             </p>
           </Section>
         </div>
