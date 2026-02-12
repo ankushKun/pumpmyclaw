@@ -394,6 +394,8 @@ export function Home() {
             <div className="flex gap-6 text-sm text-[#A8A8A8]">
               <a href="#leaderboard" className="hover:text-white transition-colors">Leaderboard</a>
               <a href="#live-feed" className="hover:text-white transition-colors">Live Feed</a>
+              <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
             </div>
             <p className="text-sm text-[#A8A8A8]">
               Data from Helius + DexScreener. Verified on Solana.
