@@ -7,11 +7,12 @@ import instanceRoutes from "./routes/instances";
 import { subscriptionRoutes, webhookRoutes } from "./routes/subscriptions";
 import { verifyToken } from "./services/jwt";
 import { generalRateLimit, authRateLimit } from "./middleware/rate-limit";
-import { ensureImageReady } from "./services/docker";
+import { ensureImageReady, rollingUpdateAll } from "./services/docker";
+import { decrypt } from "./services/crypto";
 import { startSubscriptionEnforcer } from "./services/subscription-enforcer";
 import { startDbAdmin } from "./db-admin";
 import { db } from "./db";
-import { users, subscriptions } from "./db/schema";
+import { users, instances, subscriptions } from "./db/schema";
 
 // ── Startup env validation ─────────────────────────────────────────
 const REQUIRED_ENV_VARS = [
@@ -163,6 +164,70 @@ app.post("/admin/grant-sub", async (c) => {
     message: `Granted subscription to user ${user.id} (@${user.username || user.firstName}), slot #${slotNumber}`,
     subscription: sub,
   });
+});
+
+// ── Admin: rolling update all containers ───────────────────────────
+// Rebuilds the instance Docker image and recreates all running containers
+// one at a time. Zero data loss — wallet, trades, token all preserved.
+// Usage: curl -X POST http://localhost:8080/admin/update-all -H "Authorization: Bearer $DB_PASS"
+app.post("/admin/update-all", async (c) => {
+  const adminPass = process.env.DB_PASS;
+  if (!adminPass) {
+    return c.json({ error: "Admin not configured (set DB_PASS)" }, 503);
+  }
+  const authHeader = c.req.header("Authorization");
+  if (authHeader !== `Bearer ${adminPass}`) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const results = await rollingUpdateAll(async (containerId: string) => {
+      // Look up the instance config from DB by containerId
+      const instance = await db.query.instances.findFirst({
+        where: eq(instances.containerId, containerId),
+      });
+      if (!instance) return null;
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, instance.userId),
+      });
+      if (!user) return null;
+
+      return {
+        instanceId: instance.id,
+        userId: user.id,
+        telegramOwnerId: user.telegramId,
+        telegramBotToken: decrypt(instance.telegramBotToken),
+        openrouterApiKey: decrypt(instance.openrouterApiKey),
+        model: instance.model || "openrouter/openrouter/auto",
+      };
+    });
+
+    // Update DB with new container IDs
+    for (const r of results) {
+      if (r.status === "updated" && r.instanceId && r.newContainerId) {
+        await db
+          .update(instances)
+          .set({ containerId: r.newContainerId, status: "pending", startedAt: new Date() })
+          .where(eq(instances.id, r.instanceId));
+      }
+    }
+
+    return c.json({
+      message: `Rolling update complete`,
+      results,
+      summary: {
+        total: results.length,
+        updated: results.filter((r) => r.status === "updated").length,
+        skipped: results.filter((r) => r.status === "skipped").length,
+        failed: results.filter((r) => r.status === "failed").length,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[admin] Rolling update failed: ${msg}`);
+    return c.json({ error: `Update failed: ${msg}` }, 500);
+  }
 });
 
 // ── Auth middleware for all other /api routes ──────────────────────

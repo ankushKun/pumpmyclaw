@@ -18,14 +18,51 @@ const TRADES_FILE = path.join(
 );
 
 function loadTrades() {
+  let data;
   try {
     if (fs.existsSync(TRADES_FILE)) {
-      return JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
+      data = JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
     }
   } catch (e) {
     console.error(`[track] Error loading trades: ${e.message}`);
   }
-  return { trades: [], buyCountByMint: {}, totalProfitSOL: 0, positions: {} };
+  if (!data) {
+    return { trades: [], buyCountByMint: {}, totalProfitSOL: 0, positions: {} };
+  }
+
+  // --- Data migration: backfill missing fields from older versions ---
+  if (!data.positions) data.positions = {};
+  if (!data.trades) data.trades = [];
+  if (!data.buyCountByMint) data.buyCountByMint = {};
+  if (typeof data.totalProfitSOL !== 'number') data.totalProfitSOL = 0;
+
+  let needsSave = false;
+  for (const [mint, pos] of Object.entries(data.positions)) {
+    // Old positions may lack boughtAt — estimate from trade history or use now
+    if (!pos.boughtAt) {
+      // Try to find the last buy trade for this mint
+      const lastBuy = [...data.trades].reverse().find(
+        t => t.mint === mint && t.action === 'buy' && t.timestamp
+      );
+      pos.boughtAt = lastBuy ? lastBuy.timestamp : new Date().toISOString();
+      needsSave = true;
+    }
+    // Ensure all expected numeric fields exist
+    if (typeof pos.totalCostSOL !== 'number') { pos.totalCostSOL = 0; needsSave = true; }
+    if (typeof pos.totalTokens !== 'number') { pos.totalTokens = 0; needsSave = true; }
+    if (typeof pos.buyCount !== 'number') { pos.buyCount = 1; needsSave = true; }
+  }
+
+  if (needsSave) {
+    try {
+      fs.writeFileSync(TRADES_FILE, JSON.stringify(data, null, 2));
+      console.error('[track] Migrated TRADES.json to new format');
+    } catch (e) {
+      console.error(`[track] Migration save failed: ${e.message}`);
+    }
+  }
+
+  return data;
 }
 
 function saveTrades(data) {
@@ -67,10 +104,12 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
     // Track position for P/L
     if (!data.positions) data.positions = {};
     if (!data.positions[mint]) {
-      data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0 };
+      data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0, boughtAt: timestamp };
     }
     data.positions[mint].totalCostSOL += sol;
     data.positions[mint].buyCount += 1;
+    // Always update boughtAt to the latest buy time
+    data.positions[mint].boughtAt = timestamp;
     if (tokenAmount) {
       data.positions[mint].totalTokens += parseFloat(tokenAmount);
     }
@@ -78,14 +117,13 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
     // Calculate profit if we have position data
     if (data.positions && data.positions[mint]) {
       const pos = data.positions[mint];
-      // Simple P/L: sell proceeds - average cost
+      // Simple P/L: sell proceeds - total cost
       if (pos.totalCostSOL > 0) {
-        const avgCost = pos.totalCostSOL / pos.buyCount;
-        const profit = sol - avgCost;
+        const profit = sol - pos.totalCostSOL;
         data.totalProfitSOL = (data.totalProfitSOL || 0) + profit;
         trade.profitSOL = profit;
       }
-      // Clear or reduce position
+      // Clear position
       delete data.positions[mint];
     }
   }
@@ -124,23 +162,44 @@ function checkMint(mint) {
 
 function getStatus() {
   const data = loadTrades();
-  const recentTrades = data.trades.slice(-10);
+  const recentTrades = (data.trades || []).slice(-10);
+  const now = Date.now();
   
   // Get list of currently held positions (tokens with totalTokens > 0)
   const heldPositions = {};
   for (const [mint, pos] of Object.entries(data.positions || {})) {
-    if (pos.totalTokens > 0) {
-      heldPositions[mint] = pos;
+    // Defensive: skip entries that are not objects
+    if (!pos || typeof pos !== 'object') continue;
+    const totalTokens = typeof pos.totalTokens === 'number' ? pos.totalTokens : 0;
+    if (totalTokens > 0) {
+      // Calculate age in minutes since last buy — safe fallback to 0 if missing/invalid
+      let ageMinutes = 0;
+      if (pos.boughtAt) {
+        const boughtTime = new Date(pos.boughtAt).getTime();
+        if (!isNaN(boughtTime)) {
+          ageMinutes = Math.max(0, Math.round((now - boughtTime) / 60000));
+        }
+      }
+      const totalCostSOL = typeof pos.totalCostSOL === 'number' ? pos.totalCostSOL : 0;
+      const buyCount = typeof pos.buyCount === 'number' && pos.buyCount > 0 ? pos.buyCount : 1;
+      heldPositions[mint] = {
+        totalCostSOL,
+        totalTokens,
+        buyCount,
+        boughtAt: pos.boughtAt || null,
+        ageMinutes,
+        avgCostSOL: +(totalCostSOL / buyCount).toFixed(6)
+      };
     }
   }
   
   return {
-    totalTrades: data.trades.length,
+    totalTrades: (data.trades || []).length,
     recentTrades,
-    buyCountByMint: data.buyCountByMint,
+    buyCountByMint: data.buyCountByMint || {},
     totalProfitSOL: data.totalProfitSOL || 0,
     activePositions: Object.keys(heldPositions).length,
-    positions: heldPositions,  // Only show positions I still hold
+    positions: heldPositions,
     message: Object.keys(heldPositions).length > 0
       ? `Currently holding ${Object.keys(heldPositions).length} token(s)`
       : 'No open positions'

@@ -131,6 +131,14 @@ Build your own time-series data for additional trend analysis:
 /home/openclaw/.openclaw/skills/pumpfun/scripts/pumpfun-snapshot.js clean [hours]
 ```
 
+### Combined State (Recommended for Heartbeats)
+
+```bash
+# Get full bot state in one call: balance + positions + token status
+# Returns: sol_balance, mode (NORMAL/DEFENSIVE/EMERGENCY), positions, my_token
+/home/openclaw/.openclaw/skills/pumpfun/scripts/pumpfun-state.sh
+```
+
 ### Trade Tracking (P/L Management)
 
 ```bash

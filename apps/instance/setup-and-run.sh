@@ -8,6 +8,10 @@ OPENCLAW_DIR="$HOME/.openclaw"
 WALLET_FILE="$OPENCLAW_DIR/.wallet.json"
 SKILLS_DIR="$OPENCLAW_DIR/skills"
 
+# Add skill script directories to PATH so LLMs can call scripts by short name
+# (e.g. "solana-balance.sh" instead of full path)
+export PATH="$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts:$PATH"
+
 echo "[pmc] Validating environment..."
 
 # Validate required env vars
@@ -135,12 +139,14 @@ jq -n \
   --arg solana_privkey "$SOLANA_PRIVATE_KEY" \
   --arg solana_pubkey "$SOLANA_PUBLIC_KEY" \
   --arg solana_rpc "$SOLANA_RPC_URL" \
+  --arg skills_path "$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts" \
   '{
     env: {
       OPENROUTER_API_KEY: $openrouter_key,
       SOLANA_PRIVATE_KEY: $solana_privkey,
       SOLANA_PUBLIC_KEY: $solana_pubkey,
-      SOLANA_RPC_URL: $solana_rpc
+      SOLANA_RPC_URL: $solana_rpc,
+      PATH: ($skills_path + ":/home/openclaw/.local/bin:/home/openclaw/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     },
     auth: {
       profiles: {

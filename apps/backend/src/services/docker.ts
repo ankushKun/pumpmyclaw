@@ -561,6 +561,103 @@ function demultiplexDockerStream(buffer: Buffer): string {
   return lines.join("");
 }
 
+/**
+ * Force rebuild the instance image from the latest Dockerfile + config.
+ * Resets the imageReady flag so next ensureImageReady() will rebuild.
+ * Does NOT rebuild the base image (that rarely changes).
+ */
+export async function forceRebuildInstanceImage(): Promise<void> {
+  console.log("[docker] Force-rebuilding instance image...");
+  imageReady = false;
+
+  // Wait for any in-progress build to finish first
+  if (imageBuildPromise) {
+    await imageBuildPromise.catch(() => {});
+  }
+
+  // Ensure base image exists
+  await ensureBaseImage();
+
+  // Rebuild instance image (copies latest skills, workspace, scripts)
+  await buildDockerImage(IMAGE_NAME, INSTANCE_DOCKERFILE_DIR, [
+    "--build-arg", `BASE_IMAGE=${BASE_IMAGE_NAME}`,
+    "--no-cache",
+  ]);
+
+  imageReady = true;
+  console.log("[docker] Instance image rebuilt successfully");
+}
+
+/**
+ * Rolling update: rebuild image, then recreate all running pmc containers
+ * one at a time. Each container is stopped, removed, and recreated from
+ * the new image. User data (wallet, trades, etc.) is preserved via
+ * bind mounts. The entrypoint.sh handles syncing new workspace/skill files.
+ *
+ * Returns a summary of what happened per container.
+ */
+export interface UpdateResult {
+  name: string;
+  instanceId?: number;
+  newContainerId?: string;
+  status: "updated" | "skipped" | "failed";
+  error?: string;
+}
+
+export async function rollingUpdateAll(
+  getInstanceConfig: (containerId: string) => Promise<InstanceConfig | null>
+): Promise<UpdateResult[]> {
+  const results: UpdateResult[] = [];
+
+  // 1. Rebuild image
+  await forceRebuildInstanceImage();
+
+  // 2. Find all pmc-managed containers
+  const containers = await docker.listContainers({
+    all: true, // include stopped
+    filters: { label: ["pmc.managed=true"] },
+  });
+
+  console.log(`[docker] Rolling update: found ${containers.length} managed container(s)`);
+
+  // 3. Update each container one at a time
+  for (const containerInfo of containers) {
+    const name = containerInfo.Names?.[0]?.replace(/^\//, "") || containerInfo.Id.slice(0, 12);
+    const oldId = containerInfo.Id;
+
+    try {
+      // Get the config needed to recreate this container
+      const config = await getInstanceConfig(oldId);
+      if (!config) {
+        console.log(`[docker] Skipping ${name} — no matching instance config found`);
+        results.push({ name, status: "skipped", error: "No instance config in DB" });
+        continue;
+      }
+
+      console.log(`[docker] Updating ${name}...`);
+
+      // Stop and remove old container
+      const oldContainer = docker.getContainer(oldId);
+      if (containerInfo.State === "running") {
+        await oldContainer.stop().catch(() => {});
+      }
+      await oldContainer.remove({ force: true }).catch(() => {});
+
+      // Recreate from new image (createInstance handles naming, bind mounts, etc.)
+      const newContainerId = await createInstance(config);
+
+      console.log(`[docker] Updated ${name} successfully (new: ${newContainerId.slice(0, 12)})`);
+      results.push({ name, instanceId: config.instanceId, newContainerId, status: "updated" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[docker] Failed to update ${name}: ${msg}`);
+      results.push({ name, status: "failed", error: msg });
+    }
+  }
+
+  return results;
+}
+
 /** Get the last N lines of container logs */
 export async function getLogs(
   containerId: string,
