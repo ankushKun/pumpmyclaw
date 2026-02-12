@@ -137,6 +137,19 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         case "$HELD_TOKENS" in ''|null) HELD_TOKENS="0" ;; esac
         AGE_MIN=$(printf '%.0f' "$AGE_MIN" 2>/dev/null) || AGE_MIN="0"
 
+        # If HELD_TOKENS is 0 but we spent SOL, try on-chain lookup for actual token balance
+        # (pumpfun-trade.js auto-records buys without token amounts)
+        if [ "$HELD_TOKENS" = "0" ] && [ "$COST_SOL" != "0" ] && [ -n "${SOLANA_PUBLIC_KEY:-}" ]; then
+            OC_BAL=$(curl -sf --max-time 5 "${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}" \
+                -H 'Content-Type: application/json' \
+                -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTokenAccountsByOwner\",\"params\":[\"$SOLANA_PUBLIC_KEY\",{\"mint\":\"$MINT\"},{\"encoding\":\"jsonParsed\"}]}" \
+                2>/dev/null) || true
+            if [ -n "$OC_BAL" ]; then
+                HELD_TOKENS=$(echo "$OC_BAL" | jq -r '.result.value[0].account.data.parsed.info.tokenAmount.uiAmountString // "0"' 2>/dev/null) || HELD_TOKENS="0"
+                case "$HELD_TOKENS" in ''|null) HELD_TOKENS="0" ;; esac
+            fi
+        fi
+
         # Get DexScreener data for this mint from batch result
         PAIR_DATA=$(echo "$DEX_DATA" | jq -c --arg m "$MINT" '.[$m] // {}' 2>/dev/null) || PAIR_DATA="{}"
 
@@ -157,11 +170,13 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         # Calculate current SOL value from native price
         CURRENT_VALUE_SOL="0"
         PNL_PCT="0"
+        CAN_CALC_PNL="false"
         if [ "$PRICE_NATIVE" != "0" ] && [ "$PRICE_NATIVE" != "null" ] && \
            [ "$HELD_TOKENS" != "0" ] && [ "$HELD_TOKENS" != "null" ]; then
             CURRENT_VALUE_SOL=$(safe_bc "scale=9; $HELD_TOKENS * $PRICE_NATIVE" "0")
             if [ "$COST_SOL" != "0" ] && [ "$COST_SOL" != "null" ]; then
                 PNL_PCT=$(safe_bc "scale=1; (($CURRENT_VALUE_SOL - $COST_SOL) / $COST_SOL) * 100" "0")
+                CAN_CALC_PNL="true"
             fi
         fi
 
@@ -169,14 +184,24 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
         SELL_SIGNAL="HOLD"
         if [ "$IS_COMPLETE" = "true" ]; then
             SELL_SIGNAL="SELL_NOW:graduated"
-        elif safe_cmp "$PNL_PCT >= 15"; then
-            SELL_SIGNAL="SELL_NOW:take_profit"
-        elif safe_cmp "$PNL_PCT <= -10"; then
-            SELL_SIGNAL="SELL_NOW:stop_loss"
-        elif [ "${AGE_MIN:-0}" -gt 10 ] 2>/dev/null && safe_cmp "$PNL_PCT <= 5"; then
-            SELL_SIGNAL="SELL_NOW:stale_position"
-        elif [ "${AGE_MIN:-0}" -gt 5 ] 2>/dev/null && safe_cmp "$PNL_PCT <= -5"; then
-            SELL_SIGNAL="SELL_NOW:losing_momentum"
+        elif [ "$CAN_CALC_PNL" = "true" ]; then
+            # Normal P/L-based sell signals (tight exits to preserve capital)
+            if safe_cmp "$PNL_PCT >= 12"; then
+                SELL_SIGNAL="SELL_NOW:take_profit"
+            elif safe_cmp "$PNL_PCT <= -8"; then
+                SELL_SIGNAL="SELL_NOW:stop_loss"
+            elif [ "${AGE_MIN:-0}" -gt 8 ] 2>/dev/null && safe_cmp "$PNL_PCT <= 5"; then
+                SELL_SIGNAL="SELL_NOW:stale_position"
+            elif [ "${AGE_MIN:-0}" -gt 4 ] 2>/dev/null && safe_cmp "$PNL_PCT <= -3"; then
+                SELL_SIGNAL="SELL_NOW:losing_momentum"
+            fi
+        else
+            # Cannot calculate P/L — use aggressive age-based sell signals
+            if [ "${AGE_MIN:-0}" -gt 5 ] 2>/dev/null; then
+                SELL_SIGNAL="SELL_NOW:stale_position"
+            elif [ "${AGE_MIN:-0}" -gt 3 ] 2>/dev/null; then
+                SELL_SIGNAL="SELL_NOW:unknown_value"
+            fi
         fi
 
         TEMP_POSITIONS=$(echo "$TEMP_POSITIONS" | jq -c \

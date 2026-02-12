@@ -28,7 +28,7 @@ if [ -f "$SKILL_DIR/config.json" ]; then
 fi
 
 # Get token accounts
-RESPONSE=$(curl -sf -X POST "$RPC_URL" \
+RESPONSE=$(curl -sf --max-time 10 -X POST "$RPC_URL" \
     -H "Content-Type: application/json" \
     -d "{
         \"jsonrpc\": \"2.0\",

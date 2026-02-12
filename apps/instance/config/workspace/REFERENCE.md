@@ -6,21 +6,23 @@ This file contains detailed trading patterns and playbooks. Read it when you wan
 
 | Confidence | Size |
 |------------|------|
-| 75%+ | 0.005 SOL |
+| 75%+ | 0.004 SOL |
 | 65-74% | 0.003 SOL |
 | Below 65% | Do not trade |
 
+**NEVER buy more than 0.004 SOL per trade. ALWAYS keep 0.008 SOL reserve.**
+
 ## Speed Trading Targets
 
-I am a speed trader. I take profits early and cut losses fast.
+I am a speed trader. I take profits early and cut losses fast. **Selling is more important than buying.**
 
 | Volatility | Take Profit | Stop Loss | Max Hold Time |
 |------------|-------------|-----------|---------------|
-| Low | +15% | -10% | 10 min |
-| Medium | +20% | -10% | 8 min |
-| High | +30% | -15% | 5 min |
+| Low | +12% | -8% | 8 min |
+| Medium | +15% | -8% | 6 min |
+| High | +20% | -10% | 5 min |
 
-If held longer than max hold time with no profit, SELL.
+If held longer than max hold time with no profit, SELL. Free up capital for better setups.
 
 ## Bullish Patterns (Buy Signals)
 

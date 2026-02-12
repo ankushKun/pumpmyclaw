@@ -24,6 +24,7 @@
  */
 
 const { execSync } = require('child_process');
+const https = require('https');
 const path = require('path');
 const fs = require('fs');
 
@@ -37,7 +38,7 @@ const TRADES_FILE = path.join(DATA_DIR, 'trades-history.json');
 // ============================================================================
 const DEFAULT_CONFIG = {
   positionSizes: {
-    high: 0.005,
+    high: 0.004,
     medium: 0.003,
     low: 0.002
   },
@@ -434,6 +435,141 @@ function resetTuning() {
 }
 
 // ============================================================================
+// FAST HTTP HELPERS (avoid shell spawn overhead for scan)
+// ============================================================================
+function httpGet(url, timeoutMs = 5000, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      timeout: timeoutMs,
+      headers: { 'Accept': 'application/json', ...headers }
+    };
+    const req = https.get(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error('Invalid JSON')); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('HTTP timeout')); });
+    req.on('error', reject);
+  });
+}
+
+async function fetchTrendingFast(limit = 15) {
+  try {
+    const url = `https://frontend-api-v3.pump.fun/coins/currently-live?limit=${limit}&offset=0&includeNsfw=false&sort=usd_market_cap&order=DESC`;
+    return await httpGet(url, 5000, { 'Origin': 'https://pump.fun' });
+  } catch (e) {
+    console.error(`[analyze] Fast trending fetch failed: ${e.message}`);
+    return null;
+  }
+}
+
+async function fetchDexScreenerBatchFast(mints) {
+  if (!mints || mints.length === 0) return {};
+  try {
+    const url = `https://api.dexscreener.com/tokens/v1/solana/${mints.join(',')}`;
+    const raw = await httpGet(url, 5000);
+    if (!Array.isArray(raw)) return {};
+    // Group by base token, pick best pair (prefer pumpfun, then highest liquidity)
+    const grouped = {};
+    for (const pair of raw) {
+      const addr = pair?.baseToken?.address;
+      if (!addr) continue;
+      if (!grouped[addr]) grouped[addr] = [];
+      grouped[addr].push(pair);
+    }
+    const result = {};
+    for (const [addr, pairs] of Object.entries(grouped)) {
+      pairs.sort((a, b) => {
+        const aDex = a.dexId === 'pumpfun' ? 0 : 1;
+        const bDex = b.dexId === 'pumpfun' ? 0 : 1;
+        if (aDex !== bDex) return aDex - bDex;
+        return (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0);
+      });
+      const p = pairs[0];
+      result[addr] = {
+        dex: p.dexId,
+        name: p.baseToken?.name,
+        symbol: p.baseToken?.symbol,
+        mint: p.baseToken?.address,
+        pairAddress: p.pairAddress,
+        priceUsd: parseFloat(p.priceUsd) || 0,
+        priceNative: parseFloat(p.priceNative) || 0,
+        priceChange: {
+          m5: p.priceChange?.m5 || 0,
+          h1: p.priceChange?.h1 || 0,
+          h6: p.priceChange?.h6 || 0,
+          h24: p.priceChange?.h24 || 0
+        },
+        txns: {
+          m5: p.txns?.m5,
+          h1: p.txns?.h1,
+          h6: p.txns?.h6,
+          h24: p.txns?.h24
+        },
+        volume: {
+          h24: p.volume?.h24 || 0,
+          h6: p.volume?.h6 || 0,
+          h1: p.volume?.h1 || 0,
+          m5: p.volume?.m5 || 0
+        },
+        liquidity: {
+          usd: p.liquidity?.usd || 0,
+          base: p.liquidity?.base || 0,
+          quote: p.liquidity?.quote || 0
+        },
+        fdv: p.fdv || 0,
+        marketCap: p.marketCap || 0,
+        imageUrl: p.info?.imageUrl || null,
+        pairCreatedAt: p.pairCreatedAt,
+        url: p.url
+      };
+    }
+    return result;
+  } catch (e) {
+    console.error(`[analyze] Fast DexScreener batch fetch failed: ${e.message}`);
+    return {};
+  }
+}
+
+async function fetchRSIFast(poolAddress) {
+  // Fetch just enough 5m candles from GeckoTerminal to calculate RSI (need 15+ closes)
+  if (!poolAddress) return null;
+  try {
+    const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolAddress}/ohlcv/minute?aggregate=5&limit=20`;
+    const data = await httpGet(url, 3000);
+    const ohlcvList = data?.data?.attributes?.ohlcv_list;
+    if (!Array.isArray(ohlcvList) || ohlcvList.length < 15) return null;
+    // ohlcv_list is newest-first: [timestamp, open, high, low, close, volume]
+    const closes = ohlcvList.map(c => c[4]).reverse(); // reverse to oldest-first
+    return calculateRSI(closes, 14);
+  } catch (e) {
+    console.error(`[analyze] Fast RSI fetch failed for ${poolAddress}: ${e.message}`);
+    return null;
+  }
+}
+
+async function fetchBatchRSIFast(opportunities, dexDataMap) {
+  // Fetch RSI for top candidates in parallel (up to 3 to stay fast)
+  const topOpps = opportunities.slice(0, 3);
+  const results = {};
+  const promises = topOpps.map(async (opp) => {
+    const dex = dexDataMap[opp.mint];
+    const poolAddr = dex?.pairAddress;
+    if (!poolAddr) return;
+    const rsi = await fetchRSIFast(poolAddr);
+    if (rsi !== null) results[opp.mint] = rsi;
+  });
+  await Promise.all(promises);
+  return results;
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 function runScript(script, args = []) {
@@ -441,7 +577,7 @@ function runScript(script, args = []) {
     const cmd = `${path.join(SCRIPTS_DIR, script)} ${args.join(' ')}`;
     const result = execSync(cmd, { 
       encoding: 'utf8', 
-      timeout: 25000,
+      timeout: 15000,
       stdio: ['pipe', 'pipe', 'pipe']
     });
     return JSON.parse(result);
@@ -456,6 +592,22 @@ function getPumpfunData(mint) {
 
 function getDexScreenerData(mint) {
   return runScript('pumpfun-dexscreener.sh', [mint]);
+}
+
+function getBatchDexScreenerData(mints) {
+  // DexScreener supports up to 30 comma-separated mints in a single call
+  if (!mints || mints.length === 0) return {};
+  const result = runScript('pumpfun-dexscreener.sh', mints);
+  if (!result || result.error) return {};
+  // If single mint, runScript returns a single object; if multiple, returns array
+  const arr = Array.isArray(result) ? result : [result];
+  const map = {};
+  for (const item of arr) {
+    if (item && item.mint) {
+      map[item.mint] = item;
+    }
+  }
+  return map;
 }
 
 function getCandleData(mint, timeframe = '5m', limit = 50) {
@@ -1275,27 +1427,50 @@ async function analyzeToken(mint, quick = false) {
 async function scanTrending(limit = 15) {
   console.error(`[analyze] Scanning top ${limit} trending tokens...`);
   
-  const trending = runScript('pumpfun-trending.sh', [limit.toString()]);
-  if (!trending || trending.error || !Array.isArray(trending)) {
-    return { error: 'Failed to fetch trending tokens' };
+  // Use fast native HTTP (no shell spawn) to stay within OpenClaw's tool timeout
+  const trending = await fetchTrendingFast(limit);
+  if (!trending || !Array.isArray(trending)) {
+    // Fallback to shell script if native fetch fails
+    console.error(`[analyze] Fast fetch failed, trying shell fallback...`);
+    const fallback = runScript('pumpfun-trending.sh', [limit.toString()]);
+    if (!fallback || fallback.error || !Array.isArray(fallback)) {
+      return { error: 'Failed to fetch trending tokens' };
+    }
+    return scanTrendingWithData(fallback);
   }
   
+  return scanTrendingWithData(trending);
+}
+
+async function scanTrendingWithData(trending) {
   const tuning = loadTuningData();
   const config = tuning.config;
   const opportunities = [];
   const analyzed = [];
   
-  for (const token of trending) {
-    if (token.complete) continue;
-    if (!token.is_currently_live) continue;
-    
+  // Pre-filter tokens before any API calls
+  const candidates = trending.filter(token => {
+    if (token.complete) return false;
+    if (!token.is_currently_live) return false;
     const mcap = token.usd_market_cap || 0;
-    if (mcap < config.minMarketCap || mcap > config.maxMarketCap) continue;
-    
+    if (mcap < config.minMarketCap || mcap > config.maxMarketCap) return false;
+    return true;
+  });
+  
+  console.error(`[analyze] ${candidates.length} tokens pass pre-filter, fetching DexScreener data in batch...`);
+  
+  // Batch fetch ALL DexScreener data in a single native HTTP call (no shell spawn)
+  const candidateMints = candidates.map(t => t.mint);
+  const dexDataMap = candidateMints.length > 0 ? await fetchDexScreenerBatchFast(candidateMints) : {};
+  
+  console.error(`[analyze] Got DexScreener data for ${Object.keys(dexDataMap).length} tokens, analyzing...`);
+  
+  for (const token of candidates) {
     try {
-      // Quick analysis for scanning (skip candles for speed)
-      const dexData = getDexScreenerData(token.mint);
+      // Use pre-fetched batch data instead of per-token API calls
+      const dexData = dexDataMap[token.mint] || null;
       const dexAnalysis = analyzeWithDexScreener(dexData, token);
+      const mcap = token.usd_market_cap || 0;
       dexAnalysis.marketCap = dexData?.marketCap || mcap;
       
       const recommendation = generateRecommendation(token, dexAnalysis, null);
@@ -1326,16 +1501,28 @@ async function scanTrending(limit = 15) {
   
   opportunities.sort((a, b) => b.confidence - a.confidence);
   
+  // Fetch RSI in parallel for top candidates (up to 3, ~1-2s total)
+  const topOpps = opportunities.slice(0, 5);
+  if (topOpps.length > 0) {
+    console.error(`[analyze] Fetching RSI for top ${Math.min(topOpps.length, 3)} candidates...`);
+    const rsiMap = await fetchBatchRSIFast(topOpps, dexDataMap);
+    for (const opp of topOpps) {
+      if (rsiMap[opp.mint] !== undefined) {
+        opp.rsi = rsiMap[opp.mint];
+      }
+    }
+    console.error(`[analyze] RSI data obtained for ${Object.keys(rsiMap).length} candidates`);
+  }
+  
   return {
-    scanned: trending.filter(t => !t.complete).length,
+    scanned: candidates.length,
     analyzed: analyzed.length,
-    opportunities: opportunities.slice(0, 5),
+    opportunities: topOpps,
     autoTuning: {
       tradesRecorded: tuning.stats.totalTrades,
       buyThreshold: config.minConfidenceForBuy
     },
-    timestamp: new Date().toISOString(),
-    note: 'Run full analysis on opportunities for candlestick patterns'
+    timestamp: new Date().toISOString()
   };
 }
 

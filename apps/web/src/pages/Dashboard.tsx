@@ -114,7 +114,7 @@ export function Dashboard() {
   const { connection } = useConnection();
   const {
     publicKey: userWalletPubkey,
-    sendTransaction,
+    signTransaction,
     connected: userWalletConnected,
   } = useWallet();
   const [fundAmount, setFundAmount] = useState("");
@@ -166,7 +166,7 @@ export function Dashboard() {
   }, [instance?.id]);
 
   const handleFundBot = async () => {
-    if (!userWalletPubkey || !walletAddress || !sendTransaction) return;
+    if (!userWalletPubkey || !walletAddress || !signTransaction) return;
     const amount = parseFloat(fundAmount);
     if (isNaN(amount) || amount <= 0) {
       setFundResult({ type: "error", message: "Enter a valid amount" });
@@ -181,6 +181,10 @@ export function Dashboard() {
     setFundResult(null);
 
     try {
+      // 1. Get blockhash via backend (avoids browser RPC 403 errors)
+      const { blockhash } = await backend.getLatestBlockhash();
+
+      // 2. Build the transfer transaction
       const recipientPubkey = new PublicKey(walletAddress);
       const transaction = new Transaction().add(
         SystemProgram.transfer({
@@ -189,17 +193,21 @@ export function Dashboard() {
           lamports: Math.round(amount * LAMPORTS_PER_SOL),
         })
       );
-
-      const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = userWalletPubkey;
 
-      const signature = await sendTransaction(transaction, connection);
-      await connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed"
-      );
+      // 3. Sign with the user's wallet (Phantom etc.)
+      const signed = await signTransaction(transaction);
+
+      // 4. Send the signed transaction via backend proxy
+      const serialized = signed.serialize().toString("base64");
+      const { signature } = await backend.sendRawTransaction(serialized);
+
+      // 5. Confirm via backend proxy
+      const confirmation = await backend.confirmTransaction(signature);
+      if (!confirmation.confirmed) {
+        throw new Error(confirmation.error || "Transaction not confirmed");
+      }
 
       setFundResult({
         type: "success",
@@ -208,9 +216,11 @@ export function Dashboard() {
       setFundAmount("");
 
       // Refresh balances
-      if (userWalletPubkey) {
+      try {
         const bal = await connection.getBalance(userWalletPubkey);
         setUserWalletBalance(bal / LAMPORTS_PER_SOL);
+      } catch {
+        /* balance refresh is best-effort */
       }
       await refreshBotWallet();
     } catch (err) {
@@ -393,11 +403,17 @@ export function Dashboard() {
     if (!instance) return;
     let cancelled = false;
     let isFirst = true;
+    let fetchGeneration = 0; // Prevent stale out-of-order responses from causing flicker
+    let fetchInFlight = false;
     const fetchWallet = async () => {
+      // Skip if a previous fetch is still in flight (prevents out-of-order responses)
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      const thisGen = ++fetchGeneration;
       if (isFirst) setWalletDataLoading(true);
       try {
         const wallet = await backend.getWallet(instance.id);
-        if (cancelled) return;
+        if (cancelled || thisGen !== fetchGeneration) return;
         setWalletAddress(wallet.address);
         if (wallet.address) {
           // Fetch balance, tokens, transactions, and stats in parallel
@@ -407,15 +423,26 @@ export function Dashboard() {
             backend.getWalletTransactions(instance.id, 20),
             backend.getWalletStats(instance.id),
           ]);
-          if (cancelled) return;
+          if (cancelled || thisGen !== fetchGeneration) return;
           if (balanceRes.status === "fulfilled") {
+            // Always update balance (it's a single value, not a list that can go empty)
             setWalletBalance({ sol: balanceRes.value.sol, formatted: balanceRes.value.formatted });
           }
+          // If balance fetch failed but we had a previous value, keep showing it
+          // (the rejected status means we just don't update)
           if (tokensRes.status === "fulfilled") {
-            setWalletTokens(tokensRes.value.tokens);
+            // Don't replace a non-empty token list with an empty one from a flaky RPC response
+            const newTokens = tokensRes.value.tokens;
+            setWalletTokens((prev) =>
+              newTokens.length === 0 && prev && prev.length > 0 ? prev : newTokens
+            );
           }
           if (txRes.status === "fulfilled") {
-            setWalletTransactions(txRes.value.transactions);
+            // Don't replace non-empty transaction list with empty from a flaky response
+            const newTxs = txRes.value.transactions;
+            setWalletTransactions((prev) =>
+              newTxs.length === 0 && prev && prev.length > 0 ? prev : newTxs
+            );
           }
           if (statsRes.status === "fulfilled") {
             setWalletStats(statsRes.value);
@@ -424,6 +451,7 @@ export function Dashboard() {
       } catch {
         /* ignore */
       } finally {
+        fetchInFlight = false;
         if (!cancelled && isFirst) {
           setWalletDataLoading(false);
           isFirst = false;

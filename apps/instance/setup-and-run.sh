@@ -191,7 +191,7 @@ jq -n \
         skipBootstrap: true,
         compaction: { mode: "safeguard" },
         maxConcurrent: 4,
-        timeoutSeconds: 180,
+        timeoutSeconds: 240,
         typingMode: "instant",
         typingIntervalSeconds: 4,
         heartbeat: {

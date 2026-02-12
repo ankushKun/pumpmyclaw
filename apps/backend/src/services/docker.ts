@@ -341,7 +341,9 @@ export async function ensureImageReady(): Promise<void> {
  * Bind-mounts a persistent host directory for OpenClaw state (tied to telegramId, not instanceId).
  * Container name uses telegramId so it stays consistent across delete/recreate.
  */
-export async function createInstance(config: InstanceConfig): Promise<string> {
+export async function createInstance(config: InstanceConfig, options?: { start?: boolean }): Promise<string> {
+  const shouldStart = options?.start !== false; // default: true
+
   // Ensure image exists (build if needed)
   await ensureImageReady();
 
@@ -408,8 +410,12 @@ export async function createInstance(config: InstanceConfig): Promise<string> {
     },
   });
 
-  await container.start();
-  console.log(`[docker] Container ${name} started (${container.id.slice(0, 12)})`);
+  if (shouldStart) {
+    await container.start();
+    console.log(`[docker] Container ${name} started (${container.id.slice(0, 12)})`);
+  } else {
+    console.log(`[docker] Container ${name} created but not started (${container.id.slice(0, 12)})`);
+  }
   return container.id;
 }
 
@@ -628,6 +634,7 @@ export interface UpdateResult {
   name: string;
   instanceId?: number;
   newContainerId?: string;
+  wasRunning?: boolean;
   status: "updated" | "skipped" | "failed";
   error?: string;
 }
@@ -652,6 +659,7 @@ export async function rollingUpdateAll(
   for (const containerInfo of containers) {
     const name = containerInfo.Names?.[0]?.replace(/^\//, "") || containerInfo.Id.slice(0, 12);
     const oldId = containerInfo.Id;
+    const wasRunning = containerInfo.State === "running";
 
     try {
       // Get the config needed to recreate this container
@@ -662,20 +670,20 @@ export async function rollingUpdateAll(
         continue;
       }
 
-      console.log(`[docker] Updating ${name}...`);
+      console.log(`[docker] Updating ${name} (was ${wasRunning ? "running" : "stopped"})...`);
 
       // Stop and remove old container
       const oldContainer = docker.getContainer(oldId);
-      if (containerInfo.State === "running") {
+      if (wasRunning) {
         await oldContainer.stop().catch(() => {});
       }
       await oldContainer.remove({ force: true }).catch(() => {});
 
-      // Recreate from new image (createInstance handles naming, bind mounts, etc.)
-      const newContainerId = await createInstance(config);
+      // Recreate from new image — only start if it was previously running
+      const newContainerId = await createInstance(config, { start: wasRunning });
 
-      console.log(`[docker] Updated ${name} successfully (new: ${newContainerId.slice(0, 12)})`);
-      results.push({ name, instanceId: config.instanceId, newContainerId, status: "updated" });
+      console.log(`[docker] Updated ${name} successfully (new: ${newContainerId.slice(0, 12)}, started: ${wasRunning})`);
+      results.push({ name, instanceId: config.instanceId, newContainerId, wasRunning, status: "updated" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[docker] Failed to update ${name}: ${msg}`);

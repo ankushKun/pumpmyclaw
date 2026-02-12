@@ -246,8 +246,8 @@ const TRADES_FILE = path.join(
 );
 
 const MAX_BUYS_PER_TOKEN = 2;
-const MIN_BALANCE_FOR_TRADING = 0.008; // Must have at least this much SOL to buy
-const MAX_BUY_AMOUNT = 0.005; // Hard cap on buy amount
+const MIN_BALANCE_FOR_TRADING = 0.01; // Must have at least this much SOL to buy
+const MAX_BUY_AMOUNT = 0.004; // Hard cap on buy amount
 
 function loadTrades() {
     try {
@@ -294,11 +294,16 @@ function recordTrade(action, mint, solAmount) {
     if (action === 'buy') {
         data.buyCountByMint[mint] = (data.buyCountByMint[mint] || 0) + 1;
         if (!data.positions) data.positions = {};
+        const ts = new Date().toISOString();
         if (!data.positions[mint]) {
-            data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0 };
+            data.positions[mint] = { totalCostSOL: 0, totalTokens: 0, buyCount: 0, firstBoughtAt: ts, boughtAt: ts };
         }
         data.positions[mint].totalCostSOL += sol;
         data.positions[mint].buyCount += 1;
+        data.positions[mint].boughtAt = ts;
+        if (!data.positions[mint].firstBoughtAt) {
+            data.positions[mint].firstBoughtAt = ts;
+        }
     } else if (action === 'sell') {
         if (data.positions && data.positions[mint]) {
             const pos = data.positions[mint];
@@ -389,7 +394,7 @@ async function main() {
                 
                 // Also check if buy would leave us with less than min balance
                 const balanceAfterBuy = balanceCheck.sol - buyAmount - 0.001; // account for fees
-                if (balanceAfterBuy < 0.005) {
+                if (balanceAfterBuy < 0.008) {
                     console.log(JSON.stringify({
                         success: false,
                         blocked: true,

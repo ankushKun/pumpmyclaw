@@ -313,6 +313,29 @@ class BackendClient {
     return this.request<WalletStats>(`/api/instances/${id}/wallet/stats`);
   }
 
+  // ── Solana RPC proxy (avoids browser CORS/403 issues) ───────────
+
+  /** Get latest blockhash from Solana via backend proxy */
+  async getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
+    return this.request<{ blockhash: string; lastValidBlockHeight: number }>('/api/instances/solana/blockhash');
+  }
+
+  /** Send a signed transaction via backend proxy */
+  async sendRawTransaction(transaction: string): Promise<{ signature: string }> {
+    return this.request<{ signature: string }>('/api/instances/solana/send-transaction', {
+      method: 'POST',
+      body: JSON.stringify({ transaction }),
+    });
+  }
+
+  /** Confirm a transaction via backend proxy */
+  async confirmTransaction(signature: string): Promise<{ confirmed: boolean; status?: string; error?: string }> {
+    return this.request<{ confirmed: boolean; status?: string; error?: string }>('/api/instances/solana/confirm-transaction', {
+      method: 'POST',
+      body: JSON.stringify({ signature }),
+    });
+  }
+
   /** Liquidate: sell all tokens and transfer all SOL to user's wallet */
   async liquidate(id: number, destinationWallet: string): Promise<LiquidateResult> {
     return this.request<LiquidateResult>(`/api/instances/${id}/liquidate`, {

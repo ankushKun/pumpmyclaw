@@ -13,7 +13,7 @@ API_URL="https://frontend-api-v3.pump.fun"
 HEADERS=(-H "Accept: application/json" -H "Origin: https://pump.fun")
 
 set +e
-RESPONSE=$(curl -sf "${API_URL}/coins/currently-live?limit=${LIMIT}&offset=0&includeNsfw=false&sort=usd_market_cap&order=DESC" "${HEADERS[@]}" 2>&1)
+RESPONSE=$(curl -sf --max-time 10 "${API_URL}/coins/currently-live?limit=${LIMIT}&offset=0&includeNsfw=false&sort=usd_market_cap&order=DESC" "${HEADERS[@]}" 2>&1)
 CURL_STATUS=$?
 set -e
 

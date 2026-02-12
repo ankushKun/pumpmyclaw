@@ -13,7 +13,7 @@ HEADERS=(-H "Accept: application/json" -H "Origin: https://pump.fun")
 
 # Get the #1 token by market cap from currently-live
 set +e
-RESPONSE=$(curl -sf "${API_URL}/coins/currently-live?limit=1&offset=0&includeNsfw=false&sort=usd_market_cap&order=DESC" "${HEADERS[@]}" 2>&1)
+RESPONSE=$(curl -sf --max-time 10 "${API_URL}/coins/currently-live?limit=1&offset=0&includeNsfw=false&sort=usd_market_cap&order=DESC" "${HEADERS[@]}" 2>&1)
 CURL_STATUS=$?
 set -e
 

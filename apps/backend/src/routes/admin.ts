@@ -678,8 +678,9 @@ admin.post("/api/update-all", async (c) => {
           .update(instances)
           .set({
             containerId: r.newContainerId,
-            status: "pending",
-            startedAt: new Date(),
+            // Preserve the stopped state — only set "pending" for containers that were running
+            status: r.wasRunning ? "pending" : "stopped",
+            ...(r.wasRunning ? { startedAt: new Date() } : {}),
           })
           .where(eq(instances.id, r.instanceId));
       }
@@ -892,8 +893,8 @@ admin.post("/update-all", async (c) => {
           .update(instances)
           .set({
             containerId: r.newContainerId,
-            status: "pending",
-            startedAt: new Date(),
+            status: r.wasRunning ? "pending" : "stopped",
+            ...(r.wasRunning ? { startedAt: new Date() } : {}),
           })
           .where(eq(instances.id, r.instanceId));
       }

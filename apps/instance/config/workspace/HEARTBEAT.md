@@ -46,29 +46,42 @@ The action tells you why:
 - `SELL_NOW:take_profit` - Up 15%+, take the win
 - `SELL_NOW:stop_loss` - Down 10%+, cut the loss
 - `SELL_NOW:graduated` - Token graduated, cannot trade on pump.fun
-- `SELL_NOW:stale_position` - Held 10+ min with no gain
+- `SELL_NOW:stale_position` - Held too long with no gain
 - `SELL_NOW:losing_momentum` - Held 5+ min and going down
+- `SELL_NOW:unknown_value` - Cannot determine P/L, sell to recover capital
 
 **If action is "HOLD" but any of these are true, SELL IT anyway:**
-- `ageMinutes` > 15 — SELL (stale)
-- `pnlPercent` < -10 — SELL (stop loss)
-- `pnlPercent` > 15 — SELL (take profit)
+- `ageMinutes` > 12 — SELL (stale, free up capital)
+- `pnlPercent` < -8 — SELL (stop loss)
+- `pnlPercent` > 12 — SELL (take profit)
 
-**After EVERY sell, immediately send a message to owner: "Sold $SYMBOL (+X%)" or "Sold $SYMBOL (-X%)"**
+Do NOT send a separate message for each sell — include all sells in the final Step 6 report.
 
 ---
 
 ## STEP 4: Find New Trades
 
-SKIP if mode is not "NORMAL" or I have 3+ positions.
+**SKIP this step entirely if ANY of these are true:**
+- Mode is not "NORMAL"
+- I have 2+ open positions (capital is already deployed)
+- SOL balance < 0.01 (not enough for a safe buy + reserve)
+
+**IMPORTANT: I must keep a minimum reserve of 0.008 SOL at all times for gas fees. Never buy if it would leave my balance below 0.008 SOL.**
 
 Run: `pumpfun-analyze.js scan 15`
+
+This returns opportunities with confidence scores. RSI is already factored into the confidence score — do NOT check RSI separately.
 
 BUY only if ALL of these are true:
 - Recommendation is BUY
 - Confidence > 65%
 - I do not already own it
-- RSI < 70
+- Balance AFTER the buy would still be >= 0.008 SOL
+
+Buy sizing:
+- Confidence 75%+: buy 0.004 SOL (not 0.005)
+- Confidence 65-74%: buy 0.003 SOL
+- NEVER buy more than 0.004 SOL per trade
 
 To buy:
 ```
@@ -76,9 +89,9 @@ pumpfun-buy.sh MINT_ADDRESS SOL_AMOUNT
 pumpfun-track.js record buy MINT_ADDRESS SOL_AMOUNT
 ```
 
-**After EVERY buy, immediately send a message to owner: "Bought $SYMBOL - X SOL"**
+Do NOT send a separate message for each buy — include all buys in the final Step 6 report.
 
-No good trades? That is fine. Do NOT force trades.
+No good trades? That is fine. Do NOT force trades. Selling existing positions to recover capital is more important than finding new buys.
 
 ---
 

@@ -286,6 +286,36 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
   const timestamp = new Date().toISOString();
   const sol = parseFloat(solAmount) || 0;
   
+  // Duplicate protection: reject if same mint+action was recorded in the last 60 seconds
+  const now = Date.now();
+  const recentDupe = data.trades.slice(-20).find(t => {
+    if (t.mint !== mint || t.action !== action) return false;
+    const tTime = new Date(t.timestamp).getTime();
+    return (now - tTime) < 60000; // within 60 seconds
+  });
+  if (recentDupe) {
+    console.error(`[track] Duplicate ${action} for ${mint} within 60s — skipping record, running auto-tuning bridge only`);
+    // Even on duplicate, backfill tokenAmount if the existing position is missing it
+    // (pumpfun-trade.js auto-records without tokenAmount, then this gets called with it)
+    if (action === 'buy' && tokenAmount && data.positions && data.positions[mint]) {
+      const pos = data.positions[mint];
+      if (!pos.totalTokens || pos.totalTokens === 0) {
+        pos.totalTokens = parseFloat(tokenAmount);
+        saveTrades(data);
+        console.error(`[track] Backfilled totalTokens=${pos.totalTokens} for ${mint}`);
+      }
+    }
+    // Still bridge to auto-tuning even on duplicate (it's idempotent)
+    bridgeToAutoTuning(action, mint, sol, 0);
+    return {
+      success: true,
+      action,
+      mint,
+      duplicate: true,
+      note: 'Trade already recorded within the last 60 seconds'
+    };
+  }
+  
   const trade = {
     timestamp,
     action,
@@ -410,7 +440,10 @@ function getStatus() {
   for (const [mint, pos] of Object.entries(data.positions || {})) {
     if (!pos || typeof pos !== 'object') continue;
     const totalTokens = typeof pos.totalTokens === 'number' ? pos.totalTokens : 0;
-    if (totalTokens > 0) {
+    const totalCostSOLCheck = typeof pos.totalCostSOL === 'number' ? pos.totalCostSOL : 0;
+    // Include position if it has tokens OR if SOL was spent (pumpfun-trade.js
+    // auto-records buys without token amounts, so totalTokens may be 0)
+    if (totalTokens > 0 || totalCostSOLCheck > 0) {
       let ageMinutes = 0;
       const entryTime = pos.firstBoughtAt || pos.boughtAt;
       if (entryTime) {

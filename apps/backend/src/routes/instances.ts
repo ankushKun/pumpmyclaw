@@ -854,6 +854,138 @@ instanceRoutes.get("/:id/wallet/balance", async (c) => {
   }
 });
 
+// ── Solana RPC proxy: getLatestBlockhash ────────────────────────────
+// The public Solana RPC blocks browser requests (403). This endpoint
+// proxies the call server-side so the frontend can build transactions.
+instanceRoutes.get("/solana/blockhash", async (c) => {
+  const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+  try {
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getLatestBlockhash",
+        params: [{ commitment: "confirmed" }],
+      }),
+    });
+
+    const data = await response.json() as {
+      result?: { value?: { blockhash?: string; lastValidBlockHeight?: number } };
+      error?: { message?: string };
+    };
+
+    if (data.error) {
+      return c.json({ error: data.error.message || "RPC error" }, 502);
+    }
+
+    const blockhash = data.result?.value?.blockhash;
+    const lastValidBlockHeight = data.result?.value?.lastValidBlockHeight;
+
+    if (!blockhash) {
+      return c.json({ error: "No blockhash in RPC response" }, 502);
+    }
+
+    return c.json({ blockhash, lastValidBlockHeight });
+  } catch (err) {
+    console.error("Failed to fetch blockhash:", err);
+    return c.json({ error: "Failed to fetch blockhash from Solana RPC" }, 502);
+  }
+});
+
+// ── Solana RPC proxy: sendRawTransaction ────────────────────────────
+// Submits a signed transaction to the Solana network via the backend RPC.
+instanceRoutes.post("/solana/send-transaction", async (c) => {
+  const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+  try {
+    const body = await c.req.json() as { transaction: string };
+    if (!body.transaction) {
+      return c.json({ error: "Missing transaction" }, 400);
+    }
+
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "sendTransaction",
+        params: [body.transaction, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed" }],
+      }),
+    });
+
+    const data = await response.json() as {
+      result?: string;
+      error?: { message?: string; code?: number; data?: unknown };
+    };
+
+    if (data.error) {
+      return c.json({ error: data.error.message || "RPC error", details: data.error }, 502);
+    }
+
+    return c.json({ signature: data.result });
+  } catch (err) {
+    console.error("Failed to send transaction:", err);
+    return c.json({ error: "Failed to send transaction" }, 502);
+  }
+});
+
+// ── Solana RPC proxy: confirmTransaction ────────────────────────────
+instanceRoutes.post("/solana/confirm-transaction", async (c) => {
+  const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+  try {
+    const body = await c.req.json() as { signature: string };
+    if (!body.signature) {
+      return c.json({ error: "Missing signature" }, 400);
+    }
+
+    // Poll getSignatureStatuses until confirmed or timeout
+    const startTime = Date.now();
+    const TIMEOUT = 60_000;
+
+    while (Date.now() - startTime < TIMEOUT) {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getSignatureStatuses",
+          params: [[body.signature], { searchTransactionHistory: false }],
+        }),
+      });
+
+      const data = await response.json() as {
+        result?: { value?: Array<{ confirmationStatus?: string; err?: unknown } | null> };
+        error?: { message?: string };
+      };
+
+      if (data.error) {
+        return c.json({ error: data.error.message || "RPC error" }, 502);
+      }
+
+      const status = data.result?.value?.[0];
+      if (status) {
+        if (status.err) {
+          return c.json({ confirmed: false, error: "Transaction failed on-chain" }, 200);
+        }
+        if (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized") {
+          return c.json({ confirmed: true, status: status.confirmationStatus });
+        }
+      }
+
+      // Wait 2s before polling again
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    return c.json({ confirmed: false, error: "Confirmation timeout" }, 200);
+  } catch (err) {
+    console.error("Failed to confirm transaction:", err);
+    return c.json({ error: "Failed to confirm transaction" }, 502);
+  }
+});
+
 // ── Get wallet token holdings ───────────────────────────────────────
 instanceRoutes.get("/:id/wallet/tokens", async (c) => {
   const userId = c.get("userId");
@@ -920,26 +1052,21 @@ instanceRoutes.get("/:id/wallet/tokens", async (c) => {
   };
   
   try {
-    // Query both token programs in parallel
+    // Query both token programs in parallel (with 8s timeout to avoid hanging)
+    const rpcFetchOptions = (programId: string, id: number) => ({
+      method: "POST" as const,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id,
+        method: "getTokenAccountsByOwner",
+        params: [address, { programId }, { encoding: "jsonParsed" }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+
     const [response1, response2] = await Promise.all([
-      fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0", id: 1,
-          method: "getTokenAccountsByOwner",
-          params: [address, { programId: TOKEN_PROGRAM }, { encoding: "jsonParsed" }],
-        }),
-      }),
-      fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0", id: 2,
-          method: "getTokenAccountsByOwner",
-          params: [address, { programId: TOKEN_2022_PROGRAM }, { encoding: "jsonParsed" }],
-        }),
-      }),
+      fetch(rpcUrl, rpcFetchOptions(TOKEN_PROGRAM, 1)),
+      fetch(rpcUrl, rpcFetchOptions(TOKEN_2022_PROGRAM, 2)),
     ]);
 
     const [data1, data2] = await Promise.all([
@@ -1077,13 +1204,16 @@ instanceRoutes.get("/:id/wallet/transactions", async (c) => {
     const tradesData = readTradesJson(user.telegramId);
     const trades = tradesData?.trades ?? [];
 
-    // Deduplicate trades: same mint + action + timestamp + solAmount = duplicate
-    const seen = new Set<string>();
+    // Deduplicate trades: same mint + action + solAmount within 60s = duplicate
     const uniqueTrades: typeof trades = [];
     for (const t of trades) {
-      const key = `${t.mint}|${t.action}|${t.timestamp}|${t.solAmount}`;
-      if (!seen.has(key)) {
-        seen.add(key);
+      const tTime = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+      const isDupe = uniqueTrades.some(u => {
+        if (u.mint !== t.mint || u.action !== t.action || u.solAmount !== t.solAmount) return false;
+        const uTime = u.timestamp ? new Date(u.timestamp).getTime() : 0;
+        return Math.abs(tTime - uTime) < 60000; // within 60 seconds
+      });
+      if (!isDupe) {
         uniqueTrades.push(t);
       }
     }

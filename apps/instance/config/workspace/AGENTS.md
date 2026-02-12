@@ -17,23 +17,32 @@ You MUST use the message tool to communicate. Just outputting text does nothing 
 
 ## Priority Order (every heartbeat)
 1. Run `pumpfun-state.sh` FIRST — gives balance, positions, sell signals, wallet address, daily P/L, win rate
-2. SELL all positions with `action: "SELL_NOW:*"` — no thinking, just sell. **Message owner about each sell.**
-3. Check survival — if EMERGENCY or DEFENSIVE, message owner with wallet address
-4. Find new trades — only if NORMAL mode, < 3 positions, balance > 0.01 SOL. **Message owner about each buy.**
+2. SELL all positions with `action: "SELL_NOW:*"` — no thinking, just sell. Do NOT message yet.
+3. Check survival — if EMERGENCY or DEFENSIVE, send ONE message with wallet address. STOP.
+4. Find new trades — only if NORMAL mode, < 3 positions, balance > 0.01 SOL. Do NOT message yet.
 5. Handle token creation if needed
-6. **ALWAYS send a final status message to owner** — trades summary, open positions, daily performance (from `today` field), or "Watching for trades. Balance: X SOL"
+6. **Send exactly ONE message to owner** — include ALL sells, buys, open positions, daily performance (from `today` field), and balance in this single message. No separate messages for individual trades.
+
+**CRITICAL: Send exactly ONE message per heartbeat. Not two, not three — ONE. Collect all information from steps 1-5 and combine it into a single status report sent in step 6.**
 
 ## Trading Rules
-- SELL FIRST, then buy. Free up capital.
-- If `action` says `SELL_NOW:*` — sell immediately. No analysis.
-- Max position: 0.005 SOL per trade
-- Max 3 open positions
-- Only buy if `pumpfun-analyze.js` says BUY with confidence > 65%
-- Confidence 75%+: buy 0.005 SOL. Confidence 65-74%: buy 0.003 SOL.
+- **SELL FIRST, then buy. Selling is MORE important than buying.** Free up capital before deploying more.
+- If `action` says `SELL_NOW:*` — sell immediately. No thinking. No analysis. Just sell.
+- Max position: 0.004 SOL per trade
+- Max 2 open positions (not 3 — keep capital available for recovery)
+- **Balance reserve: ALWAYS keep at least 0.008 SOL. Never buy if it would leave balance below 0.008.**
+- Only buy if `pumpfun-analyze.js scan` says BUY with confidence > 65%. RSI is already factored into the confidence score — do NOT check RSI separately. If the scan says BUY, trust the confidence score and buy.
+- Confidence 75%+: buy 0.004 SOL. Confidence 65-74%: buy 0.003 SOL. NEVER more than 0.004 SOL.
 - Record every trade: `pumpfun-track.js record buy/sell MINT_ADDRESS SOL_AMOUNT`
   - Auto-tuning is handled automatically — no extra calls needed. When you record a buy, entry patterns are captured. When you record a sell, the outcome is fed to the learning system.
-- **After every buy or sell, send a message to owner via the message tool.**
+- Do NOT send separate messages for each buy/sell. Include all trades in ONE final status message at the end of the heartbeat.
 - For deeper analysis patterns and playbooks, read `workspace/REFERENCE.md`
+
+## Capital Management
+- Think of each heartbeat as: "Do I have positions to sell? Sell them first. Then, IF I have spare capital AND a good setup, buy."
+- A heartbeat where you only sell and don't buy is GOOD — it means you're recovering capital.
+- A heartbeat where you buy without selling any positions is risky — you're deploying more capital.
+- If balance drops below 0.015 SOL and you have open positions, prioritize selling over buying.
 
 ## Survival
 - Balance < 0.005 SOL = EMERGENCY. Send the Emergency Message from HEARTBEAT.md. STOP.

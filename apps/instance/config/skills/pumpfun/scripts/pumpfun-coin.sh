@@ -25,7 +25,7 @@ HEADERS=(-H "Accept: application/json" -H "Origin: https://pump.fun")
 
 # Get coin info
 set +e
-RESPONSE=$(curl -sf "${API_URL}/coins/${MINT}?sync=true" "${HEADERS[@]}" 2>&1)
+RESPONSE=$(curl -sf --max-time 10 "${API_URL}/coins/${MINT}?sync=true" "${HEADERS[@]}" 2>&1)
 CURL_STATUS=$?
 set -e
 

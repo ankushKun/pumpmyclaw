@@ -23,7 +23,7 @@ HEADERS=(-H "Accept: application/json" -H "Origin: https://pump.fun")
 ENCODED_TERM=$(printf '%s' "$SEARCH_TERM" | jq -sRr @uri)
 
 set +e
-RESPONSE=$(curl -sf "${API_URL}/coins?search=${ENCODED_TERM}&limit=${LIMIT}&offset=0&sort=market_cap&order=DESC&includeNsfw=false" "${HEADERS[@]}" 2>&1)
+RESPONSE=$(curl -sf --max-time 10 "${API_URL}/coins?search=${ENCODED_TERM}&limit=${LIMIT}&offset=0&sort=market_cap&order=DESC&includeNsfw=false" "${HEADERS[@]}" 2>&1)
 CURL_STATUS=$?
 set -e
 
