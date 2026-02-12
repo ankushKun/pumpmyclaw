@@ -147,8 +147,10 @@ echo "[pmc] Telegram owner: ${TELEGRAM_OWNER_ID}"
 echo "[pmc] Solana wallet: ${SOLANA_PUBLIC_KEY}"
 
 # Build auth profiles + env section based on provider
+# For openai-codex, we don't set auth.profiles in openclaw.json — auth is handled
+# via ~/.codex/auth.json written separately below.
 if [ "$LLM_PROVIDER" = "openai-codex" ]; then
-    AUTH_PROFILES='{ "openai-codex:default": { "provider": "openai-codex" } }'
+    AUTH_PROFILES='{}'
     ENV_EXTRAS='{}'
 else
     AUTH_PROFILES='{ "openrouter:default": { "provider": "openrouter", "mode": "api_key" } }'

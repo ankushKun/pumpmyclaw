@@ -47,21 +47,46 @@ export const MODELS: readonly ModelDef[] = [
   {
     id: "openai-codex/o4-mini",
     name: "o4-mini",
-    desc: "Fast & capable, included with ChatGPT Plus/Pro",
+    desc: "Fast reasoning, great value",
     provider: "openai-codex",
     badge: "Recommended",
   },
   {
     id: "openai-codex/o3",
     name: "o3",
-    desc: "Most capable reasoning model (ChatGPT Pro)",
+    desc: "Most capable reasoning model",
     provider: "openai-codex",
   },
   {
     id: "openai-codex/gpt-4.1",
     name: "GPT-4.1",
-    desc: "Best for coding tasks, large context window",
+    desc: "Best for coding, 1M context",
     provider: "openai-codex",
+  },
+  {
+    id: "openai-codex/gpt-4.1-mini",
+    name: "GPT-4.1 Mini",
+    desc: "Fast coding model, low cost",
+    provider: "openai-codex",
+  },
+  {
+    id: "openai-codex/gpt-4.1-nano",
+    name: "GPT-4.1 Nano",
+    desc: "Fastest, lowest cost",
+    provider: "openai-codex",
+  },
+  {
+    id: "openai-codex/o4-mini-high",
+    name: "o4-mini (high)",
+    desc: "o4-mini with high reasoning effort",
+    provider: "openai-codex",
+  },
+  {
+    id: "openai-codex/codex-mini-latest",
+    name: "Codex Mini",
+    desc: "Optimized for Codex CLI tasks",
+    provider: "openai-codex",
+    badge: "Codex",
   },
 ];
 
