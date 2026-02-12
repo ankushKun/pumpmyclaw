@@ -305,15 +305,9 @@ function recordTrade(action, mint, solAmount) {
             data.positions[mint].firstBoughtAt = ts;
         }
     } else if (action === 'sell') {
-        if (data.positions && data.positions[mint]) {
-            const pos = data.positions[mint];
-            if (pos.totalCostSOL > 0) {
-                const avgCost = pos.totalCostSOL / pos.buyCount;
-                const profit = sol - avgCost;
-                data.totalProfitSOL = (data.totalProfitSOL || 0) + profit;
-            }
-            delete data.positions[mint];
-        }
+        // Don't compute profit here — we don't know the actual SOL received.
+        // pumpfun-track.js record (called by the LLM with real SOL amount) handles P/L.
+        // Don't delete the position either — let pumpfun-track.js handle cleanup.
     }
     
     saveTrades(data);
@@ -412,10 +406,42 @@ async function main() {
             }
         }
 
+        // For sells, snapshot SOL balance before trade to calculate actual SOL received
+        let preTradeBalance = null;
+        if (!isBuy) {
+            try {
+                const balBefore = await checkWalletBalance(config);
+                preTradeBalance = balBefore.sol;
+            } catch (e) {
+                console.error(`[trade] Warning: Could not snapshot pre-sell balance: ${e.message}`);
+            }
+        }
+
         const result = await executeTrade(action.toLowerCase(), mint, amount, parseInt(slippagePct), config);
         
+        // For sells, determine actual SOL received by checking balance change
+        let solAmount;
+        if (isBuy) {
+            solAmount = parseFloat(amount);
+        } else {
+            solAmount = 0;
+            if (preTradeBalance !== null) {
+                try {
+                    // Brief delay for balance to update on-chain
+                    await new Promise(r => setTimeout(r, 1500));
+                    const balAfter = await checkWalletBalance(config);
+                    const received = balAfter.sol - preTradeBalance;
+                    if (received > 0) {
+                        solAmount = Math.round(received * 1e6) / 1e6; // 6 decimal places
+                        result.solReceived = solAmount;
+                    }
+                } catch (e) {
+                    console.error(`[trade] Warning: Could not determine SOL received: ${e.message}`);
+                }
+            }
+        }
+
         // Auto-record trade to TRADES.json
-        const solAmount = isBuy ? parseFloat(amount) : parseFloat(amount); // For sell, this is approx
         const buyCount = recordTrade(action.toLowerCase(), mint, solAmount);
         result.recorded = true;
         result.buyCount = buyCount;

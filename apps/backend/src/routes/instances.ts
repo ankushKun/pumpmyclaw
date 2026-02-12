@@ -1241,14 +1241,31 @@ instanceRoutes.get("/:id/wallet/transactions", async (c) => {
         imageUrl: pair?.info?.imageUrl ?? null,
       }] : null;
 
+      // For sells, solAmount might be 0 (auto-recorded before SOL received is known)
+      // or a bogus value like 100 (from "100%" token sell parsed as number).
+      // Use profitSOL + cost basis if available, otherwise show null.
+      let solChange: string | null = null;
+      if (trade.action === "buy") {
+        solChange = (-trade.solAmount).toFixed(6);
+      } else if (trade.action === "sell") {
+        if (trade.solAmount > 0 && trade.solAmount < 1) {
+          // Reasonable sell SOL amount (< 1 SOL for our micro-trades)
+          solChange = trade.solAmount.toFixed(6);
+        } else if (trade.profitSOL != null) {
+          // We have profit data — we can reconstruct approximate SOL received
+          // but just show profit instead of bogus raw amount
+          solChange = null;
+        } else {
+          solChange = null;
+        }
+      }
+
       return {
         signature: null as string | null,
         blockTime: trade.timestamp ? Math.floor(new Date(trade.timestamp).getTime() / 1000) : null,
         type: trade.action === "buy" ? "buy" : trade.action === "sell" ? "sell" : trade.action,
         success: true,
-        solChange: trade.action === "buy"
-          ? (-trade.solAmount).toFixed(6)
-          : trade.solAmount.toFixed(6),
+        solChange,
         tokenChanges,
         profitSOL: trade.profitSOL ?? null,
       };
@@ -1403,6 +1420,18 @@ instanceRoutes.get("/:id/wallet/stats", async (c) => {
     });
   }
 
+  // Sanitize totalProfitSOL: if it's unreasonably large (> 1 SOL for micro-trading bots),
+  // it was corrupted by the "100%" sell amount bug. Recompute from individual trade profitSOL values.
+  if (Math.abs(tradesData.totalProfitSOL ?? 0) > 1) {
+    let recomputed = 0;
+    for (const t of tradesData.trades ?? []) {
+      if (t.action === "sell" && typeof t.profitSOL === "number" && Math.abs(t.profitSOL) < 1) {
+        recomputed += t.profitSOL;
+      }
+    }
+    tradesData.totalProfitSOL = recomputed;
+  }
+
   // Today's date key
   const todayKey = new Date().toISOString().split("T")[0];
   const dailyPL = tradesData.dailyPL ?? {};
@@ -1449,9 +1478,9 @@ instanceRoutes.get("/:id/wallet/stats", async (c) => {
   }
   const allTimeWinRate = allTimeTrades > 0 ? (allTimeWins / allTimeTrades) * 100 : 0;
 
-  // Active positions count
+  // Active positions count (include positions with totalTokens > 0 OR totalCostSOL > 0)
   const activePositions = Object.values(tradesData.positions ?? {}).filter(
-    (p) => p.totalTokens > 0
+    (p) => (p.totalTokens > 0) || (p.totalCostSOL > 0)
   ).length;
 
   return c.json({
