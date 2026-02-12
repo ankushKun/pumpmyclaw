@@ -56,6 +56,8 @@ export interface WalletInfo {
 export interface WalletBalance {
   sol: number;
   formatted: string;
+  solPriceUsd: number | null;
+  usd: number | null;
 }
 
 export interface WalletToken {
@@ -318,6 +320,11 @@ class BackendClient {
   /** Get latest blockhash from Solana via backend proxy */
   async getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }> {
     return this.request<{ blockhash: string; lastValidBlockHeight: number }>('/api/instances/solana/blockhash');
+  }
+
+  /** Get current SOL price in USD */
+  async getSolPrice(): Promise<{ solPriceUsd: number }> {
+    return this.request<{ solPriceUsd: number }>('/api/instances/solana/price');
   }
 
   /** Send a signed transaction via backend proxy */

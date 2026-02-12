@@ -85,6 +85,8 @@ export function Dashboard() {
   const [walletBalance, setWalletBalance] = useState<{
     sol: number;
     formatted: string;
+    solPriceUsd: number | null;
+    usd: number | null;
   } | null>(null);
   const [walletTokens, setWalletTokens] = useState<WalletToken[] | null>(null);
   const [walletTransactions, setWalletTransactions] = useState<
@@ -92,6 +94,9 @@ export function Dashboard() {
   >(null);
   const [walletStats, setWalletStats] = useState<WalletStats | null>(null);
   const [walletDataLoading, setWalletDataLoading] = useState(true);
+  const [balanceRefreshing, setBalanceRefreshing] = useState(false);
+  const [tokensRefreshing, setTokensRefreshing] = useState(false);
+  const [txRefreshing, setTxRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // Subscription
@@ -159,7 +164,12 @@ export function Dashboard() {
     if (!instance) return;
     try {
       const balance = await backend.getWalletBalance(instance.id);
-      setWalletBalance({ sol: balance.sol, formatted: balance.formatted });
+      setWalletBalance({
+        sol: balance.sol,
+        formatted: balance.formatted,
+        solPriceUsd: balance.solPriceUsd,
+        usd: balance.usd,
+      });
     } catch {
       /* ignore */
     }
@@ -398,71 +408,123 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [instance?.id]);
 
-  // Fetch wallet info — initial load + 5s auto-refresh
+  // Fetch wallet address (once on mount or instance change)
   useEffect(() => {
     if (!instance) return;
     let cancelled = false;
-    let isFirst = true;
-    let fetchGeneration = 0; // Prevent stale out-of-order responses from causing flicker
-    let fetchInFlight = false;
-    const fetchWallet = async () => {
-      // Skip if a previous fetch is still in flight (prevents out-of-order responses)
-      if (fetchInFlight) return;
-      fetchInFlight = true;
-      const thisGen = ++fetchGeneration;
-      if (isFirst) setWalletDataLoading(true);
+    const fetchAddress = async () => {
+      setWalletDataLoading(true);
       try {
         const wallet = await backend.getWallet(instance.id);
-        if (cancelled || thisGen !== fetchGeneration) return;
-        setWalletAddress(wallet.address);
-        if (wallet.address) {
-          // Fetch balance, tokens, transactions, and stats in parallel
-          const [balanceRes, tokensRes, txRes, statsRes] = await Promise.allSettled([
-            backend.getWalletBalance(instance.id),
-            backend.getWalletTokens(instance.id),
-            backend.getWalletTransactions(instance.id, 20),
-            backend.getWalletStats(instance.id),
-          ]);
-          if (cancelled || thisGen !== fetchGeneration) return;
-          if (balanceRes.status === "fulfilled") {
-            // Always update balance (it's a single value, not a list that can go empty)
-            setWalletBalance({ sol: balanceRes.value.sol, formatted: balanceRes.value.formatted });
-          }
-          // If balance fetch failed but we had a previous value, keep showing it
-          // (the rejected status means we just don't update)
-          if (tokensRes.status === "fulfilled") {
-            // Don't replace a non-empty token list with an empty one from a flaky RPC response
-            const newTokens = tokensRes.value.tokens;
-            setWalletTokens((prev) =>
-              newTokens.length === 0 && prev && prev.length > 0 ? prev : newTokens
-            );
-          }
-          if (txRes.status === "fulfilled") {
-            // Don't replace non-empty transaction list with empty from a flaky response
-            const newTxs = txRes.value.transactions;
-            setWalletTransactions((prev) =>
-              newTxs.length === 0 && prev && prev.length > 0 ? prev : newTxs
-            );
-          }
-          if (statsRes.status === "fulfilled") {
-            setWalletStats(statsRes.value);
-          }
-        }
+        if (!cancelled) setWalletAddress(wallet.address);
       } catch {
         /* ignore */
       } finally {
-        fetchInFlight = false;
-        if (!cancelled && isFirst) {
-          setWalletDataLoading(false);
-          isFirst = false;
-        }
-        isFirst = false;
+        if (!cancelled) setWalletDataLoading(false);
       }
     };
-    fetchWallet();
-    const interval = setInterval(fetchWallet, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
+    fetchAddress();
+    return () => { cancelled = true; };
   }, [instance?.id]);
+
+  // Fetch balance - fast refresh (3s) since it's critical and cheap
+  useEffect(() => {
+    if (!instance || !walletAddress) return;
+    let cancelled = false;
+    let fetchInFlight = false;
+    const fetchBalance = async () => {
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      setBalanceRefreshing(true);
+      try {
+        const balance = await backend.getWalletBalance(instance.id);
+        if (!cancelled) {
+          setWalletBalance({
+            sol: balance.sol,
+            formatted: balance.formatted,
+            solPriceUsd: balance.solPriceUsd,
+            usd: balance.usd,
+          });
+        }
+      } catch {
+        /* keep previous value */
+      } finally {
+        fetchInFlight = false;
+        if (!cancelled) setBalanceRefreshing(false);
+      }
+    };
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [instance?.id, walletAddress]);
+
+  // Fetch tokens - medium refresh (8s) since RPC is slower
+  useEffect(() => {
+    if (!instance || !walletAddress) return;
+    let cancelled = false;
+    let fetchInFlight = false;
+    let generation = 0;
+    const fetchTokens = async () => {
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      const thisGen = ++generation;
+      setTokensRefreshing(true);
+      try {
+        const res = await backend.getWalletTokens(instance.id);
+        if (cancelled || thisGen !== generation) return;
+        // Don't replace non-empty with empty (flaky RPC)
+        setWalletTokens((prev) =>
+          res.tokens.length === 0 && prev && prev.length > 0 ? prev : res.tokens
+        );
+      } catch {
+        /* keep previous value */
+      } finally {
+        fetchInFlight = false;
+        if (!cancelled) setTokensRefreshing(false);
+      }
+    };
+    fetchTokens();
+    const interval = setInterval(fetchTokens, 8000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [instance?.id, walletAddress]);
+
+  // Fetch transactions & stats - slower refresh (10s) since these are less time-critical
+  useEffect(() => {
+    if (!instance || !walletAddress) return;
+    let cancelled = false;
+    let fetchInFlight = false;
+    let generation = 0;
+    const fetchTxAndStats = async () => {
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      const thisGen = ++generation;
+      setTxRefreshing(true);
+      try {
+        const [txRes, statsRes] = await Promise.allSettled([
+          backend.getWalletTransactions(instance.id, 20),
+          backend.getWalletStats(instance.id),
+        ]);
+        if (cancelled || thisGen !== generation) return;
+        if (txRes.status === "fulfilled") {
+          const newTxs = txRes.value.transactions;
+          setWalletTransactions((prev) =>
+            newTxs.length === 0 && prev && prev.length > 0 ? prev : newTxs
+          );
+        }
+        if (statsRes.status === "fulfilled") {
+          setWalletStats(statsRes.value);
+        }
+      } catch {
+        /* keep previous values */
+      } finally {
+        fetchInFlight = false;
+        if (!cancelled) setTxRefreshing(false);
+      }
+    };
+    fetchTxAndStats();
+    const interval = setInterval(fetchTxAndStats, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [instance?.id, walletAddress]);
 
   // Fetch subscription info
   useEffect(() => {
@@ -1242,25 +1304,53 @@ export function Dashboard() {
                       </button>
                     </div>
                   </div>
+                  {/* Total Value (SOL + Tokens) */}
                   <div>
-                    <div className="text-xs text-[#A8A8A8] mb-1">SOL Balance</div>
-                    <div
-                      className={`text-2xl font-bold ${
-                        walletBalance && walletBalance.sol > 0
-                          ? "text-[#34d399]"
-                          : "text-[#A8A8A8]"
-                      }`}
-                    >
-                      {walletBalance ? walletBalance.formatted : "..."}
-                    </div>
+                    <div className="text-xs text-[#A8A8A8] mb-1">Total Value</div>
+                    {(() => {
+                      const solUsd = walletBalance?.usd ?? 0;
+                      const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
+                      const totalUsd = solUsd + tokensUsd;
+                      const solPrice = walletBalance?.solPriceUsd ?? 0;
+                      const totalSol = solPrice > 0 ? totalUsd / solPrice : (walletBalance?.sol ?? 0);
+                      return (
+                        <>
+                          <div className={`text-2xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-[#A8A8A8]"}`}>
+                            {totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : walletBalance?.formatted ?? "..."}
+                          </div>
+                          {totalUsd > 0 && (
+                            <div className="text-xs text-[#A8A8A8]">
+                              {totalSol.toFixed(4)} SOL
+                              {walletBalance?.solPriceUsd && (
+                                <span className="ml-1">@ ${walletBalance.solPriceUsd.toFixed(2)}</span>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
-                  {walletTokens && walletTokens.length > 0 && (
-                    <div className="text-xs text-[#A8A8A8]">
-                      {walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""} held
-                      {walletTokens.some(t => t.valueUsd) && (
-                        <span className="text-[#FBBF24] ml-1">
-                          (${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)})
-                        </span>
+                  {/* Breakdown */}
+                  {(walletBalance || walletTokens) && (
+                    <div className="text-xs text-[#A8A8A8] border-t border-white/5 pt-2 space-y-1">
+                      {walletBalance && (
+                        <div className="flex justify-between">
+                          <span>SOL</span>
+                          <span>
+                            {walletBalance.formatted}
+                            {walletBalance.usd != null && (
+                              <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {walletTokens && walletTokens.length > 0 && (
+                        <div className="flex justify-between">
+                          <span>{walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""}</span>
+                          <span className="text-[#FBBF24]">
+                            ${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)}
+                          </span>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1415,16 +1505,23 @@ export function Dashboard() {
                           <div>
                             <span className="text-xs font-medium">{typeLabel}</span>
                             {tx.solChange && (
-                              <span
-                                className={`text-xs ml-2 ${
-                                  parseFloat(tx.solChange) > 0
-                                    ? "text-[#34d399]"
-                                    : "text-[#FF2E8C]"
-                                }`}
-                              >
-                                {parseFloat(tx.solChange) > 0 ? "+" : ""}
-                                {parseFloat(tx.solChange).toFixed(4)} SOL
-                              </span>
+                              <>
+                                <span
+                                  className={`text-xs ml-2 ${
+                                    parseFloat(tx.solChange) > 0
+                                      ? "text-[#34d399]"
+                                      : "text-[#FF2E8C]"
+                                  }`}
+                                >
+                                  {parseFloat(tx.solChange) > 0 ? "+" : ""}
+                                  {parseFloat(tx.solChange).toFixed(4)} SOL
+                                </span>
+                                {walletBalance?.solPriceUsd && (tx.type === "buy" || tx.type === "sell") && (
+                                  <span className="text-[10px] text-[#A8A8A8] ml-1">
+                                    (${(Math.abs(parseFloat(tx.solChange)) * walletBalance.solPriceUsd).toFixed(2)})
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -1564,9 +1661,9 @@ export function Dashboard() {
                 {/* Balance card - full width top */}
                 <div className="cyber-card p-5 md:col-span-3">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
+                    <div className="flex-1">
                       <div className="text-xs text-[#A8A8A8] mb-1">Wallet Address</div>
-                      <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center gap-2 mb-4">
                         <span className="mono text-sm">{walletAddress}</span>
                         <button
                           onClick={() => {
@@ -1583,17 +1680,59 @@ export function Dashboard() {
                           )}
                         </button>
                       </div>
-                      <div className="text-xs text-[#A8A8A8] mb-1">SOL Balance</div>
-                      <div
-                        className={`text-3xl font-bold ${
-                          walletBalance && walletBalance.sol > 0
-                            ? "text-[#34d399]"
-                            : "text-[#A8A8A8]"
-                        }`}
-                      >
-                        {walletBalance ? walletBalance.formatted : (
-                          <span className="flex items-center gap-2">
-                            <Loader2 className="w-5 h-5 animate-spin" />
+                      {/* Total Portfolio Value */}
+                      <div className="flex items-center gap-2 text-xs text-[#A8A8A8] mb-1">
+                        <span>Total Portfolio Value</span>
+                        {balanceRefreshing && walletBalance !== null && (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        )}
+                      </div>
+                      {(() => {
+                        const solUsd = walletBalance?.usd ?? 0;
+                        const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
+                        const totalUsd = solUsd + tokensUsd;
+                        const solPrice = walletBalance?.solPriceUsd ?? 0;
+                        const totalSol = solPrice > 0 ? totalUsd / solPrice : (walletBalance?.sol ?? 0);
+                        return (
+                          <div className="flex items-baseline gap-3 flex-wrap">
+                            <div className={`text-3xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-[#A8A8A8]"}`}>
+                              {totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : (
+                                walletBalance ? walletBalance.formatted : (
+                                  <span className="flex items-center gap-2">
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                  </span>
+                                )
+                              )}
+                            </div>
+                            {totalUsd > 0 && (
+                              <div className="text-sm text-[#A8A8A8]">
+                                ({totalSol.toFixed(4)} SOL)
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {/* Breakdown row */}
+                      <div className="flex items-center gap-4 mt-2 text-xs text-[#A8A8A8]">
+                        {walletBalance && (
+                          <span>
+                            SOL: {walletBalance.formatted}
+                            {walletBalance.usd != null && (
+                              <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
+                            )}
+                          </span>
+                        )}
+                        {walletTokens && walletTokens.length > 0 && (
+                          <span>
+                            Tokens: {walletTokens.length}
+                            <span className="text-[#FBBF24] ml-1">
+                              (${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)})
+                            </span>
+                          </span>
+                        )}
+                        {walletBalance?.solPriceUsd && (
+                          <span className="text-[#A8A8A8]/60">
+                            SOL @ ${walletBalance.solPriceUsd.toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -1855,14 +1994,19 @@ export function Dashboard() {
                 {/* Tokens */}
                 <div className="cyber-card p-5 md:col-span-1">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold">
-                      Token Holdings
-                      {walletTokens && (
-                        <span className="text-[#A8A8A8] font-normal ml-1">
-                          ({walletTokens.length})
-                        </span>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold">
+                        Token Holdings
+                        {walletTokens && (
+                          <span className="text-[#A8A8A8] font-normal ml-1">
+                            ({walletTokens.length})
+                          </span>
+                        )}
+                      </h3>
+                      {tokensRefreshing && walletTokens !== null && (
+                        <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
                       )}
-                    </h3>
+                    </div>
                     {walletTokens && walletTokens.some(t => t.valueUsd) && (
                       <span className="text-xs font-medium text-[#FBBF24]">
                         ${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)}
@@ -1939,14 +2083,19 @@ export function Dashboard() {
 
                 {/* Transactions */}
                 <div className="cyber-card p-5 md:col-span-2">
-                  <h3 className="text-sm font-semibold mb-3">
-                    Transaction History
-                    {walletTransactions && (
-                      <span className="text-[#A8A8A8] font-normal ml-1">
-                        ({walletTransactions.length})
-                      </span>
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-semibold">
+                      Transaction History
+                      {walletTransactions && (
+                        <span className="text-[#A8A8A8] font-normal ml-1">
+                          ({walletTransactions.length})
+                        </span>
+                      )}
+                    </h3>
+                    {txRefreshing && walletTransactions !== null && (
+                      <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
                     )}
-                  </h3>
+                  </div>
                   {walletTransactions === null ? (
                     <div className="flex items-center justify-center py-6 gap-2">
                       <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
@@ -2023,22 +2172,35 @@ export function Dashboard() {
                             </div>
                             <div className="text-right">
                               {tx.solChange && (
-                                <div
-                                  className={`text-xs font-medium ${
-                                    parseFloat(tx.solChange) > 0
-                                      ? "text-[#34d399]"
-                                      : "text-[#FF2E8C]"
-                                  }`}
-                                >
-                                  {parseFloat(tx.solChange) > 0 ? "+" : ""}
-                                  {parseFloat(tx.solChange).toFixed(4)} SOL
-                                </div>
+                                <>
+                                  <div
+                                    className={`text-xs font-medium ${
+                                      parseFloat(tx.solChange) > 0
+                                        ? "text-[#34d399]"
+                                        : "text-[#FF2E8C]"
+                                    }`}
+                                  >
+                                    {parseFloat(tx.solChange) > 0 ? "+" : ""}
+                                    {parseFloat(tx.solChange).toFixed(4)} SOL
+                                  </div>
+                                  {/* USD value for buys/sells */}
+                                  {walletBalance?.solPriceUsd && (tx.type === "buy" || tx.type === "sell") && (
+                                    <div className="text-[10px] text-[#A8A8A8]">
+                                      ${(Math.abs(parseFloat(tx.solChange)) * walletBalance.solPriceUsd).toFixed(2)}
+                                    </div>
+                                  )}
+                                </>
                               )}
                               {tx.type === "sell" && tx.profitSOL != null && (
                                 <div className={`text-[10px] font-medium ${
                                   tx.profitSOL > 0 ? "text-[#34d399]" : tx.profitSOL < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
                                 }`}>
                                   P/L: {tx.profitSOL > 0 ? "+" : ""}{tx.profitSOL.toFixed(4)} SOL
+                                  {walletBalance?.solPriceUsd && (
+                                    <span className="ml-1">
+                                      (${(tx.profitSOL * walletBalance.solPriceUsd).toFixed(2)})
+                                    </span>
+                                  )}
                                 </div>
                               )}
                               <div className="text-[10px] text-[#A8A8A8]">

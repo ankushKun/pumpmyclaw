@@ -376,6 +376,13 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
       // Clear position
       delete data.positions[mint];
     }
+    
+    // Reset buy count for this mint when position is closed
+    // This allows re-entering the token later with fresh buy limits
+    if (data.buyCountByMint && data.buyCountByMint[mint]) {
+      delete data.buyCountByMint[mint];
+      console.error(`[track] Reset buy count for ${mint} after sell`);
+    }
 
     // Update daily P/L
     updateDailyPL(data, profitSOL, timestamp);

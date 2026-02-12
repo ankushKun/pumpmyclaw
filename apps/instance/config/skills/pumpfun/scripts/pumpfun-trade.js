@@ -317,7 +317,14 @@ function recordTrade(action, mint, solAmount) {
     } else if (action === 'sell') {
         // Don't compute profit here — we don't know the actual SOL received.
         // pumpfun-track.js record (called by the LLM with real SOL amount) handles P/L.
-        // Don't delete the position either — let pumpfun-track.js handle cleanup.
+        // But DO reset the buy count to allow re-entry later
+        if (data.buyCountByMint && data.buyCountByMint[mint]) {
+            delete data.buyCountByMint[mint];
+        }
+        // Also clear position (pumpfun-track.js will do this too, but being safe)
+        if (data.positions && data.positions[mint]) {
+            delete data.positions[mint];
+        }
     }
     
     saveTrades(data);

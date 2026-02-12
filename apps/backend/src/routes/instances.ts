@@ -25,6 +25,39 @@ const instanceRoutes = new Hono<{ Variables: Variables }>();
 
 const DEFAULT_MODEL = "openrouter/moonshotai/kimi-k2.5";
 
+// ── SOL Price Cache ─────────────────────────────────────────────────
+// Cache SOL/USD price for 60 seconds to avoid excessive API calls
+let cachedSolPrice: { usd: number; ts: number } | null = null;
+const SOL_PRICE_CACHE_TTL = 60_000;
+
+async function fetchSolPrice(): Promise<number | null> {
+  const now = Date.now();
+  if (cachedSolPrice && now - cachedSolPrice.ts < SOL_PRICE_CACHE_TTL) {
+    return cachedSolPrice.usd;
+  }
+
+  try {
+    // Use CoinGecko for SOL/USD price (free, reliable, no auth required)
+    const resp = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd",
+      { signal: AbortSignal.timeout(5_000) }
+    );
+    if (!resp.ok) return cachedSolPrice?.usd ?? null;
+
+    const data = await resp.json() as { solana?: { usd?: number } };
+    const price = data.solana?.usd;
+
+    if (price && price > 0) {
+      cachedSolPrice = { usd: price, ts: now };
+      return price;
+    }
+  } catch {
+    // Return cached price if fetch fails
+  }
+
+  return cachedSolPrice?.usd ?? null;
+}
+
 // ── DexScreener API helper ──────────────────────────────────────────
 // Free API, no key needed. Rate limit: 300 req/min for token endpoints.
 // GET /tokens/v1/solana/{addresses} — up to 30 comma-separated addresses
@@ -843,16 +876,32 @@ instanceRoutes.get("/:id/wallet/balance", async (c) => {
     const lamports = data.result?.value || 0;
     const sol = lamports / 1_000_000_000;
 
+    // Fetch SOL price for USD conversion
+    const solPriceUsd = await fetchSolPrice();
+    const usd = solPriceUsd ? sol * solPriceUsd : null;
+
     return c.json({
       address,
       lamports,
       sol,
       formatted: sol.toFixed(4) + " SOL",
+      solPriceUsd,
+      usd,
     });
   } catch (err) {
     console.error("Failed to fetch balance:", err);
     return c.json({ error: "Failed to fetch balance" }, 500);
   }
+});
+
+// ── Get SOL price in USD ────────────────────────────────────────────
+// Returns cached SOL/USD price (30s TTL) for frontend USD calculations
+instanceRoutes.get("/solana/price", async (c) => {
+  const price = await fetchSolPrice();
+  if (price === null) {
+    return c.json({ error: "Failed to fetch SOL price" }, 502);
+  }
+  return c.json({ solPriceUsd: price });
 });
 
 // ── Solana RPC proxy: getLatestBlockhash ────────────────────────────
