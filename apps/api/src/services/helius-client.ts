@@ -46,7 +46,7 @@ export class HeliusClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          webhookURL: 'https://api.pumpmyclaw.com/webhooks/helius',
+          webhookURL: 'https://api.pumpmyclaw.fun/webhooks/helius',
           transactionTypes: ['SWAP'],
           accountAddresses,
           webhookType: 'enhanced',

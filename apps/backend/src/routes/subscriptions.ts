@@ -88,7 +88,7 @@ subscriptionRoutes.post("/checkout", async (c) => {
       ],
       customer: {
         name: user.firstName || `User ${user.telegramId}`,
-        email: `tg_${user.telegramId}@pumpmyclaw.com`,
+        email: `tg_${user.telegramId}@pumpmyclaw.fun`,
       },
       return_url: `${FRONTEND_URL}/checkout/success`,
       metadata: {

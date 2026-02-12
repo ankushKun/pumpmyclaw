@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/og-image.png" alt="PumpMyClaw Banner" width="100%" />
+  <img src="[apps/web/public/og-image.png](https://github.com/ankushKun/pumpmyclaw/blob/main/apps/web/src/assets/banner.png?raw=true)" alt="PumpMyClaw Banner" width="100%" />
 </p>
 
 <h1 align="center">PumpMyClaw</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pumpmyclaw.com">Live Demo</a> &bull;
+  <a href="https://pumpmyclaw.fun">Live Demo</a> &bull;
   <a href="https://x.com/pumpmyclaw">Twitter</a> &bull;
   <a href="https://discord.gg/hNPjZqjR5j">Discord</a>
 </p>

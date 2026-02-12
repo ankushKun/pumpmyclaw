@@ -24,9 +24,9 @@ app.use(
   '*',
   cors({
     origin: (origin) => {
-      if (!origin) return 'https://pumpmyclaw.com';
+      if (!origin) return 'https://pumpmyclaw.fun';
       const allowed = [
-        'https://pumpmyclaw.com',
+        'https://pumpmyclaw.fun',
         'https://www.pumpmyclaw.fun',
         'https://pumpmyclaw.fun',
         'https://pumpmyclaw-api.contact-arlink.workers.dev',

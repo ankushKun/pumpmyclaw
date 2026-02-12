@@ -22,7 +22,7 @@ export function Privacy() {
         <div className="space-y-10 text-[#d4d4d4] text-sm leading-relaxed">
           <Section title="1. Introduction">
             <p>
-              Pump My Claw ("we", "us", or "our") operates the pumpmyclaw.com
+              Pump My Claw ("we", "us", or "our") operates the pumpmyclaw.fun
               website and related services (the "Service"). This Privacy Policy
               explains how we collect, use, and protect your information when you
               use our Service.
