@@ -658,6 +658,113 @@ export async function rollingUpdateAll(
   return results;
 }
 
+/** Restart a running container */
+export async function restartInstance(containerId: string): Promise<void> {
+  console.log(`[docker] Restarting container ${containerId.slice(0, 12)}`);
+  await docker.getContainer(containerId).restart();
+}
+
+/** List all pmc-managed containers with detailed info */
+export async function listManagedContainers(): Promise<
+  Array<{
+    id: string;
+    name: string;
+    state: string;
+    status: string;
+    created: number;
+    image: string;
+    labels: Record<string, string>;
+  }>
+> {
+  const containers = await docker.listContainers({
+    all: true,
+    filters: { label: ["pmc.managed=true"] },
+  });
+
+  return containers.map((c) => ({
+    id: c.Id,
+    name: c.Names?.[0]?.replace(/^\//, "") || c.Id.slice(0, 12),
+    state: c.State,
+    status: c.Status,
+    created: c.Created,
+    image: c.Image,
+    labels: c.Labels || {},
+  }));
+}
+
+/** Get container resource usage stats (CPU, memory, network) */
+export async function getContainerStats(containerId: string): Promise<{
+  cpuPercent: number;
+  memoryUsageMB: number;
+  memoryLimitMB: number;
+  memoryPercent: number;
+  networkRxMB: number;
+  networkTxMB: number;
+  pids: number;
+}> {
+  const container = docker.getContainer(containerId);
+  const stats = await container.stats({ stream: false }) as any;
+
+  // CPU calculation
+  const cpuDelta =
+    stats.cpu_stats.cpu_usage.total_usage -
+    stats.precpu_stats.cpu_usage.total_usage;
+  const systemDelta =
+    stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+  const numCpus = stats.cpu_stats.online_cpus || 1;
+  const cpuPercent =
+    systemDelta > 0 ? (cpuDelta / systemDelta) * numCpus * 100 : 0;
+
+  // Memory
+  const memUsage = stats.memory_stats.usage || 0;
+  const memLimit = stats.memory_stats.limit || 1;
+
+  // Network (sum all interfaces)
+  let netRx = 0;
+  let netTx = 0;
+  if (stats.networks) {
+    for (const iface of Object.values(stats.networks) as any[]) {
+      netRx += iface.rx_bytes || 0;
+      netTx += iface.tx_bytes || 0;
+    }
+  }
+
+  return {
+    cpuPercent: Math.round(cpuPercent * 100) / 100,
+    memoryUsageMB: Math.round((memUsage / 1024 / 1024) * 100) / 100,
+    memoryLimitMB: Math.round((memLimit / 1024 / 1024) * 100) / 100,
+    memoryPercent: Math.round((memUsage / memLimit) * 10000) / 100,
+    networkRxMB: Math.round((netRx / 1024 / 1024) * 100) / 100,
+    networkTxMB: Math.round((netTx / 1024 / 1024) * 100) / 100,
+    pids: stats.pids_stats?.current || 0,
+  };
+}
+
+/** Get Docker host system info */
+export async function getDockerInfo(): Promise<{
+  containers: number;
+  containersRunning: number;
+  containersStopped: number;
+  images: number;
+  serverVersion: string;
+  memoryTotalGB: number;
+  cpus: number;
+  operatingSystem: string;
+}> {
+  const info = await docker.info() as any;
+  return {
+    containers: info.Containers ?? 0,
+    containersRunning: info.ContainersRunning ?? 0,
+    containersStopped: info.ContainersStopped ?? 0,
+    images: info.Images ?? 0,
+    serverVersion: info.ServerVersion ?? "unknown",
+    memoryTotalGB:
+      Math.round(((info.MemTotal ?? 0) / 1024 / 1024 / 1024) * 100) / 100,
+    cpus: info.NCPU ?? 0,
+    operatingSystem: info.OperatingSystem ?? "unknown",
+  };
+}
+
 /** Get the last N lines of container logs */
 export async function getLogs(
   containerId: string,

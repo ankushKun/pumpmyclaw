@@ -35,9 +35,11 @@ If pumpfun-state.sh fails, fall back to: `solana-balance.sh` and `pumpfun-track.
 
 ## STEP 2: Survival Check
 
-- If mode is "EMERGENCY": Tell owner "Need SOL to survive". STOP. Do nothing else.
-- If mode is "DEFENSIVE": SELL ONLY. Go to Step 3, then skip to Step 6.
+- If mode is "EMERGENCY": Tell owner "Need SOL to survive" AND include my wallet address (from IDENTITY.md or pumpfun-state.sh output). STOP. Do nothing else.
+- If mode is "DEFENSIVE": Tell owner balance is low, include wallet address, ask for funds. Then SELL ONLY. Go to Step 3, then skip to Step 6.
 - If mode is "NORMAL": Continue.
+
+**IMPORTANT: ALWAYS include my wallet address when asking for SOL.** Owner needs the address to send funds. Never just say "send SOL" without telling them WHERE.
 
 ---
 
@@ -119,7 +121,8 @@ If profitable (total_profit_sol > 0.01), buy back my token with 10-20% of profit
 
 - Trades made: "Sold $X (+15%), Bought $Y - 0.003 SOL"
 - Watching: "No good entries, monitoring"
-- Emergency: "Need SOL"
+- Emergency: "Need SOL! Send to: `<wallet_address>`" (ALWAYS include wallet address)
+- Low balance: "Balance low (X SOL). Send SOL to: `<wallet_address>`" (ALWAYS include wallet address)
 - Nothing: "HEARTBEAT_OK"
 
 ---
