@@ -36,6 +36,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 const STORAGE_KEY = 'pmc_auth';
+const SUBSCRIPTION_CACHE_KEY = 'pmc_subscription';
 
 interface StoredAuth {
   user: AuthUser;
@@ -43,20 +44,55 @@ interface StoredAuth {
   telegramData: TelegramAuthData;
 }
 
+interface StoredSubscription {
+  hasSubscription: boolean;
+  cachedAt: number;
+}
+
+// Helper to get cached subscription from localStorage
+function getCachedSubscription(): boolean {
+  try {
+    const stored = localStorage.getItem(SUBSCRIPTION_CACHE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored) as StoredSubscription;
+      return data.hasSubscription;
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return false;
+}
+
+// Helper to save subscription to localStorage
+function setCachedSubscription(hasSubscription: boolean) {
+  localStorage.setItem(
+    SUBSCRIPTION_CACHE_KEY,
+    JSON.stringify({ hasSubscription, cachedAt: Date.now() } satisfies StoredSubscription)
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [telegramData, setTelegramData] = useState<TelegramAuthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasInstance, setHasInstance] = useState(false);
-  const [hasSubscription, setHasSubscription] = useState(false);
+  // Initialize from cache for instant UI
+  const [hasSubscription, setHasSubscriptionState] = useState(getCachedSubscription);
+
+  // Wrapper that updates both state and cache
+  const setHasSubscription = useCallback((value: boolean) => {
+    setHasSubscriptionState(value);
+    setCachedSubscription(value);
+  }, []);
 
   const logout = useCallback(() => {
     setUser(null);
     setTelegramData(null);
     setHasInstance(false);
-    setHasSubscription(false);
+    setHasSubscriptionState(false);
     backend.clearToken();
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(SUBSCRIPTION_CACHE_KEY);
   }, []);
 
   // Restore session from localStorage on mount
@@ -72,9 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         backend.getInstances().then((list) => {
           setHasInstance(list.length > 0);
         }).catch(() => { /* ignore */ });
-        // Check if user has an active subscription
+        // Revalidate subscription in background (cache already restored above)
         backend.getSubscription().then(({ subscription }) => {
-          setHasSubscription(subscription?.status === 'active');
+          const isActive = subscription?.status === 'active';
+          setHasSubscription(isActive); // Updates both state and cache
         }).catch(() => { /* ignore */ });
       } catch {
         localStorage.removeItem(STORAGE_KEY);
