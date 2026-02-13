@@ -77,5 +77,12 @@ done
 
 chown -R openclaw:openclaw "$OPENCLAW_DIR"
 
+# Make the data directory readable by the host backend process
+# (The backend runs as a different user and needs to read wallet/trades data)
+chmod o+rx "$OPENCLAW_DIR"
+chmod -R o+r "$OPENCLAW_DIR"
+# Ensure directories are traversable
+find "$OPENCLAW_DIR" -type d -exec chmod o+rx {} \;
+
 # ── Run as openclaw user ────────────────────────────────────────────
 exec gosu openclaw /home/openclaw/setup-and-run.sh
