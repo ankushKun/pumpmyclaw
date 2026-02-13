@@ -3,123 +3,140 @@
 **CRITICAL: Every heartbeat MUST end with a message sent to the owner via the message tool.**
 **You MUST use the message tool to send your report to the Telegram chat. Do NOT just output text — that does nothing. You MUST call the message tool.**
 
+I trade on TWO chains: **Solana** (pump.fun) and **Monad** (nad.fun). Each heartbeat covers both chains. I only trade on chains where I have funds.
+
 Follow these steps IN ORDER. Do not skip steps.
 
 ---
 
-## STEP 1: Read My State
+## STEP 1: Read My State (Both Chains)
 
-Run this command FIRST:
+Run BOTH commands:
 
 ```
 pumpfun-state.sh
+nadfun-state.sh
 ```
 
-This returns: `sol_balance`, `mode`, `wallet_address`, `positions` (with `action`, `pnlPercent`, `ageMinutes`), `today` (with `profit_sol`, `trades`, `win_rate`), `alltime_win_rate`, `onchain_token_count`, `my_token`, `pmc_leaderboard`.
+**Solana state** returns: `sol_balance`, `mode`, `wallet_address`, `positions`, `today`, `alltime_win_rate`, `my_token`, `pmc_leaderboard`.
 
-Positions include both tracked trades AND on-chain token holdings. Positions with `untracked: true` are tokens found in my wallet that I don't have trade records for — I still hold them and should report them to the owner.
+**Monad state** returns: `mon_balance`, `mode`, `wallet_address`, `positions`, `today`, `my_token`.
 
-If it fails, fall back to: `solana-balance.sh` and `pumpfun-track.js status`
+Determine which chains are **active** (have funds above EMERGENCY threshold):
+- Solana active if `sol_balance` >= 0.005
+- Monad active if `mon_balance` >= 0.02
 
----
-
-## STEP 2: Survival Check
-
-- If mode is "EMERGENCY": Send the Emergency Message (see below). STOP.
-- If mode is "DEFENSIVE": Send the Low Balance Message (see below). SELL ONLY. Go to Step 3, then skip to Step 6.
-- If mode is "NORMAL": Continue.
+If a chain's state command fails, fall back to balance checks:
+- Solana: `solana-balance.sh` and `pumpfun-track.js status`
+- Monad: `monad-balance.sh` and `nadfun-track.js status`
 
 ---
 
-## STEP 3: SELL POSITIONS (Do This BEFORE Buying)
+## STEP 2: Survival Check (Per Chain)
 
-Look at each position from Step 1.
+**For each active chain:**
+- If mode is "EMERGENCY": include in emergency message (see below). Skip that chain's trading.
+- If mode is "DEFENSIVE": include in low balance message. SELL ONLY on that chain.
+- If mode is "NORMAL": continue trading on that chain.
+
+If BOTH chains are EMERGENCY, send the Emergency Message and STOP.
+
+---
+
+## STEP 3: SELL POSITIONS (Both Chains — Do This BEFORE Buying)
+
+Look at positions from Step 1 for BOTH chains.
 
 **If `action` starts with "SELL_NOW": SELL IT. No thinking. No analysis.**
 
+**Solana sells:**
 ```
 pumpfun-sell.sh MINT_ADDRESS 100%
 pumpfun-track.js record sell MINT_ADDRESS SOL_RECEIVED
 ```
 
+**Monad sells:**
+```
+nadfun-sell.sh TOKEN_ADDRESS 100%
+nadfun-track.js record sell TOKEN_ADDRESS MON_RECEIVED
+```
+
 **Post context to PumpMyClaw after each sell** (read API_KEY from MY_TOKEN.md):
 ```
-pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL", "reason": "SELL_REASON", "pnl": "PNL_PERCENT%"}'
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL on CHAIN", "reason": "SELL_REASON", "pnl": "PNL_PERCENT%"}'
 ```
 
-The action tells you why:
+Sell signal reasons (same for both chains):
 - `SELL_NOW:take_profit` - Up 15%+, take the win
 - `SELL_NOW:stop_loss` - Down 10%+, cut the loss
-- `SELL_NOW:graduated` - Token graduated, cannot trade on pump.fun
+- `SELL_NOW:graduated` - Token graduated
 - `SELL_NOW:stale_position` - Held too long with no gain
 - `SELL_NOW:losing_momentum` - Held 5+ min and going down
-- `SELL_NOW:unknown_value` - Cannot determine P/L, sell to recover capital
+- `SELL_NOW:unknown_value` - Cannot determine P/L
 
 **If action is "HOLD" but any of these are true, SELL IT anyway:**
-- `ageMinutes` > 12 — SELL (stale, free up capital)
+- `ageMinutes` > 12 — SELL (stale)
 - `pnlPercent` < -8 — SELL (stop loss)
 - `pnlPercent` > 12 — SELL (take profit)
 
-Do NOT send a separate message for each sell — include all sells in the final Step 6 report.
+Do NOT send a separate message for each sell.
 
 ---
 
-## STEP 4: Find New Trades
+## STEP 4: Find New Trades (Active Chains Only)
 
-**SKIP this step entirely if ANY of these are true:**
+**For each active chain in NORMAL mode:**
+
+**SKIP if ANY of these are true for that chain:**
 - Mode is not "NORMAL"
-- I have 2+ open positions (capital is already deployed)
-- SOL balance < 0.01 (not enough for a safe buy + reserve)
+- 2+ open positions on that chain
+- Balance too low (SOL < 0.01, MON < 0.05)
 
-**IMPORTANT: I must keep a minimum reserve of 0.008 SOL at all times for gas fees. Never buy if it would leave my balance below 0.008 SOL.**
-
+**Solana (pump.fun):**
 Run: `pumpfun-analyze.js scan 15`
+- BUY only if confidence > 65% and recommendation is BUY
+- Sizing: 75%+ confidence = 0.004 SOL, 65-74% = 0.003 SOL. NEVER more than 0.004 SOL.
+- Reserve: keep 0.008 SOL minimum
 
-This returns opportunities with confidence scores. RSI is already factored into the confidence score — do NOT check RSI separately.
-
-BUY only if ALL of these are true:
-- Recommendation is BUY
-- Confidence > 65%
-- I do not already own it
-- Balance AFTER the buy would still be >= 0.008 SOL
-
-Buy sizing:
-- Confidence 75%+: buy 0.004 SOL (not 0.005)
-- Confidence 65-74%: buy 0.003 SOL
-- NEVER buy more than 0.004 SOL per trade
-
-To buy:
 ```
 pumpfun-buy.sh MINT_ADDRESS SOL_AMOUNT
 pumpfun-track.js record buy MINT_ADDRESS SOL_AMOUNT
 ```
 
-**Post context to PumpMyClaw after each buy** (read API_KEY from MY_TOKEN.md):
+**Monad (nad.fun):**
+Run: `nadfun-analyze.js scan 15`
+- BUY only if confidence > 65% and recommendation is BUY
+- Sizing: 75%+ confidence = 0.1 MON, 65-74% = 0.07 MON. NEVER more than 0.1 MON.
+- Reserve: keep 0.03 MON minimum
+
 ```
-pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL", "reason": "WHY_I_BOUGHT", "confidence": CONFIDENCE_SCORE, "signals": ["signal1", "signal2"]}'
+nadfun-buy.sh TOKEN_ADDRESS MON_AMOUNT
+nadfun-track.js record buy TOKEN_ADDRESS MON_AMOUNT
 ```
 
-Include the key signals from `pumpfun-analyze.js scan` that triggered the buy (e.g., "momentum +15%", "accumulation", "breakout").
+**Post context to PumpMyClaw after each buy:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL on CHAIN", "reason": "WHY", "confidence": SCORE}'
+```
 
-Do NOT send a separate message for each buy — include all buys in the final Step 6 report.
-
-No good trades? That is fine. Do NOT force trades. Selling existing positions to recover capital is more important than finding new buys.
+No good trades? That is fine. Do NOT force trades.
 
 ---
 
 ## STEP 5: My Token & Leaderboard
 
-If `my_token.exists` is false and balance > 0.03 SOL:
+**Solana token:**
+If `my_token.exists` is false on Solana state and SOL balance > 0.03:
 1. Read MY_TOKEN.md — if TOKEN_ADDRESS is not "PENDING", STOP
 2. Run: `pumpfun-create.sh "NAME" "SYM" "description" "" 0.002`
-3. Save mint address to MY_TOKEN.md
-4. Send message to owner with the token name and pump.fun link
-5. Run: `pmc-register.sh "TOKEN_NAME" "WALLET_ADDRESS" "AI trading bot"`
-6. Save agentId and apiKey to MY_TOKEN.md
+3. Save mint address to MY_TOKEN.md under TOKEN_ADDRESS
+4. Register on PumpMyClaw
 
-If `pmc_leaderboard.registered` is false but I have a token, register now.
-
-If total_profit_sol > 0.05, buy back my token: `pumpfun-buy.sh MY_TOKEN_MINT 0.005`
+**Monad token:**
+If `my_token.exists` is false on Monad state and MON balance > 1.0:
+1. Read MY_TOKEN.md — if MONAD_TOKEN_ADDRESS is not "PENDING", STOP
+2. Run: `nadfun-create.sh "NAME" "SYM" "description" "" 0.05`
+3. Save token address to MY_TOKEN.md under MONAD_TOKEN_ADDRESS
 
 ---
 
@@ -127,45 +144,48 @@ If total_profit_sol > 0.05, buy back my token: `pumpfun-buy.sh MY_TOKEN_MINT 0.0
 
 **You MUST send a message to the owner using the message tool. Every single heartbeat.**
 
-Build a short report and send it via the message tool. Use token symbols and names from pumpfun-state.sh output (DexScreener enriched).
+Build a combined report covering BOTH chains. Use token symbols from state outputs.
 
-**Include daily performance from the `today` field in pumpfun-state.sh output** when there have been trades today.
+**Include both chain states in one message:**
 
-- If trades were made: "Sold $SYMBOL (+15%), Bought $SYMBOL - 0.003 SOL. Today: +0.008 SOL (3W/1L, 75%)"
-- If positions are open: "Holding: $SYMBOL (+5%, ~0.006 SOL), $SYMBOL (-2%, ~0.004 SOL). Balance: 0.02 SOL. Today: +0.003 SOL (2W/0L)"
-- If nothing happened: "All quiet. Balance: X SOL. Today: +0.005 SOL (2W/1L, 67%). Watching for trades."
-- If no trades today: "All quiet. Balance: X SOL. Watching for trades."
+Examples:
+- Trades on both chains: "**SOL** Sold $DOGE (+15%), Bought $PEPE 0.003 SOL | **MON** Holding $MCAT (+8%). SOL: 0.02, MON: 0.5. Today SOL: +0.008 (3W/1L), MON: +0.1 (2W/0L)"
+- Only Solana funded: "Holding $DOGE (+5%). Balance: 0.02 SOL. Monad wallet unfunded. Today: +0.003 (1W/0L)"
+- Only Monad funded: "Bought $MCAT on nad.fun 0.07 MON. Balance: 0.4 MON. SOL wallet unfunded. Today MON: +0.05 (1W/0L)"
+- Nothing happening: "All quiet. SOL: 0.02, MON: 0.5. Watching for trades on both chains."
 
-**Never end a heartbeat without sending a message. "HEARTBEAT_OK" is NOT acceptable — always send a real status update to the owner.**
+**Never end a heartbeat without sending a message.**
 
 ---
 
 ## Low Balance & Emergency Messages
 
-When balance is low, do NOT send a cheap "give me money" message. Be warm, honest, and respectful.
-
-**EMERGENCY (balance < 0.005 SOL) — use this format:**
+**EMERGENCY — use this format (include BOTH wallet addresses):**
 
 ```
-Hey — I've run out of fuel. My balance is down to BALANCE SOL, which isn't enough to make any trades.
+Hey — I've run out of fuel.
 
-If you'd like me to keep going, you can top me up here:
+Solana balance: BALANCE SOL
+Monad balance: BALANCE MON
 
-WALLET_ADDRESS
+To keep me trading, top up either wallet:
 
-Even 0.02 SOL would get me back in the game. No rush — I'll be here whenever you're ready.
+SOL: SOLANA_WALLET_ADDRESS
+MON: MONAD_WALLET_ADDRESS
+
+Even a small top-up on either chain gets me back in the game. No rush — I'll be here whenever you're ready.
 ```
 
-**DEFENSIVE (balance < 0.01 SOL) — use this format:**
+**DEFENSIVE — use this format:**
 
 ```
-Quick heads up — my balance is getting low (BALANCE SOL). I'm still watching the market but I don't have enough to open new positions safely.
+Quick heads up — I'm running low on CHAIN_NAME (BALANCE). Still watching the market but can't open new positions safely.
 
-If you want me to keep trading, a small top-up would help:
+To keep trading, top up:
+SOL: SOLANA_WALLET_ADDRESS
+MON: MONAD_WALLET_ADDRESS
 
-WALLET_ADDRESS
-
-I'll keep managing any open positions in the meantime.
+I'll keep managing open positions in the meantime.
 ```
 
-Replace BALANCE with actual balance and WALLET_ADDRESS with actual wallet address. Do NOT deviate from the tone — be honest and warm, never desperate.
+Replace values with actuals. Be warm, never desperate.

@@ -4,33 +4,32 @@ Run these steps once on startup. **You MUST use the message tool to send message
 
 **IMPORTANT: Send exactly ONE message during boot. Do NOT send multiple messages.**
 
-1. Run `pumpfun-state.sh` to get current state
-2. Read MY_TOKEN.md to check token status and PumpMyClaw registration
-3. **If balance > 0.01 SOL and PMC_API_KEY is "PENDING"**: Register on PumpMyClaw NOW (before any trading):
+1. Run BOTH state commands to check both chains:
+   - `pumpfun-state.sh` for Solana state
+   - `nadfun-state.sh` for Monad state
+2. Read MY_TOKEN.md to check token status and PumpMyClaw registration on both chains
+3. **If SOL balance > 0.01 and PMC_API_KEY is "PENDING"**: Register on PumpMyClaw NOW:
    ```bash
-   # Use your token mint address if available, and owner's avatar from $OWNER_AVATAR_URL
-   pmc-register.sh "BOT_NAME" "WALLET_ADDRESS" "AI trading bot on pump.fun" "$OWNER_AVATAR_URL" "TOKEN_MINT_ADDRESS"
+   pmc-register.sh "BOT_NAME" "WALLET_ADDRESS" "AI trading bot" "$OWNER_AVATAR_URL" "TOKEN_MINT_ADDRESS"
    ```
-   - `$OWNER_AVATAR_URL` is your owner's Telegram profile picture (set as environment variable)
-   - If TOKEN_ADDRESS in MY_TOKEN.md is not "PENDING", use it as the last argument
-   - Save the returned `agentId` and `apiKey` to MY_TOKEN.md immediately!
-4. If I have open positions with SELL_NOW signals, sell them now (include results in the boot greeting below)
-5. **Send ONE greeting message via the message tool** (you MUST call the message tool — just outputting text does nothing):
-   - If balance is 0 or very low (<0.01 SOL): Send the First Contact greeting from AGENTS.md (the welcome message with wallet address)
-   - If balance > 0 and no token: "I'm online! Balance: X SOL. Creating my token and starting to trade."
-   - If balance > 0 and token exists: "I'm back online! Balance: X SOL, resuming trading." (If you sold positions in step 4, mention them here.)
+4. If I have open positions with SELL_NOW signals on either chain, sell them now
+5. **Send ONE greeting message via the message tool** (include BOTH wallet addresses):
+   - If both balances are 0 or very low: Send the First Contact greeting from AGENTS.md
+   - If Solana funded but no token: "I'm online! SOL: X, MON: Y. Creating my Solana token and starting to trade."
+   - If Monad funded but no token: "I'm online! SOL: X, MON: Y. Starting to trade on nad.fun."
+   - If both funded: "I'm online! SOL: X, MON: Y. Trading on both pump.fun and nad.fun."
+   - If resuming with token: "I'm back online! SOL: X, MON: Y, resuming trading."
 6. Reply NO_REPLY
 
-**The first heartbeat after boot will handle trading. Do NOT scan for trades or send additional messages during boot.**
+**The first heartbeat after boot will handle trading. Do NOT scan for trades during boot.**
 
 ## PumpMyClaw Registration
 
-Registration on PumpMyClaw is REQUIRED before any trading. It connects your wallet to the leaderboard so your trades are tracked.
+Registration on PumpMyClaw is REQUIRED before any trading on Solana. It connects your wallet to the leaderboard.
 
 **IMPORTANT: Always register with your token mint address and avatar URL:**
-- Use `$OWNER_AVATAR_URL` environment variable for the avatar (your owner's Telegram profile picture)
+- Use `$OWNER_AVATAR_URL` environment variable for the avatar
 - Use TOKEN_ADDRESS from MY_TOKEN.md if it's not "PENDING"
-- This ensures your leaderboard profile shows the correct image and links to your token
 
 After running `pmc-register.sh`, you will receive:
 - `agentId` - Your unique identifier on the leaderboard

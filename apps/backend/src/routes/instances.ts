@@ -827,26 +827,43 @@ instanceRoutes.get("/:id/wallet", async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  // Read wallet from user's data directory (uses telegramId, not database id)
-  const walletPath = resolve(INSTANCES_DATA_DIR, `user-${user.telegramId}`, ".wallet.json");
+  // Read wallets from user's data directory (uses telegramId, not database id)
+  const dataDir = resolve(INSTANCES_DATA_DIR, `user-${user.telegramId}`);
+  const walletPath = resolve(dataDir, ".wallet.json");
+  const evmWalletPath = resolve(dataDir, ".evm-wallet.json");
   
-  if (!existsSync(walletPath)) {
+  let solanaAddress: string | null = null;
+  let monadAddress: string | null = null;
+
+  if (existsSync(walletPath)) {
+    try {
+      const walletData = JSON.parse(readFileSync(walletPath, "utf-8"));
+      solanaAddress = walletData.publicKey;
+    } catch {}
+  }
+
+  if (existsSync(evmWalletPath)) {
+    try {
+      const evmWalletData = JSON.parse(readFileSync(evmWalletPath, "utf-8"));
+      monadAddress = evmWalletData.address;
+    } catch {}
+  }
+
+  if (!solanaAddress && !monadAddress) {
     return c.json({ 
       address: null, 
-      message: "Wallet not yet created. Start your bot to generate a wallet." 
+      solana: null,
+      monad: null,
+      message: "Wallets not yet created. Start your bot to generate wallets." 
     });
   }
 
-  try {
-    const walletData = JSON.parse(readFileSync(walletPath, "utf-8"));
-    return c.json({
-      address: walletData.publicKey,
-      // Don't expose private key!
-    });
-  } catch (err) {
-    console.error("Failed to read wallet:", err);
-    return c.json({ error: "Failed to read wallet data" }, 500);
-  }
+  const monadTestnet = process.env.MONAD_TESTNET === "true";
+  return c.json({
+    address: solanaAddress, // backward compat
+    solana: solanaAddress ? { address: solanaAddress } : null,
+    monad: monadAddress ? { address: monadAddress, testnet: monadTestnet } : null,
+  });
 });
 
 // ── Get wallet balance ──────────────────────────────────────────────
@@ -872,61 +889,119 @@ instanceRoutes.get("/:id/wallet/balance", async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
-  // Read wallet address (uses telegramId, not database id)
-  const walletPath = resolve(INSTANCES_DATA_DIR, `user-${user.telegramId}`, ".wallet.json");
+  // Read wallet addresses (uses telegramId, not database id)
+  const dataDir = resolve(INSTANCES_DATA_DIR, `user-${user.telegramId}`);
+  const walletPath = resolve(dataDir, ".wallet.json");
+  const evmWalletPath = resolve(dataDir, ".evm-wallet.json");
   
-  if (!existsSync(walletPath)) {
-    return c.json({ error: "Wallet not yet created" }, 404);
+  let solAddress: string | null = null;
+  let monadAddress: string | null = null;
+
+  try {
+    if (existsSync(walletPath)) {
+      solAddress = JSON.parse(readFileSync(walletPath, "utf-8")).publicKey;
+    }
+  } catch {}
+
+  try {
+    if (existsSync(evmWalletPath)) {
+      monadAddress = JSON.parse(readFileSync(evmWalletPath, "utf-8")).address;
+    }
+  } catch {}
+
+  if (!solAddress && !monadAddress) {
+    return c.json({ error: "Wallets not yet created" }, 404);
   }
 
-  let address: string;
-  try {
-    const walletData = JSON.parse(readFileSync(walletPath, "utf-8"));
-    address = walletData.publicKey;
-  } catch {
-    return c.json({ error: "Failed to read wallet data" }, 500);
-  }
+  const result: Record<string, unknown> = {};
 
-  // Fetch balance from Solana RPC
-  const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-  
-  try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getBalance",
-        params: [address],
-      }),
-    });
+  // Fetch Solana balance
+  if (solAddress) {
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getBalance",
+          params: [solAddress],
+        }),
+      });
 
-    const data = await response.json() as { result?: { value?: number }, error?: { message?: string } };
-    
-    if (data.error) {
-      return c.json({ error: data.error.message || "RPC error" }, 500);
+      const data = await response.json() as { result?: { value?: number }, error?: { message?: string } };
+      const lamports = data.result?.value || 0;
+      const sol = lamports / 1_000_000_000;
+      const solPriceUsd = await fetchSolPrice();
+      const usd = solPriceUsd ? sol * solPriceUsd : null;
+
+      result.solana = {
+        address: solAddress,
+        lamports,
+        sol,
+        formatted: sol.toFixed(4) + " SOL",
+        solPriceUsd,
+        usd,
+      };
+    } catch (err) {
+      console.error("Failed to fetch Solana balance:", err);
+      result.solana = { address: solAddress, error: "Failed to fetch balance" };
     }
 
-    const lamports = data.result?.value || 0;
-    const sol = lamports / 1_000_000_000;
-
-    // Fetch SOL price for USD conversion
-    const solPriceUsd = await fetchSolPrice();
-    const usd = solPriceUsd ? sol * solPriceUsd : null;
-
-    return c.json({
-      address,
-      lamports,
-      sol,
-      formatted: sol.toFixed(4) + " SOL",
-      solPriceUsd,
-      usd,
-    });
-  } catch (err) {
-    console.error("Failed to fetch balance:", err);
-    return c.json({ error: "Failed to fetch balance" }, 500);
+    // Backward compat
+    if (result.solana && typeof result.solana === 'object' && 'sol' in result.solana) {
+      const s = result.solana as { address: string; lamports: number; sol: number; formatted: string; solPriceUsd: number | null; usd: number | null };
+      result.address = s.address;
+      result.lamports = s.lamports;
+      result.sol = s.sol;
+      result.formatted = s.formatted;
+      result.solPriceUsd = s.solPriceUsd;
+      result.usd = s.usd;
+    }
   }
+
+  // Fetch Monad balance
+  if (monadAddress) {
+    const monadTestnet = process.env.MONAD_TESTNET === "true";
+    const monadRpcUrl = process.env.MONAD_RPC_URL || (
+      monadTestnet ? "https://monad-testnet.drpc.org" : "https://monad-mainnet.drpc.org"
+    );
+    try {
+      const response = await fetch(monadRpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_getBalance",
+          params: [monadAddress, "latest"],
+        }),
+      });
+
+      const data = await response.json() as { result?: string, error?: { message?: string } };
+      
+      if (data.error) {
+        result.monad = { address: monadAddress, error: data.error.message };
+      } else {
+        const weiHex = data.result || "0x0";
+        const wei = BigInt(weiHex);
+        const mon = Number(wei) / 1e18;
+
+        result.monad = {
+          address: monadAddress,
+          wei: wei.toString(),
+          mon,
+          formatted: mon.toFixed(4) + " MON",
+        };
+      }
+    } catch (err) {
+      console.error("Failed to fetch Monad balance:", err);
+      result.monad = { address: monadAddress, error: "Failed to fetch balance" };
+    }
+  }
+
+  return c.json(result);
 });
 
 // ── Get SOL price in USD ────────────────────────────────────────────

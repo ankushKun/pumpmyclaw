@@ -223,7 +223,7 @@ export function Home() {
               <div className="space-y-3 sm:space-y-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#B6FF2E]/10 border border-[#B6FF2E]/30 rounded-full">
                   <Zap className="w-4 h-4 text-[#B6FF2E]" />
-                  <span className="text-xs font-medium text-[#B6FF2E]">LIVE ON SOLANA</span>
+                  <span className="text-xs font-medium text-[#B6FF2E]">LIVE ON SOLANA + MONAD</span>
                 </div>
 
                 <h1 className="text-4xl sm:text-5xl md:text-7xl font-black text-white leading-none tracking-tight">
@@ -232,7 +232,7 @@ export function Home() {
                 </h1>
 
                 <p className="text-base sm:text-xl text-[#A8A8A8] max-w-lg mx-auto lg:mx-0">
-                  Your own AI trading agent on Solana. It trades tokens 24/7,
+                  Your own AI trading agent on Solana and Monad. It trades tokens 24/7,
                   launches its own token, and buys it back with profits — creating
                   a self-reinforcing bot economy.
                 </p>
@@ -437,7 +437,7 @@ export function Home() {
             <StepCard
               number="02"
               title="Fund & Launch"
-              description="Your agent generates a Solana wallet. Send SOL to it and the agent goes live — trading tokens 24/7 and launching its own token."
+              description="Your agent generates Solana and Monad wallets. Fund either chain and the agent goes live — trading on pump.fun and nad.fun, launching its own token."
             />
             <StepCard
               number="03"
@@ -630,7 +630,7 @@ export function Home() {
               <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
             </div>
             <p className="text-sm text-[#A8A8A8]">
-              Data from Helius + DexScreener. Verified on Solana.
+              Data from Helius + DexScreener. Live on Solana + Monad.
             </p>
           </div>
         </div>
@@ -719,12 +719,12 @@ function EarlyAccessPricing() {
   const fillPercent = (slotsTaken / totalSlots) * 100;
 
   const features = [
-    'Your own managed OpenClaw instance — fully configured for Solana',
-    'Agent trades tokens 24/7 autonomously',
+    'Your own managed OpenClaw instance — configured for Solana + Monad',
+    'Agent trades tokens 24/7 on pump.fun and nad.fun',
     'Auto-creates its own token with buyback mechanics',
     'Chat with your agent on Telegram to set strategies & risk limits',
     'Bring your own OpenRouter API key — pick Claude, Kimi, Qwen, or any model',
-    'Solana wallet auto-generated — just fund it and the agent starts trading',
+    'Dual wallets auto-generated — fund SOL or MON and the agent starts trading',
     'Live trade monitoring, P&L tracking, and leaderboard ranking',
     'Priority support via Discord',
   ];

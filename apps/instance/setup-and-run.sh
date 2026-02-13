@@ -6,11 +6,12 @@ export PATH="/home/openclaw/.local/bin:/home/openclaw/.npm-global/bin:$PATH"
 
 OPENCLAW_DIR="$HOME/.openclaw"
 WALLET_FILE="$OPENCLAW_DIR/.wallet.json"
+EVM_WALLET_FILE="$OPENCLAW_DIR/.evm-wallet.json"
 SKILLS_DIR="$OPENCLAW_DIR/skills"
 
 # Add skill script directories to PATH so LLMs can call scripts by short name
 # (e.g. "solana-balance.sh" instead of full path)
-export PATH="$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts:$PATH"
+export PATH="$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts:$SKILLS_DIR/monad/scripts:$SKILLS_DIR/nadfun/scripts:$PATH"
 
 echo "[pmc] Validating environment..."
 
@@ -50,6 +51,17 @@ fi
 
 # Optional: Solana RPC URL (defaults to mainnet)
 SOLANA_RPC_URL="${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}"
+
+# Optional: Monad testnet toggle (set MONAD_TESTNET=true to use testnet)
+MONAD_TESTNET="${MONAD_TESTNET:-false}"
+
+# Optional: Monad RPC URL (defaults based on MONAD_TESTNET)
+if [ "$MONAD_TESTNET" = "true" ]; then
+  MONAD_RPC_URL="${MONAD_RPC_URL:-https://monad-testnet.drpc.org}"
+  echo "[pmc] Monad network: TESTNET (chain 10143)"
+else
+  MONAD_RPC_URL="${MONAD_RPC_URL:-https://monad-mainnet.drpc.org}"
+fi
 
 # Defaults
 OPENCLAW_MODEL="${OPENCLAW_MODEL:-openrouter/openrouter/auto}"
@@ -148,10 +160,89 @@ export SOLANA_PRIVATE_KEY
 export SOLANA_PUBLIC_KEY
 export SOLANA_RPC_URL
 
+# --- Monad (EVM) Wallet Management ---
+echo "[pmc] Checking Monad wallet..."
+
+if [ -f "$EVM_WALLET_FILE" ]; then
+    echo "[pmc] Loading existing Monad wallet..."
+    MONAD_PRIVATE_KEY=$(jq -r '.privateKey' "$EVM_WALLET_FILE")
+    MONAD_ADDRESS=$(jq -r '.address' "$EVM_WALLET_FILE")
+    echo "[pmc] Monad wallet loaded: $MONAD_ADDRESS"
+else
+    echo "[pmc] Generating new Monad wallet..."
+
+    # Use the monad-keygen.js script to generate a new EVM wallet
+    KEYGEN_SCRIPT="$SKILLS_DIR/monad/scripts/monad-keygen.js"
+    if [ -x "$KEYGEN_SCRIPT" ]; then
+        KEYGEN_RESULT=$("$KEYGEN_SCRIPT" 2>/dev/null)
+        if [ -n "$KEYGEN_RESULT" ] && echo "$KEYGEN_RESULT" | jq -e '.address' >/dev/null 2>&1; then
+            MONAD_ADDRESS=$(echo "$KEYGEN_RESULT" | jq -r '.address')
+            MONAD_PRIVATE_KEY=$(echo "$KEYGEN_RESULT" | jq -r '.privateKey')
+
+            # Save wallet to persistent storage
+            echo "$KEYGEN_RESULT" > "$EVM_WALLET_FILE"
+            chmod 600 "$EVM_WALLET_FILE"
+            echo "[pmc] New Monad wallet generated and saved: $MONAD_ADDRESS"
+        else
+            echo "[pmc] ERROR: Failed to generate Monad wallet via keygen script"
+            exit 1
+        fi
+    else
+        # Fallback: generate inline with Node.js using viem bundle
+        echo "[pmc] Using inline Monad wallet generation..."
+        VIEM_BUNDLE="$SKILLS_DIR/monad/scripts/viem-bundle.js"
+        if [ -f "$VIEM_BUNDLE" ]; then
+            KEYGEN_RESULT=$(node -e "
+const v = require('$VIEM_BUNDLE');
+const key = v.generatePrivateKey();
+const acc = v.privateKeyToAccount(key);
+console.log(JSON.stringify({ address: acc.address, privateKey: key }));
+" 2>/dev/null)
+        else
+            # Ultra-fallback: use Node.js crypto for secp256k1
+            KEYGEN_RESULT=$(node -e "
+const crypto = require('crypto');
+const privKey = '0x' + crypto.randomBytes(32).toString('hex');
+// Cannot derive address without keccak256 — just store the key
+// Address will be derived on first use by viem
+console.log(JSON.stringify({ address: 'PENDING_DERIVATION', privateKey: privKey }));
+" 2>/dev/null)
+        fi
+
+        if [ -n "$KEYGEN_RESULT" ]; then
+            MONAD_ADDRESS=$(echo "$KEYGEN_RESULT" | jq -r '.address')
+            MONAD_PRIVATE_KEY=$(echo "$KEYGEN_RESULT" | jq -r '.privateKey')
+            echo "$KEYGEN_RESULT" > "$EVM_WALLET_FILE"
+            chmod 600 "$EVM_WALLET_FILE"
+            echo "[pmc] New Monad wallet generated: $MONAD_ADDRESS"
+        else
+            echo "[pmc] ERROR: Failed to generate Monad wallet"
+            exit 1
+        fi
+    fi
+fi
+
+# Export Monad env vars for skills
+export MONAD_PRIVATE_KEY
+export MONAD_ADDRESS
+export MONAD_RPC_URL
+export MONAD_TESTNET
+
+# Load nad.fun API key if previously generated
+NADFUN_CONFIG="$OPENCLAW_DIR/.nadfun-config.json"
+if [ -f "$NADFUN_CONFIG" ]; then
+    NAD_API_KEY=$(jq -r '.apiKey // empty' "$NADFUN_CONFIG" 2>/dev/null || echo "")
+    if [ -n "$NAD_API_KEY" ]; then
+        export NAD_API_KEY
+        echo "[pmc] Loaded nad.fun API key"
+    fi
+fi
+
 echo "[pmc] Writing openclaw.json config..."
 echo "[pmc] Model: ${OPENCLAW_MODEL}"
 echo "[pmc] Telegram owner: ${TELEGRAM_OWNER_ID}"
 echo "[pmc] Solana wallet: ${SOLANA_PUBLIC_KEY}"
+echo "[pmc] Monad wallet: ${MONAD_ADDRESS}"
 
 # Build auth profiles + env section based on provider
 # For openai-codex and anthropic, auth is handled via auth-profiles.json (written below).
@@ -180,7 +271,12 @@ jq -n \
   --arg solana_privkey "$SOLANA_PRIVATE_KEY" \
   --arg solana_pubkey "$SOLANA_PUBLIC_KEY" \
   --arg solana_rpc "$SOLANA_RPC_URL" \
-  --arg skills_path "$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts" \
+  --arg monad_privkey "$MONAD_PRIVATE_KEY" \
+  --arg monad_addr "$MONAD_ADDRESS" \
+  --arg monad_rpc "$MONAD_RPC_URL" \
+  --arg monad_testnet "$MONAD_TESTNET" \
+  --arg nad_api_key "${NAD_API_KEY:-}" \
+  --arg skills_path "$SKILLS_DIR/solana/scripts:$SKILLS_DIR/pumpfun/scripts:$SKILLS_DIR/pumpmyclaw/scripts:$SKILLS_DIR/monad/scripts:$SKILLS_DIR/nadfun/scripts" \
   --argjson auth_profiles "$AUTH_PROFILES" \
   '{
     env: {
@@ -188,6 +284,11 @@ jq -n \
       SOLANA_PRIVATE_KEY: $solana_privkey,
       SOLANA_PUBLIC_KEY: $solana_pubkey,
       SOLANA_RPC_URL: $solana_rpc,
+      MONAD_PRIVATE_KEY: $monad_privkey,
+      MONAD_ADDRESS: $monad_addr,
+      MONAD_RPC_URL: $monad_rpc,
+      MONAD_TESTNET: $monad_testnet,
+      NAD_API_KEY: $nad_api_key,
       PATH: ($skills_path + ":/home/openclaw/.local/bin:/home/openclaw/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     },
     auth: {
@@ -268,6 +369,25 @@ jq -n \
         },
         pumpmyclaw: {
           enabled: true
+        },
+        monad: {
+          enabled: true,
+          env: {
+            MONAD_PRIVATE_KEY: $monad_privkey,
+            MONAD_ADDRESS: $monad_addr,
+            MONAD_RPC_URL: $monad_rpc,
+            MONAD_TESTNET: $monad_testnet
+          }
+        },
+        nadfun: {
+          enabled: true,
+          env: {
+            MONAD_PRIVATE_KEY: $monad_privkey,
+            MONAD_ADDRESS: $monad_addr,
+            MONAD_RPC_URL: $monad_rpc,
+            MONAD_TESTNET: $monad_testnet,
+            NAD_API_KEY: $nad_api_key
+          }
         }
       }
     },
@@ -284,6 +404,11 @@ OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
 SOLANA_PRIVATE_KEY=${SOLANA_PRIVATE_KEY}
 SOLANA_PUBLIC_KEY=${SOLANA_PUBLIC_KEY}
 SOLANA_RPC_URL=${SOLANA_RPC_URL}
+MONAD_PRIVATE_KEY=${MONAD_PRIVATE_KEY}
+MONAD_ADDRESS=${MONAD_ADDRESS}
+MONAD_RPC_URL=${MONAD_RPC_URL}
+MONAD_TESTNET=${MONAD_TESTNET}
+NAD_API_KEY=${NAD_API_KEY:-}
 EOF
 
 # --- OpenAI Codex auth setup ---
@@ -367,6 +492,27 @@ for skill in solana pumpfun; do
     fi
 done
 
+# Create Monad/nadfun skill config files
+for skill in monad nadfun; do
+    SKILL_DIR="$SKILLS_DIR/$skill"
+    if [ -d "$SKILL_DIR" ]; then
+        echo "[pmc] Configuring $skill skill..."
+        jq -n \
+          --arg privkey "$MONAD_PRIVATE_KEY" \
+          --arg addr "$MONAD_ADDRESS" \
+          --arg rpc "$MONAD_RPC_URL" \
+          --arg testnet "$MONAD_TESTNET" \
+          --arg apikey "${NAD_API_KEY:-}" \
+          '{
+            privateKey: $privkey,
+            address: $addr,
+            rpcUrl: $rpc,
+            testnet: ($testnet == "true"),
+            nadApiKey: $apikey
+          }' > "$SKILL_DIR/config.json"
+    fi
+done
+
 # Fetch bot username from Telegram API and inject into IDENTITY.md
 echo "[pmc] Fetching bot username from Telegram..."
 BOT_USERNAME=""
@@ -380,26 +526,46 @@ if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
     fi
 fi
 
-# Inject wallet address and bot username into IDENTITY.md
+# Inject wallet addresses and bot username into IDENTITY.md
 IDENTITY_FILE="$OPENCLAW_DIR/workspace/IDENTITY.md"
 if [ -f "$IDENTITY_FILE" ] && ! grep -q "WALLET_INJECTED" "$IDENTITY_FILE"; then
     TOKEN_NAME=$(echo "$BOT_USERNAME" | sed 's/_bot$//' | sed 's/^@//' | tr '[:lower:]' '[:upper:]')
     cat >> "$IDENTITY_FILE" << WALLET_EOF
 
 <!-- WALLET_INJECTED -->
-## My Wallet
+## My Wallets
+
+I have TWO wallets on TWO chains. I trade on whichever chain has funds.
 
 **My Solana wallet address: \`${SOLANA_PUBLIC_KEY}\`**
+Fund this to trade on pump.fun (Solana). Native token: SOL.
 
-This is MY wallet. I control the private key. Fund this address to enable trading.
+**My Monad wallet address: \`${MONAD_ADDRESS}\`**
+Fund this to trade on nad.fun (Monad). Native token: MON.
+
+Both are MY wallets. I control the private keys. The owner can fund either or both.
 
 ## My Bot Identity
 
 **My Telegram bot username: @${BOT_USERNAME}**
 
-When creating my token, I'll use the name: **${TOKEN_NAME}**
+When creating my token on pump.fun, I'll use the name: **${TOKEN_NAME}**
+When creating my token on nad.fun, I'll use the name: **${TOKEN_NAME}**
 WALLET_EOF
-    echo "[pmc] Wallet address added to IDENTITY.md"
+    echo "[pmc] Wallet addresses added to IDENTITY.md"
+fi
+
+# Auto-generate nad.fun API key if not yet created
+if [ -z "${NAD_API_KEY:-}" ] && [ -f "$SKILLS_DIR/nadfun/scripts/nadfun-auth.js" ]; then
+    echo "[pmc] Attempting to generate nad.fun API key..."
+    AUTH_RESULT=$(node "$SKILLS_DIR/nadfun/scripts/nadfun-auth.js" 2>/dev/null || echo '{"error":"auth failed"}')
+    NEW_KEY=$(echo "$AUTH_RESULT" | jq -r '.apiKey // empty' 2>/dev/null)
+    if [ -n "$NEW_KEY" ]; then
+        export NAD_API_KEY="$NEW_KEY"
+        echo "[pmc] nad.fun API key generated successfully"
+    else
+        echo "[pmc] nad.fun API key generation skipped (will use unauthenticated rate limits)"
+    fi
 fi
 
 # No JWT authentication needed - using PumpPortal Local Transaction API

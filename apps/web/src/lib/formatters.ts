@@ -30,6 +30,7 @@ export function formatNumber(value: string | number): string {
   return new Intl.NumberFormat('en-US').format(num);
 }
 
+// Solana explorers
 export function explorerTxUrl(signature: string): string {
   return `https://orb.helius.dev/tx/${signature}`;
 }
@@ -40,6 +41,29 @@ export function explorerWalletUrl(address: string): string {
 
 export function explorerTokenUrl(mint: string): string {
   return `https://dexscreener.com/solana/${mint}`;
+}
+
+// Monad explorers (support testnet toggle)
+const MONAD_EXPLORER_MAINNET = 'https://monadexplorer.com';
+const MONAD_EXPLORER_TESTNET = 'https://testnet.monadscan.com';
+
+export function monadExplorerTxUrl(hash: string, testnet = false): string {
+  const base = testnet ? MONAD_EXPLORER_TESTNET : MONAD_EXPLORER_MAINNET;
+  return `${base}/tx/${hash}`;
+}
+
+export function monadExplorerWalletUrl(address: string, testnet = false): string {
+  const base = testnet ? MONAD_EXPLORER_TESTNET : MONAD_EXPLORER_MAINNET;
+  return `${base}/address/${address}`;
+}
+
+export function monadTokenUrl(address: string): string {
+  return `https://nad.fun/token/${address}`;
+}
+
+/** Detect if an address is EVM (0x-prefixed, 42 chars) vs Solana (base58) */
+export function isEvmAddress(address: string): boolean {
+  return address.startsWith('0x') && address.length === 42;
 }
 
 export function formatCompactUsd(value: number | string): string {

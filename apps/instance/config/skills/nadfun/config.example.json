@@ -1,0 +1,6 @@
+{
+  "privateKey": "0xYOUR_PRIVATE_KEY_HEX",
+  "address": "0xYOUR_ADDRESS",
+  "rpcUrl": "https://monad-mainnet.drpc.org",
+  "nadApiKey": ""
+}

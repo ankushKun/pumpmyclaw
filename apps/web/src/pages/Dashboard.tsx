@@ -80,7 +80,7 @@ export function Dashboard() {
   const [customSettingsModel, setCustomSettingsModel] = useState("");
   const [settingsOrKey, setSettingsOrKey] = useState("");
 
-  // Wallet
+  // Wallet (Solana)
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<{
     sol: number;
@@ -98,6 +98,20 @@ export function Dashboard() {
   const [tokensRefreshing, setTokensRefreshing] = useState(false);
   const [txRefreshing, setTxRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Wallet (Monad)
+  const [monadAddress, setMonadAddress] = useState<string | null>(null);
+  const [monadTestnet, setMonadTestnet] = useState(false);
+  const [monadBalance, setMonadBalance] = useState<{
+    mon: number;
+    formatted: string;
+  } | null>(null);
+  const [monadCopied, setMonadCopied] = useState(false);
+
+  // Monad explorer base URL (testnet vs mainnet)
+  const monadExplorerBase = monadTestnet
+    ? "https://testnet.monadscan.com"
+    : "https://monadexplorer.com";
 
   // Subscription
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -417,7 +431,7 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [instance?.id]);
 
-  // Fetch wallet address (once on mount or instance change)
+  // Fetch wallet addresses (once on mount or instance change)
   useEffect(() => {
     if (!instance) return;
     let cancelled = false;
@@ -425,7 +439,11 @@ export function Dashboard() {
       setWalletDataLoading(true);
       try {
         const wallet = await backend.getWallet(instance.id);
-        if (!cancelled) setWalletAddress(wallet.address);
+        if (!cancelled) {
+          setWalletAddress(wallet.address);
+          setMonadAddress(wallet.monad?.address ?? null);
+          setMonadTestnet(wallet.monad?.testnet ?? false);
+        }
       } catch {
         /* ignore */
       } finally {
@@ -438,7 +456,7 @@ export function Dashboard() {
 
   // Fetch balance - fast refresh (3s) since it's critical and cheap
   useEffect(() => {
-    if (!instance || !walletAddress) return;
+    if (!instance || (!walletAddress && !monadAddress)) return;
     let cancelled = false;
     let fetchInFlight = false;
     const fetchBalance = async () => {
@@ -454,6 +472,13 @@ export function Dashboard() {
             solPriceUsd: balance.solPriceUsd,
             usd: balance.usd,
           });
+          // Extract Monad balance from the response
+          if (balance.monad && 'mon' in balance.monad) {
+            setMonadBalance({
+              mon: balance.monad.mon,
+              formatted: balance.monad.formatted,
+            });
+          }
         }
       } catch {
         /* keep previous value */
@@ -465,7 +490,7 @@ export function Dashboard() {
     fetchBalance();
     const interval = setInterval(fetchBalance, 3000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [instance?.id, walletAddress]);
+  }, [instance?.id, walletAddress, monadAddress]);
 
   // Fetch tokens - medium refresh (8s) since RPC is slower
   useEffect(() => {
@@ -1354,9 +1379,9 @@ export function Dashboard() {
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Wallet className="w-4 h-4 text-[#2ED0FF]" />
-                  <h3 className="text-sm font-semibold">Wallet</h3>
+                  <h3 className="text-sm font-semibold">Wallets</h3>
                 </div>
-                {walletAddress && (
+                {(walletAddress || monadAddress) && (
                   <button
                     onClick={() => setActiveTab("wallet")}
                     className="text-xs text-[#2ED0FF] hover:underline"
@@ -1365,28 +1390,60 @@ export function Dashboard() {
                   </button>
                 )}
               </div>
-              {walletAddress ? (
+              {walletAddress || monadAddress ? (
                 <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-[#A8A8A8] mb-1">Address</div>
-                    <div className="flex items-center gap-2">
-                      <span className="mono text-xs truncate">{walletAddress}</span>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(walletAddress);
-                          setCopied(true);
-                          setTimeout(() => setCopied(false), 2000);
-                        }}
-                        className="flex-shrink-0 text-[#A8A8A8] hover:text-white transition-colors"
-                      >
-                        {copied ? (
-                          <Check className="w-3 h-3 text-[#34d399]" />
-                        ) : (
-                          <Copy className="w-3 h-3" />
-                        )}
-                      </button>
+                  {/* Solana address */}
+                  {walletAddress && (
+                    <div>
+                      <div className="text-xs text-[#A8A8A8] mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                        Solana
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="mono text-xs truncate">{walletAddress}</span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(walletAddress);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          }}
+                          className="flex-shrink-0 text-[#A8A8A8] hover:text-white transition-colors"
+                        >
+                          {copied ? (
+                            <Check className="w-3 h-3 text-[#34d399]" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
+                  {/* Monad address */}
+                  {monadAddress && (
+                    <div>
+                      <div className="text-xs text-[#A8A8A8] mb-1 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                        Monad{monadTestnet ? " (Testnet)" : ""}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="mono text-xs truncate">{monadAddress}</span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(monadAddress);
+                            setMonadCopied(true);
+                            setTimeout(() => setMonadCopied(false), 2000);
+                          }}
+                          className="flex-shrink-0 text-[#A8A8A8] hover:text-white transition-colors"
+                        >
+                          {monadCopied ? (
+                            <Check className="w-3 h-3 text-[#34d399]" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {/* Total Value (SOL + Tokens) */}
                   <div>
                     <div className="text-xs text-[#A8A8A8] mb-1">Total Value</div>
@@ -1414,17 +1471,29 @@ export function Dashboard() {
                     })()}
                   </div>
                   {/* Breakdown */}
-                  {(walletBalance || walletTokens) && (
+                  {(walletBalance || walletTokens || monadBalance) && (
                     <div className="text-xs text-[#A8A8A8] border-t border-white/5 pt-2 space-y-1">
                       {walletBalance && (
                         <div className="flex justify-between">
-                          <span>SOL</span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                            SOL
+                          </span>
                           <span>
                             {walletBalance.formatted}
                             {walletBalance.usd != null && (
                               <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
                             )}
                           </span>
+                        </div>
+                      )}
+                      {monadBalance && (
+                        <div className="flex justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                            MON
+                          </span>
+                          <span>{monadBalance.formatted}</span>
                         </div>
                       )}
                       {walletTokens && walletTokens.length > 0 && (
@@ -1442,7 +1511,7 @@ export function Dashboard() {
                 <div className="text-center py-6">
                   <Wallet className="w-8 h-8 text-white/10 mx-auto mb-2" />
                   <p className="text-[#A8A8A8] text-xs">
-                    Wallet is created when your bot first starts.
+                    Wallets are created when your bot first starts.
                   </p>
                 </div>
               )}
@@ -1739,32 +1808,66 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-            ) : walletAddress ? (
+            ) : (walletAddress || monadAddress) ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Balance card - full width top */}
                 <div className="cyber-card p-5 md:col-span-3">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex-1">
-                      <div className="text-xs text-[#A8A8A8] mb-1">Wallet Address</div>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="mono text-sm">{walletAddress}</span>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(walletAddress);
-                            setCopied(true);
-                            setTimeout(() => setCopied(false), 2000);
-                          }}
-                          className="text-[#A8A8A8] hover:text-white transition-colors"
-                        >
-                          {copied ? (
-                            <Check className="w-3.5 h-3.5 text-[#34d399]" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
+                      {/* Solana wallet address */}
+                      {walletAddress && (
+                        <>
+                          <div className="text-xs text-[#A8A8A8] mb-1 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                            Solana Wallet
+                          </div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="mono text-sm">{walletAddress}</span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(walletAddress);
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 2000);
+                              }}
+                              className="text-[#A8A8A8] hover:text-white transition-colors"
+                            >
+                              {copied ? (
+                                <Check className="w-3.5 h-3.5 text-[#34d399]" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {/* Monad wallet address */}
+                      {monadAddress && (
+                        <>
+                          <div className="text-xs text-[#A8A8A8] mb-1 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                            Monad Wallet{monadTestnet ? " (Testnet)" : ""}
+                          </div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="mono text-sm">{monadAddress}</span>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(monadAddress);
+                                setMonadCopied(true);
+                                setTimeout(() => setMonadCopied(false), 2000);
+                              }}
+                              className="text-[#A8A8A8] hover:text-white transition-colors"
+                            >
+                              {monadCopied ? (
+                                <Check className="w-3.5 h-3.5 text-[#34d399]" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
                       {/* Total Portfolio Value */}
-                      <div className="flex items-center gap-2 text-xs text-[#A8A8A8] mb-1">
+                      <div className="flex items-center gap-2 text-xs text-[#A8A8A8] mb-1 mt-2">
                         <span>Total Portfolio Value</span>
                         {balanceRefreshing && walletBalance !== null && (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -1796,13 +1899,20 @@ export function Dashboard() {
                         );
                       })()}
                       {/* Breakdown row */}
-                      <div className="flex items-center gap-4 mt-2 text-xs text-[#A8A8A8]">
+                      <div className="flex items-center gap-4 mt-2 text-xs text-[#A8A8A8] flex-wrap">
                         {walletBalance && (
-                          <span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
                             SOL: {walletBalance.formatted}
                             {walletBalance.usd != null && (
                               <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
                             )}
+                          </span>
+                        )}
+                        {monadBalance && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                            MON: {monadBalance.formatted}
                           </span>
                         )}
                         {walletTokens && walletTokens.length > 0 && (
@@ -1820,15 +1930,32 @@ export function Dashboard() {
                         )}
                       </div>
                     </div>
-                    <a
-                      href={`https://orbmarkets.io/address/${walletAddress}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-secondary text-sm py-2.5 px-4 self-start"
-                    >
-                      View Wallet
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                    <div className="flex flex-col gap-2 self-start">
+                      {walletAddress && (
+                        <a
+                          href={`https://orbmarkets.io/address/${walletAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-secondary text-sm py-2.5 px-4 flex items-center gap-2"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                          Solana
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                      {monadAddress && (
+                        <a
+                          href={`${monadExplorerBase}/address/${monadAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-secondary text-sm py-2.5 px-4 flex items-center gap-2"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                          Monad{monadTestnet ? " (Testnet)" : ""}
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -2308,9 +2435,9 @@ export function Dashboard() {
             ) : (
               <div className="cyber-card p-10 text-center">
                 <Wallet className="w-12 h-12 text-white/10 mx-auto mb-3" />
-                <h3 className="text-base font-semibold mb-1">Wallet Not Created</h3>
+                <h3 className="text-base font-semibold mb-1">Wallets Not Created</h3>
                 <p className="text-[#A8A8A8] text-sm">
-                  Your bot's wallet will be automatically created when it starts
+                  Your bot's wallets (Solana + Monad) will be automatically created when it starts
                   for the first time.
                 </p>
               </div>

@@ -55,6 +55,8 @@ export interface InstanceStatus {
 
 export interface WalletInfo {
   address: string | null;
+  solana?: { address: string } | null;
+  monad?: { address: string; testnet?: boolean } | null;
 }
 
 export interface WalletBalance {
@@ -62,6 +64,22 @@ export interface WalletBalance {
   formatted: string;
   solPriceUsd: number | null;
   usd: number | null;
+  // Monad balance (returned alongside Solana from backend)
+  solana?: {
+    address: string;
+    lamports: number;
+    sol: number;
+    formatted: string;
+    solPriceUsd: number | null;
+    usd: number | null;
+  } | null;
+  monad?: {
+    address: string;
+    wei: string;
+    mon: number;
+    formatted: string;
+    error?: string;
+  } | null;
 }
 
 export interface WalletToken {

@@ -401,6 +401,15 @@ export async function createInstance(config: InstanceConfig, options?: { start?:
     envVars.push(`OWNER_AVATAR_URL=${config.ownerAvatarUrl}`);
   }
 
+  // Monad config for nad.fun trading (wallet gen happens inside the container)
+  // Set MONAD_TESTNET=true on the backend to route all bots to Monad testnet
+  const monadTestnet = process.env.MONAD_TESTNET || "false";
+  const monadRpcUrl = process.env.MONAD_RPC_URL || (
+    monadTestnet === "true" ? "https://monad-testnet.drpc.org" : "https://monad-mainnet.drpc.org"
+  );
+  envVars.push(`MONAD_RPC_URL=${monadRpcUrl}`);
+  envVars.push(`MONAD_TESTNET=${monadTestnet}`);
+
   const container = await docker.createContainer({
     Image: IMAGE_NAME,
     name,

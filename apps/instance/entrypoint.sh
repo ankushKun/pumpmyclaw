@@ -34,8 +34,8 @@ if [ -d "$BUNDLED_WORKSPACE" ] && [ "$(ls -A "$BUNDLED_WORKSPACE" 2>/dev/null)" 
         filename=$(basename "$file")
         target="$OPENCLAW_DIR/workspace/$filename"
         
-        # Skip TRADES.json if it exists and has data (preserve trade history)
-        if [ "$filename" = "TRADES.json" ] && [ -f "$target" ]; then
+        # Skip TRADES.json and MONAD_TRADES.json if they exist and have data (preserve trade history)
+        if ([ "$filename" = "TRADES.json" ] || [ "$filename" = "MONAD_TRADES.json" ]) && [ -f "$target" ]; then
             TRADE_COUNT=$(jq -r '.trades | length' "$target" 2>/dev/null || echo "0")
             if [ "$TRADE_COUNT" != "0" ] && [ "$TRADE_COUNT" != "null" ]; then
                 echo "[pmc] Preserving $filename ($TRADE_COUNT trades recorded)"
@@ -43,17 +43,22 @@ if [ -d "$BUNDLED_WORKSPACE" ] && [ "$(ls -A "$BUNDLED_WORKSPACE" 2>/dev/null)" 
             fi
         fi
         
-        # Skip MY_TOKEN.md if it exists and has a real token address
+        # Skip MY_TOKEN.md if it exists and has a real token address (Solana or Monad)
         if [ "$filename" = "MY_TOKEN.md" ] && [ -f "$target" ]; then
             TOKEN_ADDR=$(grep -oP 'TOKEN_ADDRESS:\s*\K\S+' "$target" 2>/dev/null || echo "PENDING")
+            MONAD_TOKEN_ADDR=$(grep -oP 'MONAD_TOKEN_ADDRESS:\s*\K\S+' "$target" 2>/dev/null || echo "PENDING")
             ADDR_LEN=${#TOKEN_ADDR}
+            MONAD_ADDR_LEN=${#MONAD_TOKEN_ADDR}
+            HAS_SOL_TOKEN=false
+            HAS_MONAD_TOKEN=false
             if [ "$TOKEN_ADDR" != "PENDING" ] && [ "$ADDR_LEN" -ge 32 ] && [ "$ADDR_LEN" -le 44 ]; then
-                # Token address looks valid — preserve the file.
-                # We skip on-chain verification here because RPC may not be
-                # reachable during early container startup (network not ready,
-                # rate limits, etc.) and a failed check would wrongly wipe the
-                # token data. The bot verifies on-chain state at runtime anyway.
-                echo "[pmc] Preserving $filename (token address: $TOKEN_ADDR)"
+                HAS_SOL_TOKEN=true
+            fi
+            if [ "$MONAD_TOKEN_ADDR" != "PENDING" ] && [ "$MONAD_ADDR_LEN" -ge 42 ]; then
+                HAS_MONAD_TOKEN=true
+            fi
+            if [ "$HAS_SOL_TOKEN" = true ] || [ "$HAS_MONAD_TOKEN" = true ]; then
+                echo "[pmc] Preserving $filename (sol token: $TOKEN_ADDR, monad token: $MONAD_TOKEN_ADDR)"
                 continue
             fi
         fi
