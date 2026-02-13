@@ -252,10 +252,13 @@ const MAX_BUY_AMOUNT = 0.004; // Hard cap on buy amount
 function loadTrades() {
     try {
         if (fs.existsSync(TRADES_FILE)) {
-            return JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
+            const data = JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
+            // Ensure dailyPL exists
+            if (!data.dailyPL) data.dailyPL = {};
+            return data;
         }
     } catch (e) {}
-    return { trades: [], buyCountByMint: {}, totalProfitSOL: 0, positions: {} };
+    return { trades: [], buyCountByMint: {}, totalProfitSOL: 0, positions: {}, dailyPL: {} };
 }
 
 function saveTrades(data) {
@@ -315,15 +318,41 @@ function recordTrade(action, mint, solAmount) {
             data.positions[mint].firstBoughtAt = ts;
         }
     } else if (action === 'sell') {
-        // Don't compute profit here — we don't know the actual SOL received.
-        // pumpfun-track.js record (called by the LLM with real SOL amount) handles P/L.
-        // But DO reset the buy count to allow re-entry later
+        // Compute profit from position data BEFORE deleting the position
+        if (data.positions && data.positions[mint]) {
+            const pos = data.positions[mint];
+            const costBasisSOL = pos.totalCostSOL || 0;
+            if (costBasisSOL > 0 && sol > 0) {
+                const profitSOL = sol - costBasisSOL;
+                data.totalProfitSOL = (data.totalProfitSOL || 0) + profitSOL;
+                
+                // Update the trade record with profit data
+                const lastTrade = data.trades[data.trades.length - 1];
+                if (lastTrade) {
+                    lastTrade.profitSOL = profitSOL;
+                    lastTrade.costBasisSOL = costBasisSOL;
+                }
+                
+                // Update daily P/L
+                if (!data.dailyPL) data.dailyPL = {};
+                const today = new Date().toISOString().slice(0, 10);
+                if (!data.dailyPL[today]) {
+                    data.dailyPL[today] = { profit: 0, trades: 0, wins: 0, losses: 0 };
+                }
+                data.dailyPL[today].profit += profitSOL;
+                data.dailyPL[today].trades += 1;
+                if (profitSOL >= 0) {
+                    data.dailyPL[today].wins += 1;
+                } else {
+                    data.dailyPL[today].losses += 1;
+                }
+            }
+            // Clear position after computing profit
+            delete data.positions[mint];
+        }
+        // Reset buy count to allow re-entry later
         if (data.buyCountByMint && data.buyCountByMint[mint]) {
             delete data.buyCountByMint[mint];
-        }
-        // Also clear position (pumpfun-track.js will do this too, but being safe)
-        if (data.positions && data.positions[mint]) {
-            delete data.positions[mint];
         }
     }
     
@@ -443,17 +472,26 @@ async function main() {
         } else {
             solAmount = 0;
             if (preTradeBalance !== null) {
-                try {
-                    // Brief delay for balance to update on-chain
-                    await new Promise(r => setTimeout(r, 1500));
-                    const balAfter = await checkWalletBalance(config);
-                    const received = balAfter.sol - preTradeBalance;
-                    if (received > 0) {
-                        solAmount = Math.round(received * 1e6) / 1e6; // 6 decimal places
-                        result.solReceived = solAmount;
+                // Retry balance check a few times with increasing delays
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        // Wait for balance to update on-chain (longer wait each retry)
+                        await new Promise(r => setTimeout(r, 2000 + attempt * 1500));
+                        const balAfter = await checkWalletBalance(config);
+                        const received = balAfter.sol - preTradeBalance;
+                        if (received > 0) {
+                            solAmount = Math.round(received * 1e6) / 1e6; // 6 decimal places
+                            result.solReceived = solAmount;
+                            break; // Success, stop retrying
+                        } else if (attempt < 2) {
+                            console.error(`[trade] Balance unchanged after sell (attempt ${attempt + 1}), retrying...`);
+                        }
+                    } catch (e) {
+                        console.error(`[trade] Warning: Balance check attempt ${attempt + 1} failed: ${e.message}`);
                     }
-                } catch (e) {
-                    console.error(`[trade] Warning: Could not determine SOL received: ${e.message}`);
+                }
+                if (solAmount === 0) {
+                    console.error(`[trade] Warning: Could not determine SOL received after 3 attempts`);
                 }
             }
         }
