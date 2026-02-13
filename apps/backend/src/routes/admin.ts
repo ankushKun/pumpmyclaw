@@ -469,7 +469,7 @@ admin.get("/api/users", async (c) => {
               status: sub.status,
               slotNumber: sub.slotNumber,
               currentPeriodEnd: sub.currentPeriodEnd,
-              dodoSubscriptionId: sub.dodoSubscriptionId,
+              nowpaymentsSubscriptionId: sub.nowpaymentsSubscriptionId,
             }
           : null,
       };
@@ -618,7 +618,7 @@ admin.post("/api/grant-sub", async (c) => {
     .insert(subscriptions)
     .values({
       userId: user.id,
-      dodoSubscriptionId: `manual_grant_${user.id}_${Math.floor(now.getTime() / 1000)}`,
+      nowpaymentsSubscriptionId: `manual_grant_${user.id}_${Math.floor(now.getTime() / 1000)}`,
       status: "active",
       slotNumber: Math.min(slotNumber, 10),
       createdAt: now,
@@ -836,7 +836,7 @@ admin.post("/grant-sub", async (c) => {
     .insert(subscriptions)
     .values({
       userId: user.id,
-      dodoSubscriptionId: `manual_grant_${user.id}_${Math.floor(now.getTime() / 1000)}`,
+      nowpaymentsSubscriptionId: `manual_grant_${user.id}_${Math.floor(now.getTime() / 1000)}`,
       status: "active",
       slotNumber: Math.min(slotNumber, 10),
       createdAt: now,

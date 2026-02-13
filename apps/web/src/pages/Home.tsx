@@ -703,6 +703,7 @@ function EarlyAccessPricing() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [error, setError] = useState('');
   const [devTelegramId, setDevTelegramId] = useState('');
+  const [checkoutEmail, setCheckoutEmail] = useState('');
 
   const { data: slots } = useQuery({
     queryKey: ['slots'],
@@ -777,9 +778,14 @@ function EarlyAccessPricing() {
 
     if (!user) return; // Should not happen since button is hidden when not logged in
 
+    if (!checkoutEmail.trim() || !checkoutEmail.includes('@')) {
+      setError('Please enter a valid email address for payment notifications');
+      return;
+    }
+
     setCheckoutLoading(true);
     try {
-      const { checkoutUrl } = await backend.createCheckout();
+      const { checkoutUrl } = await backend.createCheckout(checkoutEmail.trim());
       window.location.href = checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start checkout');
@@ -996,20 +1002,28 @@ function EarlyAccessPricing() {
                           telegramData={telegramData}
                           onLogout={logout}
                         />}
+                        <input
+                          type="email"
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 transition-all text-sm"
+                          placeholder="Your email (for payment reminders)"
+                          value={checkoutEmail}
+                          onChange={(e) => setCheckoutEmail(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSubscribe()}
+                        />
                         <button
                           onClick={handleSubscribe}
-                          disabled={checkoutLoading}
+                          disabled={checkoutLoading || !checkoutEmail.trim()}
                           className="w-full py-3.5 px-6 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
                         >
                           {checkoutLoading ? (
                             <>
                               <Loader2 className="w-4 h-4 animate-spin" />
-                              Redirecting to checkout...
+                              Redirecting to crypto checkout...
                             </>
                           ) : (
                             <>
                               <Zap className="w-4 h-4" />
-                              Claim Your Slot — $19.99/mo
+                              Pay with Crypto — $19.99/mo
                             </>
                           )}
                         </button>

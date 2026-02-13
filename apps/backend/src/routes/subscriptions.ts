@@ -1,18 +1,12 @@
 import { Hono } from "hono";
 import { eq, and, sql } from "drizzle-orm";
-import { Webhook } from "standardwebhooks";
-import DodoPayments from "dodopayments";
 import { db } from "../db";
 import { subscriptions, users } from "../db/schema";
+import * as nowpayments from "../services/nowpayments";
 
 const TOTAL_SLOTS = 10;
-const PRODUCT_ID = process.env.DODO_PRODUCT_ID || "pdt_0NYFkACxHf3HDTstdAOtw";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-
-const dodo = new DodoPayments({
-  bearerToken: process.env.DODO_API_KEY!,
-  environment: process.env.DODO_TEST_MODE === "true" ? "test_mode" : "live_mode",
-});
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8080";
 
 // ── Public routes (no auth) ──────────────────────────────────────
 
@@ -41,11 +35,18 @@ subscriptionRoutes.get("/slots", async (c) => {
 });
 
 /**
- * POST /api/checkout — Authenticated. Creates a Dodo checkout session.
+ * POST /api/checkout — Authenticated. Creates a NOWPayments invoice + subscription.
+ * Expects JSON body: { email: string }
  * Returns { checkoutUrl } for frontend to redirect to.
  */
 subscriptionRoutes.post("/checkout", async (c) => {
   const userId = c.get("userId");
+
+  const body = await c.req.json().catch(() => null);
+  const email = body?.email?.trim();
+  if (!email || !email.includes("@")) {
+    return c.json({ error: "A valid email address is required for crypto payment notifications" }, 400);
+  }
 
   // Check if user already has an active subscription
   const existing = await db.query.subscriptions.findFirst({
@@ -70,7 +71,7 @@ subscriptionRoutes.post("/checkout", async (c) => {
     return c.json({ error: "All early access slots are taken" }, 400);
   }
 
-  // Get user info for pre-filling checkout
+  // Get user info
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
   });
@@ -78,31 +79,42 @@ subscriptionRoutes.post("/checkout", async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
+  // Save email to user record
+  await db
+    .update(users)
+    .set({ email })
+    .where(eq(users.id, userId));
+
   try {
-    const session = await dodo.checkoutSessions.create({
-      product_cart: [
-        {
-          product_id: PRODUCT_ID,
-          quantity: 1,
-        },
-      ],
-      customer: {
-        name: user.firstName || `User ${user.telegramId}`,
-        email: `tg_${user.telegramId}@pumpmyclaw.fun`,
-      },
-      return_url: `${FRONTEND_URL}/checkout/success`,
-      metadata: {
-        user_id: String(userId),
-        telegram_id: user.telegramId,
-      },
-      customization: {
-        theme: "dark",
-      },
+    // Create a NOWPayments invoice for immediate checkout redirect
+    const orderId = `pmc_${userId}_${Date.now()}`;
+    const invoice = await nowpayments.createInvoice({
+      priceAmount: 19.99,
+      priceCurrency: "usd",
+      orderId,
+      orderDescription: "PumpMyClaw Early Access — $19.99/mo",
+      ipnCallbackUrl: `${BACKEND_URL}/api/webhooks/nowpayments`,
+      successUrl: `${FRONTEND_URL}/checkout/success`,
+      cancelUrl: FRONTEND_URL,
+      isFixedRate: true,
+      isFeePaidByUser: false,
     });
 
-    return c.json({ checkoutUrl: session.checkout_url });
+    // Create a pending subscription record in our DB
+    const slotNumber = takenCount + 1;
+    await db.insert(subscriptions).values({
+      userId,
+      nowpaymentsSubscriptionId: `inv_${invoice.id}`,
+      nowpaymentsPaymentId: invoice.id?.toString() || null,
+      status: "pending",
+      slotNumber: Math.min(slotNumber, TOTAL_SLOTS),
+    });
+
+    console.log(`[checkout] Created invoice ${invoice.id} for user ${userId}, order ${orderId}`);
+
+    return c.json({ checkoutUrl: invoice.invoice_url });
   } catch (err) {
-    console.error("[checkout] Failed to create session:", err);
+    console.error("[checkout] Failed to create checkout:", err);
     return c.json({ error: "Failed to create checkout session" }, 500);
   }
 });
@@ -126,8 +138,8 @@ subscriptionRoutes.get("/subscription", async (c) => {
       id: sub.id,
       status: sub.status,
       slotNumber: sub.slotNumber,
-      dodoSubscriptionId: sub.dodoSubscriptionId,
-      dodoCustomerId: sub.dodoCustomerId,
+      nowpaymentsSubscriptionId: sub.nowpaymentsSubscriptionId,
+      nowpaymentsPaymentId: sub.nowpaymentsPaymentId,
       currentPeriodEnd: sub.currentPeriodEnd,
       createdAt: sub.createdAt,
       updatedAt: sub.updatedAt,
@@ -139,74 +151,90 @@ subscriptionRoutes.get("/subscription", async (c) => {
 
 const webhookRoutes = new Hono();
 
-webhookRoutes.post("/dodo", async (c) => {
-  const webhookSecret = process.env.DODO_WEBHOOK_KEY;
-  if (!webhookSecret) {
-    console.error("[webhook] DODO_WEBHOOK_KEY not configured");
+/**
+ * POST /api/webhooks/nowpayments — NOWPayments IPN callback.
+ *
+ * NOWPayments sends POST requests when payment status changes.
+ * We verify the HMAC-SHA512 signature and update subscription status.
+ */
+webhookRoutes.post("/nowpayments", async (c) => {
+  const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
+  if (!ipnSecret) {
+    console.error("[webhook] NOWPAYMENTS_IPN_SECRET not configured");
     return c.json({ error: "Webhook not configured" }, 500);
   }
 
   const rawBody = await c.req.text();
-  const headers = {
-    "webhook-id": c.req.header("webhook-id") || "",
-    "webhook-signature": c.req.header("webhook-signature") || "",
-    "webhook-timestamp": c.req.header("webhook-timestamp") || "",
-  };
+  const signature = c.req.header("x-nowpayments-sig") || "";
+
+  // Parse body
+  let body: Record<string, any>;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    console.error("[webhook] Failed to parse body");
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
 
   // Verify webhook signature
-  try {
-    const wh = new Webhook(webhookSecret);
-    wh.verify(rawBody, headers);
-  } catch (err) {
-    console.error("[webhook] Signature verification failed:", err);
+  if (!nowpayments.verifyWebhookSignature(body, signature)) {
+    console.error("[webhook] Signature verification failed");
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  const event = JSON.parse(rawBody);
-  const eventType = event.type as string;
-  const data = event.data;
+  const paymentStatus = body.payment_status as string;
+  const paymentId = body.payment_id;
+  const orderId = body.order_id as string;
+  const actuallyPaid = body.actually_paid;
+  const invoiceId = body.invoice_id;
 
-  console.log(`[webhook] Received: ${eventType}`);
+  console.log(
+    `[webhook] Received: payment_id=${paymentId}, status=${paymentStatus}, order_id=${orderId}, actually_paid=${actuallyPaid}`
+  );
 
   try {
-    switch (eventType) {
-      case "subscription.active": {
-        await handleSubscriptionActive(data);
+    switch (paymentStatus) {
+      case "finished": {
+        await handlePaymentFinished(body);
         break;
       }
-      case "subscription.renewed": {
-        await handleSubscriptionRenewed(data);
+      case "confirmed":
+      case "sending": {
+        // Payment confirmed on blockchain, being processed
+        console.log(`[webhook] Payment ${paymentId} is ${paymentStatus} — awaiting completion`);
         break;
       }
-      case "subscription.on_hold": {
-        await handleSubscriptionOnHold(data);
+      case "waiting":
+      case "confirming": {
+        // Still waiting for payment / confirming on blockchain
+        console.log(`[webhook] Payment ${paymentId} is ${paymentStatus}`);
         break;
       }
-      case "subscription.cancelled": {
-        await handleSubscriptionCancelled(data);
+      case "partially_paid": {
+        console.log(`[webhook] Payment ${paymentId} partially paid: ${actuallyPaid}`);
+        await handlePaymentPartiallyPaid(body);
         break;
       }
-      case "subscription.failed": {
-        await handleSubscriptionFailed(data);
+      case "failed": {
+        console.log(`[webhook] Payment ${paymentId} failed`);
+        await handlePaymentFailed(body);
         break;
       }
-      case "subscription.expired": {
-        await handleSubscriptionExpired(data);
+      case "expired": {
+        console.log(`[webhook] Payment ${paymentId} expired`);
+        await handlePaymentExpired(body);
         break;
       }
-      case "payment.succeeded": {
-        console.log(`[webhook] Payment succeeded: ${data.payment_id}`);
-        break;
-      }
-      case "payment.failed": {
-        console.log(`[webhook] Payment failed: ${data.payment_id}`);
+      case "refunded": {
+        console.log(`[webhook] Payment ${paymentId} refunded`);
+        await handlePaymentRefunded(body);
         break;
       }
       default:
-        console.log(`[webhook] Unhandled event type: ${eventType}`);
+        console.log(`[webhook] Unhandled payment status: ${paymentStatus}`);
     }
   } catch (err) {
-    console.error(`[webhook] Error handling ${eventType}:`, err);
+    console.error(`[webhook] Error handling ${paymentStatus}:`, err);
   }
 
   // Always return 200 to acknowledge receipt
@@ -216,160 +244,147 @@ webhookRoutes.post("/dodo", async (c) => {
 // ── Webhook event handlers ───────────────────────────────────────
 
 /**
- * Parse Dodo's next_billing_date into a JS Date.
- * Dodo sends ISO 8601 strings like "2026-03-11T00:00:00Z".
- * Returns null if missing or unparseable.
+ * Extract userId from orderId format: pmc_{userId}_{timestamp}
  */
-function parsePeriodEnd(data: any): Date | null {
-  const raw = data.next_billing_date;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d;
+function parseOrderId(orderId: string): number | null {
+  if (!orderId || !orderId.startsWith("pmc_")) return null;
+  const parts = orderId.split("_");
+  if (parts.length < 2) return null;
+  const id = parseInt(parts[1]);
+  return isNaN(id) ? null : id;
 }
 
-async function handleSubscriptionActive(data: any) {
-  const subId = data.subscription_id;
-  const customerId = data.customer?.customer_id;
-  const metadata = data.metadata || {};
-  const userId = metadata.user_id ? parseInt(metadata.user_id) : null;
-  const periodEnd = parsePeriodEnd(data);
-
-  console.log(
-    `[webhook] Subscription active: ${subId}, userId: ${userId}, customerId: ${customerId}, periodEnd: ${periodEnd?.toISOString() ?? "unknown"}`
-  );
+/**
+ * Payment finished — subscription becomes active.
+ * Set currentPeriodEnd to 30 days from now.
+ */
+async function handlePaymentFinished(data: any) {
+  const orderId = data.order_id as string;
+  const paymentId = String(data.payment_id);
+  const userId = parseOrderId(orderId);
 
   if (!userId) {
-    console.error("[webhook] No user_id in metadata, cannot link subscription");
+    console.error(`[webhook] Cannot parse userId from order_id: ${orderId}`);
     return;
   }
 
-  // Check if subscription already exists
+  const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // +30 days
+
+  // Try to find existing subscription for this user
   const existing = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.dodoSubscriptionId, subId),
+    where: eq(subscriptions.userId, userId),
   });
 
   if (existing) {
-    // Update status to active
+    // Update to active
     await db
       .update(subscriptions)
       .set({
         status: "active",
-        dodoCustomerId: customerId,
+        nowpaymentsPaymentId: paymentId,
         currentPeriodEnd: periodEnd,
         updatedAt: new Date(),
       })
-      .where(eq(subscriptions.dodoSubscriptionId, subId));
-    console.log(`[webhook] Updated existing subscription ${subId} to active`);
-    return;
-  }
+      .where(eq(subscriptions.userId, userId));
 
-  // Assign next slot number
-  const taken = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(subscriptions)
-    .where(
-      sql`${subscriptions.status} IN ('active', 'pending')`
+    console.log(
+      `[webhook] Activated subscription for user ${userId}, periodEnd: ${periodEnd.toISOString()}`
     );
-  const slotNumber = (taken[0]?.count ?? 0) + 1;
+  } else {
+    // Create new subscription (payment came before checkout record)
+    const taken = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(sql`${subscriptions.status} IN ('active', 'pending')`);
+    const slotNumber = (taken[0]?.count ?? 0) + 1;
 
-  if (slotNumber > TOTAL_SLOTS) {
-    console.error(
-      `[webhook] All ${TOTAL_SLOTS} slots taken, but subscription ${subId} activated. Allowing anyway.`
-    );
-  }
-
-  // Insert new subscription
-  await db.insert(subscriptions).values({
-    userId,
-    dodoSubscriptionId: subId,
-    dodoCustomerId: customerId,
-    status: "active",
-    currentPeriodEnd: periodEnd,
-    slotNumber: Math.min(slotNumber, TOTAL_SLOTS),
-  });
-
-  console.log(
-    `[webhook] Created subscription for user ${userId}, slot #${slotNumber}`
-  );
-}
-
-/**
- * Renewal succeeded — subscription continues for another period.
- * Update status back to active (in case it was on_hold) and bump period end.
- */
-async function handleSubscriptionRenewed(data: any) {
-  const subId = data.subscription_id;
-  const periodEnd = parsePeriodEnd(data);
-  console.log(
-    `[webhook] Subscription renewed: ${subId}, new periodEnd: ${periodEnd?.toISOString() ?? "unknown"}`
-  );
-
-  await db
-    .update(subscriptions)
-    .set({
+    await db.insert(subscriptions).values({
+      userId,
+      nowpaymentsSubscriptionId: `payment_${paymentId}`,
+      nowpaymentsPaymentId: paymentId,
       status: "active",
       currentPeriodEnd: periodEnd,
-      updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.dodoSubscriptionId, subId));
+      slotNumber: Math.min(slotNumber, TOTAL_SLOTS),
+    });
+
+    console.log(
+      `[webhook] Created new subscription for user ${userId}, slot #${slotNumber}`
+    );
+  }
 }
 
 /**
- * Renewal payment failed — Dodo puts subscription on hold.
- * Mark status but DO NOT stop the container — user paid through current_period_end.
- * The periodic enforcer will stop it once the period expires.
+ * Payment partially paid — keep pending, log the partial amount.
  */
-async function handleSubscriptionOnHold(data: any) {
-  const subId = data.subscription_id;
-  console.log(`[webhook] Subscription on hold (payment failed): ${subId}`);
+async function handlePaymentPartiallyPaid(data: any) {
+  const orderId = data.order_id as string;
+  const userId = parseOrderId(orderId);
+  if (!userId) return;
 
-  await db
-    .update(subscriptions)
-    .set({ status: "on_hold", updatedAt: new Date() })
-    .where(eq(subscriptions.dodoSubscriptionId, subId));
+  console.log(
+    `[webhook] Partial payment for user ${userId}: paid ${data.actually_paid} of ${data.pay_amount} ${data.pay_currency}`
+  );
+  // Keep status as pending — don't activate until fully paid
 }
 
 /**
- * User or merchant cancelled the subscription.
- * Mark status but DO NOT stop the container — user paid through current_period_end.
- * The periodic enforcer will stop it once the period expires.
+ * Payment failed — mark subscription as failed if it exists.
  */
-async function handleSubscriptionCancelled(data: any) {
-  const subId = data.subscription_id;
-  console.log(`[webhook] Subscription cancelled: ${subId}`);
+async function handlePaymentFailed(data: any) {
+  const orderId = data.order_id as string;
+  const userId = parseOrderId(orderId);
+  if (!userId) return;
+
+  const existing = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.userId, userId),
+      eq(subscriptions.status, "pending")
+    ),
+  });
+
+  if (existing) {
+    await db
+      .update(subscriptions)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(subscriptions.id, existing.id));
+  }
+}
+
+/**
+ * Payment expired — mark subscription as expired if still pending.
+ */
+async function handlePaymentExpired(data: any) {
+  const orderId = data.order_id as string;
+  const userId = parseOrderId(orderId);
+  if (!userId) return;
+
+  const existing = await db.query.subscriptions.findFirst({
+    where: and(
+      eq(subscriptions.userId, userId),
+      eq(subscriptions.status, "pending")
+    ),
+  });
+
+  if (existing) {
+    await db
+      .update(subscriptions)
+      .set({ status: "expired", updatedAt: new Date() })
+      .where(eq(subscriptions.id, existing.id));
+  }
+}
+
+/**
+ * Payment refunded — mark subscription as cancelled.
+ */
+async function handlePaymentRefunded(data: any) {
+  const orderId = data.order_id as string;
+  const userId = parseOrderId(orderId);
+  if (!userId) return;
 
   await db
     .update(subscriptions)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(eq(subscriptions.dodoSubscriptionId, subId));
-}
-
-/**
- * Mandate creation failed — subscription never started.
- * No container should exist, but mark status for bookkeeping.
- */
-async function handleSubscriptionFailed(data: any) {
-  const subId = data.subscription_id;
-  console.log(`[webhook] Subscription failed: ${subId}`);
-
-  await db
-    .update(subscriptions)
-    .set({ status: "failed", updatedAt: new Date() })
-    .where(eq(subscriptions.dodoSubscriptionId, subId));
-}
-
-/**
- * Subscription reached end of term and expired.
- * Mark status — the periodic enforcer will stop the container.
- */
-async function handleSubscriptionExpired(data: any) {
-  const subId = data.subscription_id;
-  console.log(`[webhook] Subscription expired: ${subId}`);
-
-  await db
-    .update(subscriptions)
-    .set({ status: "expired", updatedAt: new Date() })
-    .where(eq(subscriptions.dodoSubscriptionId, subId));
+    .where(eq(subscriptions.userId, userId));
 }
 
 export { subscriptionRoutes, webhookRoutes };

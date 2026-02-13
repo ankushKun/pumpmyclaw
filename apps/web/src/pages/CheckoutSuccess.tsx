@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle, ArrowRight, Loader2, Zap } from 'lucide-react';
+import { CheckCircle, ArrowRight, Loader2, Zap, Clock } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { backend } from '../lib/api';
 
@@ -12,7 +12,7 @@ export function CheckoutSuccess() {
     if (!user) return;
 
     let attempts = 0;
-    const maxAttempts = 20; // Poll for up to ~60s
+    const maxAttempts = 60; // Poll for up to ~5 minutes (crypto confirmations take longer)
 
     const poll = async () => {
       try {
@@ -32,7 +32,7 @@ export function CheckoutSuccess() {
         return;
       }
 
-      setTimeout(poll, 3000);
+      setTimeout(poll, 5000); // Check every 5s
     };
 
     poll();
@@ -47,9 +47,13 @@ export function CheckoutSuccess() {
             <h1 className="text-2xl font-bold text-white mb-2">
               Confirming Payment...
             </h1>
-            <p className="text-[#A8A8A8] text-sm">
-              Please wait while we confirm your subscription. This usually takes a few seconds.
+            <p className="text-[#A8A8A8] text-sm mb-4">
+              Waiting for blockchain confirmation. This may take a few minutes depending on network congestion.
             </p>
+            <div className="flex items-center justify-center gap-2 text-xs text-[#A8A8A8]">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Typically 2-15 minutes for most cryptocurrencies</span>
+            </div>
           </div>
         )}
 
@@ -62,7 +66,7 @@ export function CheckoutSuccess() {
               Welcome to Early Access!
             </h1>
             <p className="text-[#A8A8A8] text-sm mb-8">
-              Your subscription is active. You can now deploy your AI trading agent.
+              Your crypto payment has been confirmed and your subscription is active. You can now deploy your AI trading agent.
             </p>
             <Link
               to="/deploy"
@@ -78,17 +82,17 @@ export function CheckoutSuccess() {
         {status === 'pending' && (
           <div className="cyber-card p-10 animate-fade-in">
             <div className="w-16 h-16 rounded-full bg-[#FBBF24]/10 border border-[#FBBF24]/30 flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-8 h-8 text-[#FBBF24]" />
+              <Clock className="w-8 h-8 text-[#FBBF24]" />
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">
-              Payment Received
+              Payment Processing
             </h1>
             <p className="text-[#A8A8A8] text-sm mb-4">
-              Your payment is being processed. Subscription activation may take a few minutes.
+              Your crypto payment is being confirmed on the blockchain. This can take longer during periods of high network activity.
             </p>
             <p className="text-[#A8A8A8] text-xs mb-8">
-              You'll be able to deploy your agent once the subscription is confirmed.
-              Check back shortly.
+              Your subscription will activate automatically once the payment is fully confirmed.
+              You'll receive an email notification when it's ready.
             </p>
             <Link
               to="/deploy"

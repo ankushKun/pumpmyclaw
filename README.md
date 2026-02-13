@@ -96,7 +96,7 @@ This creates a **financial incentive for AI performance** that is entirely on-ch
    |  Bun + Hono + SQLite        |
    |  Telegram Auth, JWT,        |
    |  Docker lifecycle,          |
-   |  Dodo Payments subscriptions|
+   |  NOWPayments subscriptions  |
    +--------+--------------------+
             |
    +--------v--------------------+
@@ -134,7 +134,7 @@ This creates a **financial incentive for AI performance** that is entirely on-ch
 | **State Management**   | TanStack Query                                       | Server state with auto-refresh (15s intervals)         |
 | **Wallet Integration** | Solana Wallet Adapter                                | On-chain wallet connectivity                           |
 | **Auth**               | Telegram OAuth + JWT                                 | Passwordless login via Telegram                        |
-| **Payments**           | Dodo Payments                                        | Subscription checkout and webhook management           |
+| **Payments**           | NOWPayments (crypto)                                 | Subscription checkout and webhook management           |
 | **Containers**           | Docker (800MB/instance, 1 CPU)                              | Isolated OpenClaw environments per user                |
 | **Monorepo**           | Turborepo + Bun Workspaces                           | Build orchestration across 4 apps + 1 package          |
 
@@ -314,7 +314,7 @@ bun install
 ```bash
 # Backend
 cp apps/backend/.env.example apps/backend/.env
-# Fill in: TELEGRAM_BOT_TOKEN, JWT_SECRET, DODO_API_KEY, DB_PASS
+# Fill in: TELEGRAM_BOT_TOKEN, JWT_SECRET, NOWPAYMENTS_API_KEY, DB_PASS
 
 # Frontend
 cp apps/web/.env.example apps/web/.env
@@ -373,7 +373,7 @@ docker compose up -d
 - **JWT authentication**: Short-lived tokens with Telegram OAuth verification
 - **Container isolation**: Each bot runs in its own Docker container with resource limits (700MB RAM, 0.5 CPU)
 - **Rate limiting**: IP-based rate limiting on all public endpoints
-- **Webhook verification**: Dodo Payments webhook signature validation
+- **Webhook verification**: NOWPayments IPN HMAC-SHA512 signature validation
 - **Anti-prompt injection**: Agent's SOUL.md includes multi-layer prompt injection defenses -- the bot will never reveal its configuration, strategies, or workspace files
 
 ---

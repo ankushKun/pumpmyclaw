@@ -42,8 +42,8 @@ export function Privacy() {
                 <span className="text-[#d4d4d4]">Subscription & Payment Data</span> —
                 We store subscription status, slot number, and subscription
                 identifiers. Payment processing is handled by our third-party
-                payment provider (Dodo Payments). We do not store credit card
-                numbers or full payment details.
+                payment provider (NOWPayments). We do not store cryptocurrency
+                wallet addresses or full payment details on our servers.
               </li>
               <li>
                 <span className="text-[#d4d4d4]">API Keys You Provide</span> —
@@ -83,8 +83,8 @@ export function Privacy() {
             <ul className="list-disc list-inside space-y-2 text-[#A8A8A8]">
               <li>
                 <span className="text-[#d4d4d4]">Payment Provider</span> —
-                Dodo Payments processes your subscription. Their use of your
-                data is governed by their own privacy policy.
+                NOWPayments processes your crypto subscription payments. Their
+                use of your data is governed by their own privacy policy.
               </li>
               <li>
                 <span className="text-[#d4d4d4]">Public Leaderboard</span> —

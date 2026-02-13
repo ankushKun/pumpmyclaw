@@ -422,10 +422,12 @@ class BackendClient {
     return res.json();
   }
 
-  /** Create a Dodo Payments checkout session. Returns the checkout URL. */
-  async createCheckout(): Promise<{ checkoutUrl: string }> {
+  /** Create a NOWPayments checkout invoice. Returns the checkout URL. */
+  async createCheckout(email: string): Promise<{ checkoutUrl: string }> {
     return this.request<{ checkoutUrl: string }>('/api/checkout', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
     });
   }
 
@@ -446,8 +448,8 @@ export interface SubscriptionInfo {
   id: number;
   status: string;
   slotNumber: number | null;
-  dodoSubscriptionId: string | null;
-  dodoCustomerId: string | null;
+  nowpaymentsSubscriptionId: string | null;
+  nowpaymentsPaymentId: string | null;
   currentPeriodEnd: string | null;
   createdAt: string;
   updatedAt: string | null;

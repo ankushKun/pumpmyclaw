@@ -5,6 +5,8 @@ export const users = sqliteTable("users", {
   telegramId: text("telegram_id").notNull().unique(),
   username: text("username"),
   firstName: text("first_name"),
+  /** User's email address (required for NOWPayments subscription reminders) */
+  email: text("email"),
   // Telegram profile photo URL (used for agent avatar)
   photoUrl: text("photo_url"),
   // Encrypted Solana wallet JSON - persistent across instance recreation
@@ -52,15 +54,15 @@ export const subscriptions = sqliteTable("subscriptions", {
   userId: integer("user_id")
     .notNull()
     .references(() => users.id),
-  /** Dodo Payments subscription ID (e.g. "sub_xxxxx") */
-  dodoSubscriptionId: text("dodo_subscription_id").unique(),
-  /** Dodo Payments customer ID */
-  dodoCustomerId: text("dodo_customer_id"),
-  /** active | on_hold | cancelled | failed | pending */
+  /** NOWPayments subscription ID (from /v1/subscriptions) */
+  nowpaymentsSubscriptionId: text("nowpayments_subscription_id").unique(),
+  /** NOWPayments payment/invoice ID (most recent payment) */
+  nowpaymentsPaymentId: text("nowpayments_payment_id"),
+  /** active | on_hold | cancelled | failed | pending | expired */
   status: text("status").notNull().default("pending"),
   /** Slot number 1-10 for early access */
   slotNumber: integer("slot_number"),
-  /** End of the current paid billing period (from Dodo next_billing_date) */
+  /** End of the current paid billing period (now + 30 days from payment) */
   currentPeriodEnd: integer("current_period_end", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(
     () => new Date()

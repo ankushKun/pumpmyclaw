@@ -1311,10 +1311,10 @@ export function Dashboard() {
                       ).toLocaleDateString()}
                     />
                   )}
-                  {subscription.dodoSubscriptionId && !subscription.dodoSubscriptionId.startsWith("manual_grant") && (
-                    <InfoRow label="Payment" value="Dodo Payments" />
+                  {subscription.nowpaymentsSubscriptionId && !subscription.nowpaymentsSubscriptionId.startsWith("manual_grant") && (
+                    <InfoRow label="Payment" value="Crypto (NOWPayments)" />
                   )}
-                  {subscription.dodoSubscriptionId?.startsWith("manual_grant") && (
+                  {subscription.nowpaymentsSubscriptionId?.startsWith("manual_grant") && (
                     <InfoRow label="Payment" value="Manually granted" valueClass="text-[#A8A8A8]" />
                   )}
                   {subscription.status === "active" && (

@@ -41,8 +41,8 @@ sqlite.exec(`
   CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
-    dodo_subscription_id TEXT UNIQUE,
-    dodo_customer_id TEXT,
+    nowpayments_subscription_id TEXT UNIQUE,
+    nowpayments_payment_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     slot_number INTEGER,
     created_at INTEGER DEFAULT (unixepoch()),
@@ -91,6 +91,29 @@ try {
   sqlite.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT;`);
 } catch {
   // Column already exists, ignore
+}
+
+// Migration: Add email column to users (for NOWPayments subscription reminders)
+try {
+  sqlite.exec(`ALTER TABLE users ADD COLUMN email TEXT;`);
+} catch {
+  // Column already exists, ignore
+}
+
+// Migration: Rename dodo_subscription_id -> nowpayments_subscription_id
+// SQLite doesn't support RENAME COLUMN in older versions, so we use ALTER TABLE ADD + copy.
+// For newer SQLite (3.25+), we can use RENAME COLUMN directly.
+try {
+  sqlite.exec(`ALTER TABLE subscriptions RENAME COLUMN dodo_subscription_id TO nowpayments_subscription_id;`);
+} catch {
+  // Column already renamed or doesn't exist, ignore
+}
+
+// Migration: Rename dodo_customer_id -> nowpayments_payment_id
+try {
+  sqlite.exec(`ALTER TABLE subscriptions RENAME COLUMN dodo_customer_id TO nowpayments_payment_id;`);
+} catch {
+  // Column already renamed or doesn't exist, ignore
 }
 
 export const db = drizzle(sqlite, { schema });

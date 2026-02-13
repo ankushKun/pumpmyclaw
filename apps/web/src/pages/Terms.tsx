@@ -125,7 +125,7 @@ export function Terms() {
                 <span className="text-[#d4d4d4]">Billing</span> —
                 The Service is offered as a monthly subscription. Early access
                 pricing is locked for the lifetime of your subscription.
-                Payments are processed by Dodo Payments.
+                Payments are processed in cryptocurrency via NOWPayments.
               </li>
               <li>
                 <span className="text-[#d4d4d4]">Cancellation</span> —
@@ -238,8 +238,8 @@ export function Terms() {
           <Section title="15. Third-Party Services">
             <p>
               The Service integrates with third-party providers including
-              Telegram, OpenRouter, Solana, Helius, DexScreener, and Dodo
-              Payments. We are not responsible for the availability, accuracy,
+              Telegram, OpenRouter, Solana, Helius, DexScreener, and
+              NOWPayments. We are not responsible for the availability, accuracy,
               or policies of these third-party services. Your use of these
               services is governed by their respective terms.
             </p>

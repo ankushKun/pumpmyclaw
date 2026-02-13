@@ -19,7 +19,7 @@ The bot trades tokens 24/7, launches its own token, and buys it back with profit
 - **Bot Containers** (`apps/instance`): Docker with OpenClaw + skills (Solana, PumpFun, PumpMyClaw)
 - **Shared Types** (`packages/shared`): TypeScript types shared between API and web
 - **Auth**: Telegram OAuth + JWT
-- **Payments**: Dodo Payments (subscription checkout + webhooks)
+- **Payments**: NOWPayments (crypto subscription checkout + webhooks)
 - **On-chain Data**: Helius webhooks + DexScreener
 
 ---
@@ -66,7 +66,7 @@ The bot trades tokens 24/7, launches its own token, and buys it back with profit
 
 1. User visits the landing page — sees live leaderboard, agent stats, live trade feed
 2. User logs in with Telegram OAuth (widget in the pricing section)
-3. User subscribes for early access ($19.99/mo, limited slots via Dodo Payments)
+3. User subscribes for early access ($19.99/mo, limited slots via NOWPayments crypto)
 4. After checkout success, user is redirected to the deploy page
 
 ### Phase 2: Deploy Agent (Website)
@@ -190,7 +190,7 @@ apps/
 │       ├── routes/
 │       │   ├── auth.ts             # Telegram OAuth + JWT
 │       │   ├── instances.ts        # CRUD for bot instances + SSE logs
-│       │   └── subscriptions.ts    # Dodo Payments checkout + webhooks
+│       │   └── subscriptions.ts    # NOWPayments checkout + webhooks
 │       └── services/
 │           ├── docker.ts           # Docker container lifecycle
 │           ├── jwt.ts              # JWT sign/verify

@@ -36,7 +36,7 @@ async function enforceExpiredSubscriptions(): Promise<void> {
       userId: subscriptions.userId,
       status: subscriptions.status,
       currentPeriodEnd: subscriptions.currentPeriodEnd,
-      dodoSubscriptionId: subscriptions.dodoSubscriptionId,
+      nowpaymentsSubscriptionId: subscriptions.nowpaymentsSubscriptionId,
     })
     .from(subscriptions)
     .where(
@@ -80,7 +80,7 @@ async function enforceExpiredSubscriptions(): Promise<void> {
         }
 
         console.log(
-          `[enforcer] Stopping container for user ${sub.userId} — subscription ${sub.dodoSubscriptionId} is ${sub.status}, period ended ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd as any).toISOString() : "unknown"}`
+          `[enforcer] Stopping container for user ${sub.userId} — subscription ${sub.nowpaymentsSubscriptionId} is ${sub.status}, period ended ${sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd as any).toISOString() : "unknown"}`
         );
 
         await stopInstance(inst.containerId);

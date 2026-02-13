@@ -245,6 +245,7 @@ export function DeployAgent() {
 
   // Subscription / checkout state
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutEmail, setCheckoutEmail] = useState("");
   const { data: slots } = useQuery({
     queryKey: ['slots'],
     queryFn: () => backend.getSlots(),
@@ -338,9 +339,15 @@ export function DeployAgent() {
 
   const handleCheckout = async () => {
     setError("");
+
+    if (!checkoutEmail.trim() || !checkoutEmail.includes("@")) {
+      setError("Please enter a valid email address for payment notifications");
+      return;
+    }
+
     setCheckoutLoading(true);
     try {
-      const { checkoutUrl } = await backend.createCheckout();
+      const { checkoutUrl } = await backend.createCheckout(checkoutEmail.trim());
       window.location.href = checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start checkout");
@@ -827,7 +834,7 @@ export function DeployAgent() {
                         ))}
                       </div>
 
-                      {/* Checkout button */}
+                      {/* Email + Checkout button */}
                       {isSoldOut ? (
                         <button
                           disabled
@@ -837,23 +844,33 @@ export function DeployAgent() {
                           Sold Out — Waitlist Coming Soon
                         </button>
                       ) : (
-                        <button
-                          onClick={handleCheckout}
-                          disabled={checkoutLoading}
-                          className="w-full py-3 px-5 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
-                        >
-                          {checkoutLoading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Redirecting to checkout...
-                            </>
-                          ) : (
-                            <>
-                              <Zap className="w-4 h-4" />
-                              Subscribe — $19.99/mo
-                            </>
-                          )}
-                        </button>
+                        <div className="space-y-2">
+                          <input
+                            type="email"
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white placeholder-[#A8A8A8]/50 focus:outline-none focus:border-[#B6FF2E]/50 transition-all text-sm"
+                            placeholder="Your email (for payment reminders)"
+                            value={checkoutEmail}
+                            onChange={(e) => setCheckoutEmail(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCheckout()}
+                          />
+                          <button
+                            onClick={handleCheckout}
+                            disabled={checkoutLoading || !checkoutEmail.trim()}
+                            className="w-full py-3 px-5 rounded-full text-sm font-bold bg-[#B6FF2E] text-black hover:bg-[#a8f024] transition-all duration-200 hover:shadow-[0_0_30px_rgba(182,255,46,0.3)] flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait"
+                          >
+                            {checkoutLoading ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Redirecting to crypto checkout...
+                              </>
+                            ) : (
+                              <>
+                                <Zap className="w-4 h-4" />
+                                Pay with Crypto — $19.99/mo
+                              </>
+                            )}
+                          </button>
+                        </div>
                       )}
 
                       {/* Trust signals */}
