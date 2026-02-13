@@ -6,6 +6,7 @@ import { agentRoutes } from './routes/agents';
 import { tradeRoutes } from './routes/trades';
 import { rankingRoutes } from './routes/rankings';
 import { webhookRoutes } from './routes/webhooks';
+import { alchemyWebhookRoutes } from './routes/webhooks-alchemy';
 import { chartRoutes } from './routes/charts';
 import { wsRoutes } from './routes/ws';
 import { cronHandler } from './cron/handler';
@@ -89,6 +90,7 @@ app.route('/api/agents', chartRoutes);
 app.route('/api/trades', tradeRoutes);
 app.route('/api/rankings', rankingRoutes);
 app.route('/webhooks', webhookRoutes);
+app.route('/webhooks/alchemy', alchemyWebhookRoutes); // NEW: Monad/Alchemy webhooks
 app.route('/ws', wsRoutes);
 
 export default {

@@ -1,24 +1,40 @@
 import { Redis } from '@upstash/redis/cloudflare';
 import { HeliusClient } from '../services/helius-client';
 import { PumpFunClient } from '../services/pumpfun-client';
-import { ingestTradesForAgent } from '../services/trade-ingester';
+import { ingestTradesForAgent, ingestTradesForWallet } from '../services/trade-ingester';
 import { recalculateRankings } from '../cron/ranking-calculator';
 import { tokenSnapshots } from '../db/schema';
 import { createDb } from '../db/client';
+import { createProviderRegistry } from '../services/blockchain/provider-registry';
 import type { Env } from '../types/env';
+import type { Chain } from '../services/blockchain/types';
 
-interface PollTradesMessage {
+// DEPRECATED: Old Solana-only message format
+interface LegacyPollTradesMessage {
   type: 'poll_trades';
   agentId: string;
   walletAddress: string;
   tokenMintAddress: string | null;
   name: string;
+  chain?: never; // Explicitly mark as not having chain field
+}
+
+// NEW: Multi-chain message format
+interface PollTradesMessage {
+  type: 'poll_trades';
+  walletId: string;
+  agentId: string;
+  chain: Chain;
+  walletAddress: string;
+  tokenAddress: string | null;
+  agentName: string;
 }
 
 interface PollTokenPriceMessage {
   type: 'poll_token_price';
   agentId: string;
-  tokenMintAddress: string;
+  chain: Chain;
+  tokenAddress: string;
 }
 
 interface RecalculateRankingsMessage {
@@ -34,6 +50,7 @@ interface TradeProcessedMessage {
 
 type QueueMessage =
   | PollTradesMessage
+  | LegacyPollTradesMessage
   | PollTokenPriceMessage
   | RecalculateRankingsMessage
   | TradeProcessedMessage;
@@ -78,35 +95,73 @@ export async function tradeQueueConsumer(
   }
 }
 
-async function handlePollTrades(msg: PollTradesMessage, env: Env) {
+async function handlePollTrades(msg: PollTradesMessage | LegacyPollTradesMessage, env: Env) {
   const db = createDb(env.DB);
-  const helius = new HeliusClient(env.HELIUS_API_KEY, env.HELIUS_FALLBACK_KEYS?.split(','));
 
-  const result = await ingestTradesForAgent(db, helius, env, {
-    id: msg.agentId,
-    walletAddress: msg.walletAddress,
-    tokenMintAddress: msg.tokenMintAddress,
-    name: msg.name,
-  }, {
-    limit: 100,
-    broadcast: true,
-  });
+  // Check if this is the new multi-chain format or legacy format
+  if ('chain' in msg && msg.chain) {
+    // NEW: Multi-chain format
+    const registry = createProviderRegistry(env);
+    const provider = registry.get(msg.chain);
 
-  // Record last poll time so the cron handler knows when we last polled this agent
-  try {
-    const redis = new Redis({
-      url: env.UPSTASH_REDIS_REST_URL,
-      token: env.UPSTASH_REDIS_REST_TOKEN,
+    const result = await ingestTradesForWallet(db, provider, env, {
+      id: msg.walletId,
+      agentId: msg.agentId,
+      chain: msg.chain,
+      walletAddress: msg.walletAddress,
+      tokenAddress: msg.tokenAddress,
+      agentName: msg.agentName,
+    }, {
+      limit: 100,
+      broadcast: true,
     });
-    await redis.set(`agent_last_poll:${msg.agentId}`, Date.now().toString(), { ex: 86400 });
-  } catch {
-    // non-fatal
-  }
 
-  if (result.inserted > 0) {
-    console.log(
-      `Poll: ingested ${result.inserted} new trades for ${msg.name} (${msg.agentId})`,
-    );
+    // Record last poll time per wallet
+    try {
+      const redis = new Redis({
+        url: env.UPSTASH_REDIS_REST_URL,
+        token: env.UPSTASH_REDIS_REST_TOKEN,
+      });
+      await redis.set(`wallet_last_poll:${msg.walletId}`, Date.now().toString(), { ex: 86400 });
+    } catch {
+      // non-fatal
+    }
+
+    if (result.inserted > 0) {
+      console.log(
+        `Poll: ingested ${result.inserted} new ${msg.chain} trades for ${msg.agentName} (${msg.agentId})`,
+      );
+    }
+  } else {
+    // DEPRECATED: Legacy Solana-only format
+    const helius = new HeliusClient(env.HELIUS_API_KEY, env.HELIUS_FALLBACK_KEYS?.split(','));
+
+    const result = await ingestTradesForAgent(db, helius, env, {
+      id: msg.agentId,
+      walletAddress: msg.walletAddress,
+      tokenMintAddress: msg.tokenMintAddress,
+      name: msg.name,
+    }, {
+      limit: 100,
+      broadcast: true,
+    });
+
+    // Record last poll time (legacy key format)
+    try {
+      const redis = new Redis({
+        url: env.UPSTASH_REDIS_REST_URL,
+        token: env.UPSTASH_REDIS_REST_TOKEN,
+      });
+      await redis.set(`agent_last_poll:${msg.agentId}`, Date.now().toString(), { ex: 86400 });
+    } catch {
+      // non-fatal
+    }
+
+    if (result.inserted > 0) {
+      console.log(
+        `Poll: ingested ${result.inserted} new trades for ${msg.name} (${msg.agentId})`,
+      );
+    }
   }
 }
 
