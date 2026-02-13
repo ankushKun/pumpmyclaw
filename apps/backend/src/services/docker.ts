@@ -49,6 +49,8 @@ export interface InstanceConfig {
   openaiTokenExpires?: number;
   /** Plaintext Anthropic setup-token — only set when llmProvider is "anthropic" */
   anthropicSetupToken?: string;
+  /** Owner's Telegram profile photo URL (used for agent avatar on PumpMyClaw) */
+  ownerAvatarUrl?: string;
 }
 
 /**
@@ -392,6 +394,11 @@ export async function createInstance(config: InstanceConfig, options?: { start?:
   // Add Anthropic setup-token if present
   if (config.anthropicSetupToken) {
     envVars.push(`ANTHROPIC_SETUP_TOKEN=${config.anthropicSetupToken}`);
+  }
+
+  // Add owner's avatar URL (for PumpMyClaw registration)
+  if (config.ownerAvatarUrl) {
+    envVars.push(`OWNER_AVATAR_URL=${config.ownerAvatarUrl}`);
   }
 
   const container = await docker.createContainer({

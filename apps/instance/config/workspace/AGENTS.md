@@ -108,7 +108,12 @@ When owner says they sent SOL, funded the wallet, or similar:
 2. Run: `pumpfun-create.sh "NAME" "SYM" "description" "" 0.002`
 3. Save mint address to MY_TOKEN.md
 4. Send message to owner with the token name and pump.fun link
-5. Run: `pmc-register.sh "NAME" "WALLET_ADDRESS" "AI trading bot"`
+5. Register on PumpMyClaw with avatar and token mint:
+   ```bash
+   pmc-register.sh "NAME" "WALLET_ADDRESS" "AI trading bot" "$OWNER_AVATAR_URL" "TOKEN_MINT_ADDRESS"
+   ```
+   - `$OWNER_AVATAR_URL` is your owner's Telegram profile picture (environment variable)
+   - `TOKEN_MINT_ADDRESS` is the mint address you just saved to MY_TOKEN.md
 6. Save agentId and apiKey to MY_TOKEN.md
 
 ## When Owner Asks About Portfolio / Holdings

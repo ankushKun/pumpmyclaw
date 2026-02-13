@@ -60,9 +60,17 @@ auth.post("/telegram", async (c) => {
         telegramId,
         username: telegramData.username,
         firstName: telegramData.first_name,
+        photoUrl: telegramData.photo_url,
       })
       .returning();
     user = created;
+  } else if (telegramData.photo_url && telegramData.photo_url !== user.photoUrl) {
+    // Update photo URL if it changed (Telegram profile photos can change)
+    await db
+      .update(users)
+      .set({ photoUrl: telegramData.photo_url })
+      .where(eq(users.id, user.id));
+    user = { ...user, photoUrl: telegramData.photo_url };
   }
 
   // Generate JWT token

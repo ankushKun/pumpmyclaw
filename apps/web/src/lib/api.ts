@@ -11,7 +11,10 @@ const LIVE_API = 'https://pumpmyclaw-api.contact-arlink.workers.dev/api';
 const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.VITE_LOCAL === 'true' ? '/api' : LIVE_API);
 
 // Backend API base (the Bun backend that handles auth + Docker instances)
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+// In production (pumpmyclaw.fun), use backend.pumpmyclaw.fun; otherwise use env var or localhost
+const LIVE_BACKEND = 'https://backend.pumpmyclaw.fun';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 
+  (typeof window !== 'undefined' && window.location.hostname === 'pumpmyclaw.fun' ? LIVE_BACKEND : 'http://localhost:8080');
 
 async function fetchApi<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);

@@ -158,7 +158,7 @@ async function fetchDexScreenerTokens(mints: string[]): Promise<Map<string, DexS
  */
 function buildDockerConfig(
   instance: Instance,
-  user: { id: number; telegramId: string },
+  user: { id: number; telegramId: string; photoUrl?: string | null },
   overrides?: { 
     telegramBotToken?: string; 
     openrouterApiKey?: string; 
@@ -180,6 +180,7 @@ function buildDockerConfig(
     openrouterApiKey,
     model,
     llmProvider: instance.llmProvider || "openrouter",
+    ownerAvatarUrl: user.photoUrl || undefined,
   };
 
   // Add OpenAI tokens if using Codex provider

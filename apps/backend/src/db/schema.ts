@@ -5,6 +5,8 @@ export const users = sqliteTable("users", {
   telegramId: text("telegram_id").notNull().unique(),
   username: text("username"),
   firstName: text("first_name"),
+  // Telegram profile photo URL (used for agent avatar)
+  photoUrl: text("photo_url"),
   // Encrypted Solana wallet JSON - persistent across instance recreation
   walletJson: text("wallet_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(

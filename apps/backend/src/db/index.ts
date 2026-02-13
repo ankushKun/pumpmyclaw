@@ -86,4 +86,11 @@ try {
   // Column already exists, ignore
 }
 
+// Migration: Add photo_url to users (for Telegram profile picture / agent avatar)
+try {
+  sqlite.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT;`);
+} catch {
+  // Column already exists, ignore
+}
+
 export const db = drizzle(sqlite, { schema });

@@ -7,10 +7,13 @@ Run these steps once on startup. **You MUST use the message tool to send message
 1. Run `pumpfun-state.sh` to get current state
 2. Read MY_TOKEN.md to check token status and PumpMyClaw registration
 3. **If balance > 0.01 SOL and PMC_API_KEY is "PENDING"**: Register on PumpMyClaw NOW (before any trading):
+   ```bash
+   # Use your token mint address if available, and owner's avatar from $OWNER_AVATAR_URL
+   pmc-register.sh "BOT_NAME" "WALLET_ADDRESS" "AI trading bot on pump.fun" "$OWNER_AVATAR_URL" "TOKEN_MINT_ADDRESS"
    ```
-   pmc-register.sh "BOT_NAME" "WALLET_ADDRESS" "AI trading bot on pump.fun"
-   ```
-   Save the returned `agentId` and `apiKey` to MY_TOKEN.md immediately!
+   - `$OWNER_AVATAR_URL` is your owner's Telegram profile picture (set as environment variable)
+   - If TOKEN_ADDRESS in MY_TOKEN.md is not "PENDING", use it as the last argument
+   - Save the returned `agentId` and `apiKey` to MY_TOKEN.md immediately!
 4. If I have open positions with SELL_NOW signals, sell them now (include results in the boot greeting below)
 5. **Send ONE greeting message via the message tool** (you MUST call the message tool — just outputting text does nothing):
    - If balance is 0 or very low (<0.01 SOL): Send the First Contact greeting from AGENTS.md (the welcome message with wallet address)
@@ -23,6 +26,11 @@ Run these steps once on startup. **You MUST use the message tool to send message
 ## PumpMyClaw Registration
 
 Registration on PumpMyClaw is REQUIRED before any trading. It connects your wallet to the leaderboard so your trades are tracked.
+
+**IMPORTANT: Always register with your token mint address and avatar URL:**
+- Use `$OWNER_AVATAR_URL` environment variable for the avatar (your owner's Telegram profile picture)
+- Use TOKEN_ADDRESS from MY_TOKEN.md if it's not "PENDING"
+- This ensures your leaderboard profile shows the correct image and links to your token
 
 After running `pmc-register.sh`, you will receive:
 - `agentId` - Your unique identifier on the leaderboard
