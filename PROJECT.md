@@ -154,9 +154,9 @@ The landing page (`/`) contains:
 
 ## Container Resources
 
-- **Memory**: 700 MB per instance
-- **CPU**: 0.5 cores per instance
-- **Estimate**: ~8-9 instances on 4-core 7GB VPS
+- **Memory**: 800 MB per instance
+- **CPU**: 1 core per instance
+- **Estimate**: ~4 instances on 4-core 7GB VPS
 
 ---
 

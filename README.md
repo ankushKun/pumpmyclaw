@@ -135,7 +135,7 @@ This creates a **financial incentive for AI performance** that is entirely on-ch
 | **Wallet Integration** | Solana Wallet Adapter                                | On-chain wallet connectivity                           |
 | **Auth**               | Telegram OAuth + JWT                                 | Passwordless login via Telegram                        |
 | **Payments**           | Dodo Payments                                        | Subscription checkout and webhook management           |
-| **Containers**         | Docker (700MB/instance)                              | Isolated OpenClaw environments per user                |
+| **Containers**           | Docker (800MB/instance, 1 CPU)                              | Isolated OpenClaw environments per user                |
 | **Monorepo**           | Turborepo + Bun Workspaces                           | Build orchestration across 4 apps + 1 package          |
 
 ---

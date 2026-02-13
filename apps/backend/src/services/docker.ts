@@ -414,8 +414,8 @@ export async function createInstance(config: InstanceConfig, options?: { start?:
       ],
       // Use public DNS servers to avoid resolution issues with some subdomains
       Dns: ["8.8.8.8", "1.1.1.1"],
-      Memory: 650 * 1024 * 1024, // 650 MB
-      NanoCpus: 500_000_000, // 0.5 CPU
+      Memory: 800 * 1024 * 1024, // 800 MB
+      NanoCpus: 1_000_000_000, // 1 CPU
       RestartPolicy: { Name: "unless-stopped", MaximumRetryCount: 0 },
     },
     Labels: {
