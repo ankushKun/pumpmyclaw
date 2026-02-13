@@ -1,17 +1,19 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, or } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { agents, agentContext } from '../db/schema';
+import { agents, agentContext, agentWallets } from '../db/schema';
 import { apiKeyAuth } from '../middleware/auth';
 import { HeliusClient } from '../services/helius-client';
-import { ingestTradesForAgent } from '../services/trade-ingester';
+import { ingestTradesForAgent, ingestTradesForWallet } from '../services/trade-ingester';
 import { recalculateRankings } from '../cron/ranking-calculator';
+import { createProviderRegistry } from '../services/blockchain/provider-registry';
 import type { HonoEnv } from '../types/hono';
 
 export const agentRoutes = new Hono<HonoEnv>();
 
+// DEPRECATED: Use multiWalletRegisterSchema for new registrations
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
   bio: z.string().max(500).optional(),
@@ -20,12 +22,144 @@ const registerSchema = z.object({
   tokenMintAddress: z.string().min(32).max(44).optional(),
 });
 
+// NEW: Multi-chain wallet registration schema
+const multiWalletRegisterSchema = z.object({
+  name: z.string().min(1).max(100),
+  bio: z.string().max(500).optional(),
+  avatarUrl: z.string().url().optional(),
+  wallets: z.array(z.object({
+    chain: z.enum(['solana', 'monad']),
+    walletAddress: z.string().min(10).max(100),
+    tokenAddress: z.string().optional(),
+  })).min(1).max(10),
+});
+
 const contextSchema = z.object({
   contextType: z.enum(['target_price', 'stop_loss', 'portfolio_update', 'strategy_update']),
   data: z.record(z.unknown()),
 });
 
-// POST /api/agents/register
+// POST /api/agents/register-multichain (NEW: multi-wallet support)
+agentRoutes.post(
+  '/register-multichain',
+  zValidator('json', multiWalletRegisterSchema),
+  async (c) => {
+    const body = c.req.valid('json');
+    const db = c.get('db');
+    const registry = createProviderRegistry(c.env);
+
+    // Validate wallet addresses per chain
+    for (const wallet of body.wallets) {
+      if (!registry.validateAddress(wallet.chain, wallet.walletAddress)) {
+        return c.json({
+          success: false,
+          error: `Invalid ${wallet.chain} address: ${wallet.walletAddress}`,
+        }, 400);
+      }
+    }
+
+    // Check for duplicate wallets across ALL agents
+    const walletConditions = body.wallets.map(w =>
+      and(
+        eq(agentWallets.chain, w.chain),
+        eq(agentWallets.walletAddress, w.walletAddress)
+      )
+    );
+
+    const existingWallets = await db
+      .select({ id: agentWallets.id })
+      .from(agentWallets)
+      .where(or(...walletConditions))
+      .limit(1);
+
+    if (existingWallets.length > 0) {
+      return c.json({
+        success: false,
+        error: 'One or more wallets already registered',
+      }, 409);
+    }
+
+    // Create agent
+    const rawApiKey = `pmc_${crypto.randomUUID().replace(/-/g, '')}`;
+    const apiKeyHash = await bcrypt.hash(rawApiKey, 10);
+
+    const [newAgent] = await db.insert(agents).values({
+      name: body.name,
+      bio: body.bio ?? null,
+      avatarUrl: body.avatarUrl ?? null,
+      apiKeyHash,
+      // walletAddress and tokenMintAddress left null for new multi-chain agents
+    }).returning({ id: agents.id });
+
+    // Create wallet records
+    const walletRecords = await Promise.all(
+      body.wallets.map(async (wallet) => {
+        const [record] = await db.insert(agentWallets).values({
+          agentId: newAgent.id,
+          chain: wallet.chain,
+          walletAddress: wallet.walletAddress,
+          tokenAddress: wallet.tokenAddress ?? null,
+        }).returning();
+        return record;
+      })
+    );
+
+    // Background: register webhooks + backfill trades for each wallet
+    c.executionCtx.waitUntil(
+      (async () => {
+        for (const wallet of walletRecords) {
+          try {
+            const provider = registry.get(wallet.chain);
+
+            // Register webhook
+            const webhookSecret = wallet.chain === 'solana'
+              ? c.env.HELIUS_WEBHOOK_SECRET
+              : c.env.ALCHEMY_WEBHOOK_SECRET;
+
+            await provider.addWalletToWebhook(wallet.walletAddress, webhookSecret);
+
+            // Backfill trades
+            const result = await ingestTradesForWallet(db, provider, c.env, {
+              id: wallet.id,
+              agentId: newAgent.id,
+              chain: wallet.chain,
+              walletAddress: wallet.walletAddress,
+              tokenAddress: wallet.tokenAddress,
+              agentName: body.name,
+            }, {
+              limit: 200,
+              broadcast: true,
+            });
+
+            console.log(
+              `Backfill for ${wallet.chain} wallet: ${result.inserted} trades for ${body.name}`,
+            );
+          } catch (err) {
+            console.error(`Failed to setup ${wallet.chain} wallet:`, err);
+          }
+        }
+
+        // Recalculate rankings after all wallets are processed
+        try {
+          await recalculateRankings(c.env);
+        } catch (err) {
+          console.error('Failed to recalculate rankings:', err);
+        }
+      })()
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        agentId: newAgent.id,
+        apiKey: rawApiKey,
+        walletsRegistered: walletRecords.length,
+      },
+    }, 201);
+  },
+);
+
+// POST /api/agents/register (DEPRECATED: Solana-only, kept for backward compatibility)
 agentRoutes.post(
   '/register',
   zValidator('json', registerSchema),
@@ -55,7 +189,7 @@ agentRoutes.post(
     }).returning({ id: agents.id });
 
     // Register wallet with Helius webhook
-    const helius = new HeliusClient(c.env.HELIUS_API_KEY);
+    const helius = new HeliusClient(c.env.HELIUS_API_KEY, c.env.HELIUS_FALLBACK_KEYS?.split(','));
     try {
       await helius.addWalletToWebhook(
         body.walletAddress,
@@ -126,7 +260,7 @@ agentRoutes.post(
       return c.json({ success: false, error: 'Agent not found' }, 404);
     }
 
-    const helius = new HeliusClient(c.env.HELIUS_API_KEY);
+    const helius = new HeliusClient(c.env.HELIUS_API_KEY, c.env.HELIUS_FALLBACK_KEYS?.split(','));
     const result = await ingestTradesForAgent(db, helius, c.env, agent[0], {
       limit: 100,
       broadcast: true,
@@ -164,7 +298,7 @@ agentRoutes.post('/:id/resync', async (c) => {
     return c.json({ success: false, error: 'Agent not found' }, 404);
   }
 
-  const helius = new HeliusClient(c.env.HELIUS_API_KEY);
+  const helius = new HeliusClient(c.env.HELIUS_API_KEY, c.env.HELIUS_FALLBACK_KEYS?.split(','));
   const result = await ingestTradesForAgent(db, helius, c.env, agent[0], {
     limit: 200,
     broadcast: true,
@@ -237,6 +371,25 @@ agentRoutes.get('/:id', async (c) => {
   }
 
   return c.json({ success: true, data: agent[0] });
+});
+
+// GET /api/agents/:id/wallets (public)
+agentRoutes.get('/:id/wallets', async (c) => {
+  const agentId = c.req.param('id');
+  const db = c.get('db');
+
+  const wallets = await db
+    .select({
+      id: agentWallets.id,
+      chain: agentWallets.chain,
+      walletAddress: agentWallets.walletAddress,
+      tokenAddress: agentWallets.tokenAddress,
+      createdAt: agentWallets.createdAt,
+    })
+    .from(agentWallets)
+    .where(eq(agentWallets.agentId, agentId));
+
+  return c.json({ success: true, data: wallets });
 });
 
 // POST /api/agents/context (authed)

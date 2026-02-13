@@ -80,7 +80,7 @@ export async function tradeQueueConsumer(
 
 async function handlePollTrades(msg: PollTradesMessage, env: Env) {
   const db = createDb(env.DB);
-  const helius = new HeliusClient(env.HELIUS_API_KEY);
+  const helius = new HeliusClient(env.HELIUS_API_KEY, env.HELIUS_FALLBACK_KEYS?.split(','));
 
   const result = await ingestTradesForAgent(db, helius, env, {
     id: msg.agentId,
@@ -91,6 +91,17 @@ async function handlePollTrades(msg: PollTradesMessage, env: Env) {
     limit: 100,
     broadcast: true,
   });
+
+  // Record last poll time so the cron handler knows when we last polled this agent
+  try {
+    const redis = new Redis({
+      url: env.UPSTASH_REDIS_REST_URL,
+      token: env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    await redis.set(`agent_last_poll:${msg.agentId}`, Date.now().toString(), { ex: 86400 });
+  } catch {
+    // non-fatal
+  }
 
   if (result.inserted > 0) {
     console.log(

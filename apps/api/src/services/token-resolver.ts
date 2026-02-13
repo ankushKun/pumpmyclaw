@@ -1,13 +1,17 @@
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import { tokenMetadata } from '../db/schema';
 import type { Database } from '../db/client';
+import type { Chain } from './blockchain/types';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const WMON_ADDRESS = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A';
 const PUMPFUN_API = 'https://frontend-api.pump.fun';
 const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex/tokens';
 
 export interface TokenInfo {
-  mint: string;
+  mint: string; // DEPRECATED: use address
+  address?: string; // NEW: chain-agnostic
+  chain?: Chain; // NEW: chain identifier
   name: string;
   symbol: string;
   decimals: number;
@@ -16,9 +20,21 @@ export interface TokenInfo {
 
 const SOL_INFO: TokenInfo = {
   mint: SOL_MINT,
+  address: SOL_MINT,
+  chain: 'solana',
   name: 'Solana',
   symbol: 'SOL',
   decimals: 9,
+  logoUrl: null,
+};
+
+const WMON_INFO: TokenInfo = {
+  mint: WMON_ADDRESS, // For backward compatibility
+  address: WMON_ADDRESS,
+  chain: 'monad',
+  name: 'Wrapped Monad',
+  symbol: 'WMON',
+  decimals: 18,
   logoUrl: null,
 };
 
@@ -28,33 +44,45 @@ function isFallbackEntry(info: TokenInfo): boolean {
 }
 
 /**
- * Resolves token metadata for a set of mints. Uses DB cache first,
- * then falls back to Pump.fun → Jupiter → DexScreener APIs.
- * Returns a Map of mint → TokenInfo.
+ * Resolves token metadata for a set of addresses on a specific chain.
+ * Uses DB cache first, then falls back to chain-specific APIs.
+ * Returns a Map of address → TokenInfo.
  */
 export async function resolveTokens(
   db: Database,
-  mints: string[],
+  chain: Chain,
+  addresses: string[],
 ): Promise<Map<string, TokenInfo>> {
-  const uniqueMints = [...new Set(mints)];
+  const uniqueAddresses = [...new Set(addresses)];
   const result = new Map<string, TokenInfo>();
 
-  // SOL is always known
-  result.set(SOL_MINT, SOL_INFO);
+  // Native tokens are always known
+  if (chain === 'solana') {
+    result.set(SOL_MINT, SOL_INFO);
+  } else if (chain === 'monad') {
+    result.set(WMON_ADDRESS, WMON_INFO);
+  }
 
-  const toResolve = uniqueMints.filter((m) => m !== SOL_MINT);
+  const toResolve = uniqueAddresses.filter((addr) => !result.has(addr));
   if (toResolve.length === 0) return result;
 
-  // Check DB cache — single batch query
+  // Check DB cache — single batch query (filter by chain + address)
   const cachedMap = new Map<string, TokenInfo>();
   if (toResolve.length > 0) {
     const rows = await db
       .select()
       .from(tokenMetadata)
-      .where(inArray(tokenMetadata.mint, toResolve));
+      .where(
+        and(
+          eq(tokenMetadata.chain, chain),
+          inArray(tokenMetadata.address, toResolve)
+        )
+      );
     for (const r of rows) {
-      cachedMap.set(r.mint, {
-        mint: r.mint,
+      cachedMap.set(r.address, {
+        mint: r.address, // For backward compatibility
+        address: r.address,
+        chain,
         name: r.name,
         symbol: r.symbol,
         decimals: r.decimals,
@@ -63,15 +91,15 @@ export async function resolveTokens(
     }
   }
 
-  for (const [mint, info] of cachedMap) {
+  for (const [address, info] of cachedMap) {
     // Skip fallback entries — try to re-resolve them
     if (!isFallbackEntry(info)) {
-      result.set(mint, info);
+      result.set(address, info);
     }
   }
 
-  // Resolve uncached or fallback-cached mints via APIs — in parallel
-  const uncached = toResolve.filter((m) => !result.has(m));
+  // Resolve uncached or fallback-cached addresses via APIs — in parallel
+  const uncached = toResolve.filter((addr) => !result.has(addr));
   if (uncached.length > 0) {
     const resolved = await Promise.allSettled(
       uncached.map((mint) => fetchTokenInfo(mint).then((info) => ({ mint, info }))),

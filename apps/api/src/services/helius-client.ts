@@ -1,10 +1,15 @@
 const HELIUS_API_BASE = 'https://api-mainnet.helius-rpc.com';
 const HELIUS_RPC_BASE = 'https://mainnet.helius-rpc.com';
+const SOLANA_PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
 
 let cachedWebhookId: string | null = null;
 
 export class HeliusClient {
-  constructor(private apiKey: string) {}
+  private apiKeys: string[];
+
+  constructor(primaryKey: string, fallbackKeys?: string[]) {
+    this.apiKeys = [primaryKey, ...(fallbackKeys ?? [])].filter(Boolean);
+  }
 
   async addWalletToWebhook(
     walletAddress: string,
@@ -41,7 +46,7 @@ export class HeliusClient {
     webhookSecret: string,
   ): Promise<any> {
     const res = await fetch(
-      `${HELIUS_API_BASE}/v0/webhooks?api-key=${this.apiKey}`,
+      `${HELIUS_API_BASE}/v0/webhooks?api-key=${this.apiKeys[0]}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,7 +68,7 @@ export class HeliusClient {
     accountAddresses: string[],
   ): Promise<any> {
     const res = await fetch(
-      `${HELIUS_API_BASE}/v0/webhooks/${webhookId}?api-key=${this.apiKey}`,
+      `${HELIUS_API_BASE}/v0/webhooks/${webhookId}?api-key=${this.apiKeys[0]}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -76,7 +81,7 @@ export class HeliusClient {
 
   private async getWebhook(webhookId: string): Promise<any> {
     const res = await fetch(
-      `${HELIUS_API_BASE}/v0/webhooks/${webhookId}?api-key=${this.apiKey}`,
+      `${HELIUS_API_BASE}/v0/webhooks/${webhookId}?api-key=${this.apiKeys[0]}`,
     );
     if (!res.ok) throw new Error(`Helius get webhook failed: ${res.status}`);
     return res.json();
@@ -84,7 +89,7 @@ export class HeliusClient {
 
   private async listWebhooks(): Promise<any[]> {
     const res = await fetch(
-      `${HELIUS_API_BASE}/v0/webhooks?api-key=${this.apiKey}`,
+      `${HELIUS_API_BASE}/v0/webhooks?api-key=${this.apiKeys[0]}`,
     );
     if (!res.ok) throw new Error(`Helius list webhooks failed: ${res.status}`);
     return res.json();
@@ -94,31 +99,70 @@ export class HeliusClient {
     address: string,
     options: { limit?: number; before?: string; until?: string } = {},
   ): Promise<any[]> {
-    const res = await fetch(`${HELIUS_RPC_BASE}/?api-key=${this.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getSignaturesForAddress',
-        params: [address, { limit: options.limit ?? 50, ...options }],
-      }),
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getSignaturesForAddress',
+      params: [address, { limit: options.limit ?? 50, ...options }],
     });
-    const json: any = await res.json();
-    return json.result ?? [];
+
+    // Try each Helius key, then Solana public RPC as last resort
+    const endpoints = [
+      ...this.apiKeys.map((k) => `${HELIUS_RPC_BASE}/?api-key=${k}`),
+      SOLANA_PUBLIC_RPC,
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        });
+
+        if (res.status === 429) {
+          await res.body?.cancel();
+          continue;
+        }
+
+        if (!res.ok) {
+          await res.body?.cancel();
+          continue;
+        }
+
+        const json: any = await res.json();
+        if (json.error) {
+          continue;
+        }
+        return json.result ?? [];
+      } catch {
+        continue;
+      }
+    }
+
+    console.error(`getSignaturesForAddress failed on all endpoints for ${address}`);
+    return [];
   }
 
   async getEnhancedTransaction(signature: string): Promise<any> {
-    const res = await fetch(
-      `${HELIUS_API_BASE}/v0/transactions/?api-key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: [signature] }),
-      },
-    );
-    const json: any = await res.json();
-    return json[0] ?? null;
+    for (const key of this.apiKeys) {
+      const res = await fetch(
+        `${HELIUS_API_BASE}/v0/transactions/?api-key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactions: [signature] }),
+        },
+      );
+      if (res.status === 429) {
+        await res.body?.cancel();
+        continue;
+      }
+      const json: any = await res.json();
+      return json[0] ?? null;
+    }
+    console.error(`getEnhancedTransaction failed for ${signature}`);
+    return null;
   }
 
   async getEnhancedTransactions(signatures: string[]): Promise<any[]> {
@@ -126,18 +170,31 @@ export class HeliusClient {
     if (signatures.length > 100) {
       throw new Error('Maximum batch size is 100 signatures');
     }
-    const res = await fetch(
-      `${HELIUS_API_BASE}/v0/transactions/?api-key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions: signatures }),
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`Helius batch transactions failed: ${res.status}`);
+
+    for (const key of this.apiKeys) {
+      const res = await fetch(
+        `${HELIUS_API_BASE}/v0/transactions/?api-key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactions: signatures }),
+        },
+      );
+
+      if (res.status === 429) {
+        await res.body?.cancel();
+        continue;
+      }
+
+      if (!res.ok) {
+        await res.body?.cancel();
+        continue;
+      }
+      const json: any = await res.json();
+      return Array.isArray(json) ? json : [];
     }
-    const json: any = await res.json();
-    return Array.isArray(json) ? json : [];
+
+    console.error(`getEnhancedTransactions exhausted all keys for ${signatures.length} sigs`);
+    return [];
   }
 }

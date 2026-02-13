@@ -6,7 +6,7 @@ import type { Env } from '../types/env';
 
 export async function pollMissedTrades(env: Env): Promise<void> {
   const db = createDb(env.DB);
-  const helius = new HeliusClient(env.HELIUS_API_KEY);
+  const helius = new HeliusClient(env.HELIUS_API_KEY, env.HELIUS_FALLBACK_KEYS?.split(','));
 
   const allAgents = await db.select().from(agents);
 

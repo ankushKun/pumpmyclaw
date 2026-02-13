@@ -1,25 +1,66 @@
+import type { Chain } from './blockchain/types';
+import { parseMonadSwap as parseMonadSwapImpl } from './blockchain/monad-swap-parser';
+
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
+// Chain-agnostic unified interface
 export interface ParsedSwap {
   signature: string;
   blockTime: Date;
   platform: string;
   walletAddress: string;
   tradeType: 'buy' | 'sell';
-  tokenInMint: string;
+  // New chain-agnostic fields
+  tokenInAddress: string;
   tokenInAmount: string;
-  tokenOutMint: string;
+  tokenOutAddress: string;
   tokenOutAmount: string;
-  solAmount: string;
+  baseAssetAmount: string; // SOL or MON amount
   isBuyback: boolean;
+  // DEPRECATED: Solana-specific (kept for backward compatibility)
+  tokenInMint?: string;
+  tokenOutMint?: string;
+  solAmount?: string;
 }
 
 /**
- * Unified swap parser — handles BOTH formats:
+ * Chain-agnostic swap parser
+ * Delegates to chain-specific parsers based on chain parameter
+ */
+export function parseSwapPayload(
+  tx: any,
+  chain: Chain,
+  agentWallet: string,
+  agentTokenAddress: string | null,
+): ParsedSwap | null {
+  switch (chain) {
+    case 'solana':
+      return parseSolanaSwap(tx, agentWallet, agentTokenAddress ?? '');
+    case 'monad':
+      return parseMonadSwap(tx, agentWallet, agentTokenAddress);
+    default:
+      console.error(`Unknown chain: ${chain}`);
+      return null;
+  }
+}
+
+/**
+ * Parse Monad transaction (wraps monad-swap-parser)
+ */
+function parseMonadSwap(
+  tx: any,
+  agentWallet: string,
+  agentTokenAddress: string | null,
+): ParsedSwap | null {
+  return parseMonadSwapImpl(tx, agentWallet, agentTokenAddress);
+}
+
+/**
+ * Unified Solana swap parser — handles BOTH formats:
  * 1. Webhook format: events.swap with nativeInput/tokenOutputs (Helius webhooks)
  * 2. API format: accountData with tokenBalanceChanges + nativeBalanceChange (Helius enhanced tx API)
  */
-export function parseSwapPayload(
+export function parseSolanaSwap(
   tx: any,
   agentWallet: string,
   agentTokenMint: string,
@@ -121,12 +162,17 @@ function parseWebhookFormat(
     platform,
     walletAddress: agentWallet,
     tradeType,
-    tokenInMint,
+    // New chain-agnostic fields
+    tokenInAddress: tokenInMint,
     tokenInAmount,
-    tokenOutMint,
+    tokenOutAddress: tokenOutMint,
     tokenOutAmount,
-    solAmount,
+    baseAssetAmount: solAmount,
     isBuyback,
+    // DEPRECATED: Solana-specific (kept for backward compatibility)
+    tokenInMint,
+    tokenOutMint,
+    solAmount,
   };
 }
 
@@ -251,11 +297,16 @@ function parseApiFormat(
     platform,
     walletAddress: agentWallet,
     tradeType,
-    tokenInMint,
+    // New chain-agnostic fields
+    tokenInAddress: tokenInMint,
     tokenInAmount,
-    tokenOutMint,
+    tokenOutAddress: tokenOutMint,
     tokenOutAmount,
-    solAmount,
+    baseAssetAmount: solAmount,
     isBuyback,
+    // DEPRECATED: Solana-specific (kept for backward compatibility)
+    tokenInMint,
+    tokenOutMint,
+    solAmount,
   };
 }

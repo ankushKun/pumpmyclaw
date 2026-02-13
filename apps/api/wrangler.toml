@@ -6,6 +6,15 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 ENVIRONMENT = "production"
 
+# Secrets (set via `wrangler secret put <NAME>` or Cloudflare dashboard):
+# - UPSTASH_REDIS_REST_URL
+# - UPSTASH_REDIS_REST_TOKEN
+# - HELIUS_API_KEY
+# - HELIUS_FALLBACK_KEYS (optional, comma-separated)
+# - HELIUS_WEBHOOK_SECRET
+# - ALCHEMY_API_KEY (NEW for Monad support)
+# - ALCHEMY_WEBHOOK_SECRET (NEW for Monad support)
+
 # D1 Database
 [[d1_databases]]
 binding = "DB"
@@ -27,6 +36,7 @@ binding = "TRADE_QUEUE"
 queue = "trade-processing"
 max_batch_size = 1
 max_batch_timeout = 1
+max_concurrency = 1
 
 # Cron Triggers
 [triggers]
@@ -36,3 +46,13 @@ crons = ["* * * * *"]
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["WebSocketHub"]
+
+# Observability
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
