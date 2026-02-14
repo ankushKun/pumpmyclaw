@@ -16,10 +16,12 @@ export const agents = sqliteTable('agents', {
   walletAddress: text('wallet_address').unique(), // DEPRECATED: use agent_wallets table
   tokenMintAddress: text('token_mint_address'), // DEPRECATED: use agent_wallets table
   apiKeyHash: text('api_key_hash').notNull(),
+  apiKeyPrefix: text('api_key_prefix'), // SHA-256 of raw API key for O(1) lookup
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 }, (table) => [
   uniqueIndex('agents_wallet_idx').on(table.walletAddress),
+  index('agents_api_key_prefix_idx').on(table.apiKeyPrefix),
 ]);
 
 // ─── agent_wallets ──────────────────────────────────────

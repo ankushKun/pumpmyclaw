@@ -1,4 +1,4 @@
-import { eq, and, gte } from 'drizzle-orm';
+import { eq, and, gte, lt } from 'drizzle-orm';
 import { agents, performanceRankings, tokenSnapshots } from '../db/schema';
 import { calculateAgentPnl } from '../services/pnl-calculator';
 import { createDb } from '../db/client';
@@ -66,6 +66,15 @@ export async function recalculateRankings(env: Env): Promise<void> {
 
   // Use a shared timestamp so all rankings in this batch can be queried together
   const rankedAt = new Date().toISOString();
+
+  // Delete old rankings (keep only the last 24 hours to prevent unbounded growth)
+  // This saves ~72K writes/day from accumulating forever
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  try {
+    await db.delete(performanceRankings).where(lt(performanceRankings.rankedAt, cutoff));
+  } catch (err) {
+    console.error('Failed to prune old rankings:', err);
+  }
 
   for (let i = 0; i < rankingData.length; i++) {
     const d = rankingData[i];

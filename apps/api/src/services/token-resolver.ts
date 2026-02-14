@@ -9,6 +9,14 @@ const WMON_ADDRESS = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A';
 const PUMPFUN_API = 'https://frontend-api.pump.fun';
 const DEXSCREENER_API = 'https://api.dexscreener.com/latest/dex/tokens';
 
+// Module-level RPC URL for Monad token resolution (set via setMonadRpcUrl)
+let _monadRpcUrl: string | null = null;
+
+/** Set the Monad RPC URL from environment (call once at startup or per-request) */
+export function setMonadRpcUrl(url: string) {
+  _monadRpcUrl = url;
+}
+
 export interface TokenInfo {
   mint: string; // DEPRECATED: use address
   address?: string; // NEW: chain-agnostic
@@ -241,8 +249,7 @@ async function fetchSolanaTokenInfo(mint: string): Promise<TokenInfo | null> {
 async function fetchMonadTokenInfo(address: string): Promise<TokenInfo | null> {
   // Try direct ERC-20 contract calls (most reliable for Monad tokens)
   try {
-    // Use public Monad RPC endpoint
-    const rpcUrl = 'https://monad-mainnet.g.alchemy.com/v2/lmvpGNblnJ3z4dq4w1Ki6';
+    const rpcUrl = _monadRpcUrl ?? 'https://monad-mainnet.g.alchemy.com/v2/demo';
     const provider = new ethers.JsonRpcProvider(rpcUrl);
 
     // ERC-20 ABI for name, symbol, decimals

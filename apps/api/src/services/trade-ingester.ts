@@ -263,12 +263,18 @@ export async function ingestTradesForAgent(
     return { inserted: 0, total: 0, signatures: 0 };
   }
 
-  // 2. Batch-check which signatures are already in DB
+  // 2. Batch-check which signatures are already in DB (filter by chain)
   const sigStrings = validSigs.map((s: any) => s.signature);
-  const existingTxs = await db
-    .select({ txSignature: trades.txSignature })
-    .from(trades)
-    .where(inArray(trades.txSignature, sigStrings));
+  const existingTxs: { txSignature: string }[] = [];
+  // SQLite has a ~999 variable limit, batch in chunks of 50
+  for (let i = 0; i < sigStrings.length; i += 50) {
+    const batch = sigStrings.slice(i, i + 50);
+    const rows = await db
+      .select({ txSignature: trades.txSignature })
+      .from(trades)
+      .where(and(inArray(trades.txSignature, batch), eq(trades.chain, 'solana')));
+    existingTxs.push(...rows);
+  }
 
   const existingSet = new Set(existingTxs.map((t) => t.txSignature));
   const newSigs = sigStrings.filter((s) => !existingSet.has(s));
@@ -290,7 +296,7 @@ export async function ingestTradesForAgent(
   // The parser itself returns null for non-swap transactions, so let it decide.
   const parsedTrades = enhancedTxs
     .map((tx) =>
-      parseSwapPayload(tx, agent.walletAddress, agent.tokenMintAddress ?? ''),
+      parseSwapPayload(tx, 'solana', agent.walletAddress, agent.tokenMintAddress ?? ''),
     )
     .filter((p): p is NonNullable<typeof p> => p !== null);
 
@@ -310,8 +316,12 @@ export async function ingestTradesForAgent(
   const allMints: string[] = [];
 
   for (const parsed of parsedTrades) {
-    const solAmountDecimal = parseFloat(parsed.solAmount) / 1e9;
+    const solAmountDecimal = parseFloat(parsed.solAmount ?? parsed.baseAssetAmount) / 1e9;
     const tradeValueUsd = solAmountDecimal * solPrice;
+
+    // Legacy path uses tokenInMint/tokenOutMint, falling back to chain-agnostic fields
+    const tokenIn = parsed.tokenInMint ?? parsed.tokenInAddress;
+    const tokenOut = parsed.tokenOutMint ?? parsed.tokenOutAddress;
 
     try {
       const result = await db
@@ -322,28 +332,31 @@ export async function ingestTradesForAgent(
           blockTime: parsed.blockTime.toISOString(),
           platform: parsed.platform,
           tradeType: parsed.tradeType,
-          tokenInMint: parsed.tokenInMint,
+          tokenInMint: tokenIn,
           tokenInAmount: parsed.tokenInAmount,
-          tokenOutMint: parsed.tokenOutMint,
+          tokenOutMint: tokenOut,
           tokenOutAmount: parsed.tokenOutAmount,
+          tokenInAddress: parsed.tokenInAddress,
+          tokenOutAddress: parsed.tokenOutAddress,
           solPriceUsd: solPrice.toString(),
+          baseAssetPriceUsd: solPrice.toString(),
           tradeValueUsd: tradeValueUsd.toString(),
           isBuyback: parsed.isBuyback,
           rawData: enhancedTxs.find((tx: any) => tx.signature === parsed.signature) ?? null,
         })
-        .onConflictDoNothing({ target: trades.txSignature })
+        .onConflictDoNothing({ target: [trades.txSignature, trades.chain] })
         .returning({ id: trades.id });
 
       if (result.length > 0) {
         inserted++;
-        allMints.push(parsed.tokenInMint, parsed.tokenOutMint);
+        allMints.push(tokenIn, tokenOut);
 
         // Broadcast new trade to WebSocket
         if (shouldBroadcast) {
           try {
-            const tokenMap = await resolveTokens(db, [
-              parsed.tokenInMint,
-              parsed.tokenOutMint,
+            const tokenMap = await resolveTokens(db, 'solana', [
+              tokenIn,
+              tokenOut,
             ]);
 
             const hubId = env.WEBSOCKET_HUB.idFromName('global');
@@ -362,9 +375,9 @@ export async function ingestTradesForAgent(
                     tradeValueUsd: tradeValueUsd.toString(),
                     agentName: agent.name,
                     tokenInSymbol:
-                      tokenMap.get(parsed.tokenInMint)?.symbol ?? undefined,
+                      tokenMap.get(tokenIn)?.symbol ?? undefined,
                     tokenOutSymbol:
-                      tokenMap.get(parsed.tokenOutMint)?.symbol ?? undefined,
+                      tokenMap.get(tokenOut)?.symbol ?? undefined,
                   },
                   timestamp: new Date().toISOString(),
                 }),
@@ -375,15 +388,15 @@ export async function ingestTradesForAgent(
           }
         }
       }
-    } catch {
-      // Skip duplicate or failed inserts
+    } catch (err) {
+      console.error(`[trade-ingester:legacy] Failed to insert trade ${parsed.signature}:`, err);
     }
   }
 
   // 7. Pre-cache token metadata for all new mints
   if (allMints.length > 0) {
     try {
-      await resolveTokens(db, allMints);
+      await resolveTokens(db, 'solana', allMints);
     } catch {
       // Non-fatal
     }

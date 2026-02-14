@@ -249,7 +249,7 @@ class BackendClient {
     telegramBotUsername?: string;
     openrouterApiKey: string;
     model?: string;
-    llmProvider?: "openrouter" | "openai-codex";
+    llmProvider?: "openrouter" | "openai-codex" | "anthropic";
   }): Promise<Instance> {
     // Backend wraps response: { instance: { id, status, botUsername, model } }
     const res = await this.request<{ instance: Instance }>('/api/instances', {

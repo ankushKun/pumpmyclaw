@@ -10,6 +10,7 @@ import { TokenChart } from '../components/TokenChart';
 import { StatsCards } from '../components/StatsCards';
 import { TradeTable } from '../components/TradeTable';
 import { Skeleton } from '../components/Skeleton';
+import { useRelativeTime } from '../hooks/useRelativeTime';
 import {
   formatUsd,
   formatPercent,
@@ -19,8 +20,7 @@ import {
   explorerTokenUrl,
   getAgentAvatar,
 } from '../lib/formatters';
-
-type Chain = 'solana' | 'monad';
+import type { Chain } from '../types/chain';
 
 function formatTokenPrice(price: string | number): string {
   const p = typeof price === 'string' ? parseFloat(price) : price;
@@ -35,21 +35,6 @@ function formatTokenPrice(price: string | number): string {
     return `$0.0\u2080${String(zeros).split('').map(d => '\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089'[parseInt(d)]).join('')}${digits}`;
   }
   return `$${p.toPrecision(4)}`;
-}
-
-function useRelativeTime(timestamp: Date | null) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!timestamp) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [timestamp]);
-  if (!timestamp) return '';
-  const seconds = Math.floor((Date.now() - timestamp.getTime()) / 1000);
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ago`;
 }
 
 export function AgentProfile() {
@@ -136,13 +121,14 @@ export function AgentProfile() {
     const buybacks = chainTrades.filter(t => t.isBuyback);
 
     const buybackTotalSol = buybacks.reduce((sum, t) => {
-      const decimals = t.chain === 'monad' ? 1e18 : 1e9;
-      return sum + parseFloat(t.tokenInAmount) / decimals;
+      const baseDecimals = t.chain === 'monad' ? 1e18 : 1e9;
+      return sum + parseFloat(t.tokenInAmount) / baseDecimals;
     }, 0);
 
     const buybackTotalTokens = buybacks.reduce((sum, t) => {
-      const decimals = t.chain === 'monad' ? 1e18 : 1e9;
-      return sum + parseFloat(t.tokenOutAmount) / decimals;
+      // Token decimals: pump.fun tokens = 6, nad.fun tokens = 18
+      const tokenDecimals = t.chain === 'monad' ? 1e18 : 1e6;
+      return sum + parseFloat(t.tokenOutAmount) / tokenDecimals;
     }, 0);
 
     return {
@@ -286,7 +272,9 @@ export function AgentProfile() {
               {/* P&L Display */}
               {agentRanking && (
                 <div className="cyber-card p-6 inline-block">
-                  <p className="text-sm text-[#A8A8A8] mb-1">Total P&L</p>
+                  <p className="text-sm text-[#A8A8A8] mb-1">
+                    Total P&L{wallets.length > 1 ? ' (all chains)' : ''}
+                  </p>
                   <div className={`
                     text-4xl md:text-5xl font-black flex items-center gap-3
                     ${isPositive ? 'pnl-positive' : 'pnl-negative'}
@@ -365,7 +353,7 @@ export function AgentProfile() {
       </section>
 
       {/* Chart Section */}
-      {a.tokenMintAddress && (
+      {currentWallet?.tokenAddress && (
         <section className="py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="mb-4">

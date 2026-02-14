@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { Redis } from '@upstash/redis/cloudflare';
 import { agents, tokenSnapshots, agentWallets, trades } from '../db/schema';
 import { DexChartClient, type Chain } from '../services/dex-chart-client';
+import { resolveTokens } from '../services/token-resolver';
 import type { HonoEnv } from '../types/hono';
 
 export const chartRoutes = new Hono<HonoEnv>();
@@ -10,9 +11,10 @@ export const chartRoutes = new Hono<HonoEnv>();
 // GET /api/agents/:id/chart?chain=solana|monad
 chartRoutes.get('/:id/chart', async (c) => {
   const agentId = c.req.param('id');
-  const timeframe = parseInt(c.req.query('timeframe') ?? '300');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '100'), 500);
-  const chain = (c.req.query('chain') ?? 'solana') as Chain;
+  const timeframe = parseInt(c.req.query('timeframe') ?? '300') || 300;
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '100') || 100, 500);
+  const chainParam = c.req.query('chain') ?? 'solana';
+  const chain = (chainParam === 'solana' || chainParam === 'monad' ? chainParam : 'solana') as Chain;
   const db = c.get('db');
 
   // Get token address from agent_wallets for the specific chain
@@ -52,14 +54,14 @@ chartRoutes.get('/:id/chart', async (c) => {
     return c.json({ success: true, data: candles });
   }
 
-  // Fallback 1: build synthetic candles from token_snapshots
+  // Fallback 1: build synthetic candles from token_snapshots (filtered by chain)
   const snapshots = await db
     .select({
       priceUsd: tokenSnapshots.priceUsd,
       snapshotAt: tokenSnapshots.snapshotAt,
     })
     .from(tokenSnapshots)
-    .where(eq(tokenSnapshots.agentId, agentId))
+    .where(and(eq(tokenSnapshots.agentId, agentId), eq(tokenSnapshots.chain, chain)))
     .orderBy(tokenSnapshots.snapshotAt)
     .limit(limit * 4);
 
@@ -114,6 +116,19 @@ chartRoutes.get('/:id/chart', async (c) => {
       .limit(500);
 
     if (recentTrades.length > 0) {
+      // Resolve token decimals (don't assume 1e18 for all tokens)
+      let tokenDecimals = 18; // default for EVM
+      try {
+        const tokenMap = await resolveTokens(db, chain, [tokenAddress]);
+        const tokenInfo = tokenMap.get(tokenAddress);
+        if (tokenInfo) {
+          tokenDecimals = tokenInfo.decimals;
+        }
+      } catch {
+        // Use default decimals on failure
+      }
+      const decimalDivisor = Math.pow(10, tokenDecimals);
+
       const bucketSizeMs = timeframe * 1000;
       const buckets = new Map<number, number[]>();
 
@@ -122,10 +137,10 @@ chartRoutes.get('/:id/chart', async (c) => {
         let tokenPrice = 0;
         if (trade.tokenOutAddress === tokenAddress && parseFloat(trade.tokenOutAmount) > 0) {
           // They received this token (buy)
-          tokenPrice = parseFloat(trade.tradeValueUsd) / (parseFloat(trade.tokenOutAmount) / 1e18);
+          tokenPrice = parseFloat(trade.tradeValueUsd) / (parseFloat(trade.tokenOutAmount) / decimalDivisor);
         } else if (parseFloat(trade.tokenInAmount) > 0) {
           // They sent this token (sell)
-          tokenPrice = parseFloat(trade.tradeValueUsd) / (parseFloat(trade.tokenInAmount) / 1e18);
+          tokenPrice = parseFloat(trade.tradeValueUsd) / (parseFloat(trade.tokenInAmount) / decimalDivisor);
         }
 
         if (tokenPrice > 0) {

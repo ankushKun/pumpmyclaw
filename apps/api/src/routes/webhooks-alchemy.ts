@@ -12,6 +12,32 @@ import type { HonoEnv } from '../types/hono';
 
 export const alchemyWebhookRoutes = new Hono<HonoEnv>();
 
+/**
+ * Look up a Monad wallet by address (case-insensitive for EVM checksummed addresses).
+ * Normalizes both the input and DB values to lowercase for comparison.
+ */
+async function findMonadWallet(db: any, address: string) {
+  const normalized = address.toLowerCase();
+
+  // Query all Monad wallets and compare case-insensitively
+  // D1/SQLite LIKE is case-insensitive for ASCII, but eq() is exact match
+  // So we fetch monad wallets and filter in JS for safety
+  const monadWallets = await db
+    .select({
+      id: agentWallets.id,
+      agentId: agentWallets.agentId,
+      chain: agentWallets.chain,
+      walletAddress: agentWallets.walletAddress,
+      tokenAddress: agentWallets.tokenAddress,
+    })
+    .from(agentWallets)
+    .where(eq(agentWallets.chain, 'monad'));
+
+  return monadWallets.find(
+    (w: any) => w.walletAddress.toLowerCase() === normalized
+  ) ?? null;
+}
+
 // POST /webhooks/alchemy — called by Alchemy on Monad events
 alchemyWebhookRoutes.post('/', async (c) => {
   const authHeader = c.req.header('Authorization');
@@ -29,37 +55,37 @@ alchemyWebhookRoutes.post('/', async (c) => {
 
   for (const activity of activities) {
     try {
-      // Extract sender address (fromAddress or from)
+      // Check both fromAddress and toAddress to catch buys AND sells
       const fromAddress = (activity.fromAddress ?? activity.from ?? '').toLowerCase();
-      if (!fromAddress) continue;
+      const toAddress = (activity.toAddress ?? activity.to ?? '').toLowerCase();
 
-      // Find wallet by address + chain
-      const walletResults = await db
-        .select({
-          id: agentWallets.id,
-          agentId: agentWallets.agentId,
-          chain: agentWallets.chain,
-          walletAddress: agentWallets.walletAddress,
-          tokenAddress: agentWallets.tokenAddress,
-        })
-        .from(agentWallets)
-        .where(
-          and(
-            eq(agentWallets.chain, 'monad'),
-            eq(agentWallets.walletAddress, fromAddress)
-          )
-        )
-        .limit(1);
+      if (!fromAddress && !toAddress) continue;
 
-      if (walletResults.length === 0) continue;
+      // Try to find wallet by fromAddress first, then toAddress
+      let wallet = fromAddress ? await findMonadWallet(db, fromAddress) : null;
+      if (!wallet && toAddress) {
+        wallet = await findMonadWallet(db, toAddress);
+      }
 
-      const wallet = walletResults[0];
+      if (!wallet) continue;
 
       // Parse swap from Alchemy activity format
       // Normalize to our transaction format
+      const rawTimestamp = activity.timestamp;
+      let timestamp: number;
+      if (typeof rawTimestamp === 'number') {
+        timestamp = rawTimestamp;
+      } else if (typeof rawTimestamp === 'string') {
+        // Handle ISO string timestamps from Alchemy
+        const parsed = Date.parse(rawTimestamp);
+        timestamp = isNaN(parsed) ? Math.floor(Date.now() / 1000) : Math.floor(parsed / 1000);
+      } else {
+        timestamp = Math.floor(Date.now() / 1000);
+      }
+
       const normalizedTx = {
         signature: activity.hash ?? activity.transactionHash,
-        timestamp: activity.timestamp ?? Math.floor(Date.now() / 1000),
+        timestamp,
         logs: activity.logs ?? [],
         rawData: activity,
       };
@@ -94,7 +120,7 @@ alchemyWebhookRoutes.post('/', async (c) => {
           blockTime: parsed.blockTime.toISOString(),
           platform: parsed.platform,
           tradeType: parsed.tradeType,
-          // NEW: chain-agnostic fields
+          // Chain-agnostic fields
           tokenInAddress: parsed.tokenInAddress,
           tokenInAmount: parsed.tokenInAmount,
           tokenOutAddress: parsed.tokenOutAddress,
@@ -103,10 +129,10 @@ alchemyWebhookRoutes.post('/', async (c) => {
           tradeValueUsd: tradeValueUsd.toString(),
           isBuyback: parsed.isBuyback,
           rawData: normalizedTx,
-          // DEPRECATED: Solana-specific (for backward compatibility)
+          // Deprecated Solana-specific (backward compat)
           tokenInMint: parsed.tokenInAddress,
           tokenOutMint: parsed.tokenOutAddress,
-          solPriceUsd: undefined,
+          solPriceUsd: null,
         })
         .onConflictDoNothing({ target: [trades.txSignature, trades.chain] });
 

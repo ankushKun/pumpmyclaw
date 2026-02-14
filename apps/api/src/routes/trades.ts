@@ -23,7 +23,7 @@ async function enrichTrades(db: any, tradeRows: any[]) {
       chainGroups.get(chain)!.push(trade);
     }
 
-    // Resolve tokens for each chain
+    // Resolve tokens for each chain — use chain:address key to avoid cross-chain collisions
     const allTokenMaps = new Map<string, any>();
     for (const [chain, chainTrades] of chainGroups) {
       const addresses = chainTrades.flatMap((t) => [
@@ -32,23 +32,23 @@ async function enrichTrades(db: any, tradeRows: any[]) {
       ]);
       const tokenMap = await resolveTokens(db, chain as any, addresses);
 
-      // Merge into global map with chain prefix to avoid collisions
       for (const [address, info] of tokenMap) {
-        allTokenMaps.set(address, info);
+        allTokenMaps.set(`${chain}:${address}`, info);
       }
     }
 
     // Enrich trades with resolved metadata
     return tradeRows.map((t) => {
+      const chain = t.chain ?? 'solana';
       const tokenInAddr = t.tokenInAddress ?? t.tokenInMint;
       const tokenOutAddr = t.tokenOutAddress ?? t.tokenOutMint;
 
       return {
         ...t,
-        tokenInSymbol: allTokenMaps.get(tokenInAddr)?.symbol ?? undefined,
-        tokenInName: allTokenMaps.get(tokenInAddr)?.name ?? undefined,
-        tokenOutSymbol: allTokenMaps.get(tokenOutAddr)?.symbol ?? undefined,
-        tokenOutName: allTokenMaps.get(tokenOutAddr)?.name ?? undefined,
+        tokenInSymbol: allTokenMaps.get(`${chain}:${tokenInAddr}`)?.symbol ?? undefined,
+        tokenInName: allTokenMaps.get(`${chain}:${tokenInAddr}`)?.name ?? undefined,
+        tokenOutSymbol: allTokenMaps.get(`${chain}:${tokenOutAddr}`)?.symbol ?? undefined,
+        tokenOutName: allTokenMaps.get(`${chain}:${tokenOutAddr}`)?.name ?? undefined,
       };
     });
   } catch (err) {
@@ -59,7 +59,7 @@ async function enrichTrades(db: any, tradeRows: any[]) {
 
 // GET /api/trades/recent — latest trades across all agents (for live feed backfill)
 tradeRoutes.get('/recent', async (c) => {
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 50);
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '20') || 20, 50);
   const db = c.get('db');
 
   const rows = await db
@@ -94,8 +94,8 @@ tradeRoutes.get('/recent', async (c) => {
 // GET /api/trades/agent/:agentId
 tradeRoutes.get('/agent/:agentId', async (c) => {
   const agentId = c.req.param('agentId');
-  const page = parseInt(c.req.query('page') ?? '1');
-  const limit = Math.min(parseInt(c.req.query('limit') ?? '50'), 100);
+  const page = Math.max(1, parseInt(c.req.query('page') ?? '1') || 1);
+  const limit = Math.min(parseInt(c.req.query('limit') ?? '50') || 50, 100);
   const offset = (page - 1) * limit;
   const chain = c.req.query('chain'); // Get optional chain filter
   const db = c.get('db');
@@ -132,7 +132,8 @@ tradeRoutes.get('/agent/:agentId/buybacks', async (c) => {
     .select()
     .from(trades)
     .where(and(eq(trades.agentId, agentId), eq(trades.isBuyback, true)))
-    .orderBy(desc(trades.blockTime));
+    .orderBy(desc(trades.blockTime))
+    .limit(100);
 
   const enriched = await enrichTrades(db, buybacks);
 

@@ -20,6 +20,7 @@ rankingRoutes.get('/', async (c) => {
       totalVolumeUsd: performanceRankings.totalVolumeUsd,
       tokenPriceChange24h: performanceRankings.tokenPriceChange24h,
       buybackTotalSol: performanceRankings.buybackTotalSol,
+      buybackTotalBaseAsset: performanceRankings.buybackTotalBaseAsset,
       buybackTotalTokens: performanceRankings.buybackTotalTokens,
       rankedAt: performanceRankings.rankedAt,
       agentName: agents.name,

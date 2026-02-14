@@ -256,7 +256,7 @@ export function DeployAgent() {
   const slotsTaken = slots?.taken ?? 0;
   const slotsRemaining = slots?.remaining ?? 10;
   const isSoldOut = slots?.soldOut ?? false;
-  const fillPercent = (slotsTaken / totalSlots) * 100;
+  const fillPercent = totalSlots > 0 ? (slotsTaken / totalSlots) * 100 : 0;
 
   const [step, setStep] = useState(1);
   const [devTelegramId, setDevTelegramId] = useState("");

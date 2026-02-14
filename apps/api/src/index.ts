@@ -12,12 +12,19 @@ import { wsRoutes } from './routes/ws';
 import { cronHandler } from './cron/handler';
 import { tradeQueueConsumer } from './queues/trade-consumer';
 import { recalculateRankings } from './cron/ranking-calculator';
+import { setMonadRpcUrl } from './services/token-resolver';
 import type { HonoEnv } from './types/hono';
 import type { Env } from './types/env';
 
 export { WebSocketHub } from './durable-objects/websocket-hub';
 
 const app = new Hono<HonoEnv>();
+
+// Global error handler — prevents stack trace leaks
+app.onError((err, c) => {
+  console.error('Unhandled error:', err);
+  return c.json({ success: false, error: 'Internal server error' }, 500);
+});
 
 // Global middleware
 app.use('*', logger());
@@ -29,7 +36,6 @@ app.use(
       const allowed = [
         'https://pumpmyclaw.fun',
         'https://www.pumpmyclaw.fun',
-        'https://pumpmyclaw.fun',
         'https://pumpmyclaw-api.contact-arlink.workers.dev',
       ];
       if (allowed.includes(origin)) return origin;
@@ -42,10 +48,16 @@ app.use(
   }),
 );
 
-// Database middleware
+// Database middleware + env configuration
 app.use('*', async (c, next) => {
   const db = createDb(c.env.DB);
   c.set('db', db);
+
+  // Configure Monad RPC URL from environment (removes hardcoded API key)
+  if (c.env.ALCHEMY_API_KEY) {
+    setMonadRpcUrl(`https://monad-mainnet.g.alchemy.com/v2/${c.env.ALCHEMY_API_KEY}`);
+  }
+
   await next();
 });
 
@@ -74,13 +86,19 @@ app.get('/health', (c) =>
   c.json({ status: 'ok', timestamp: new Date().toISOString() }),
 );
 
-// Manual ranking recalculation trigger (debug)
+// Manual ranking recalculation trigger (requires auth header to prevent abuse)
 app.post('/api/rankings/recalculate', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || authHeader !== `Bearer ${c.env.HELIUS_WEBHOOK_SECRET}`) {
+    return c.json({ success: false, error: 'Unauthorized' }, 401);
+  }
+
   try {
     await recalculateRankings(c.env as any);
     return c.json({ success: true, message: 'Rankings recalculated' });
   } catch (err: any) {
-    return c.json({ success: false, error: err.message, stack: err.stack }, 500);
+    console.error('Rankings recalculation failed:', err);
+    return c.json({ success: false, error: 'Internal error' }, 500);
   }
 });
 

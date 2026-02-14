@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Activity, DollarSign, RotateCcw } from 'lucide-react';
 import { formatUsd, formatPercent, formatAddress, getAgentAvatar } from '../lib/formatters';
@@ -22,6 +23,7 @@ interface AgentCardProps {
 export function AgentCard({ ranking, isNew = false }: AgentCardProps) {
   const pnl = parseFloat(ranking.totalPnlUsd);
   const rank = ranking.rank;
+  const sparklinePath = useMemo(() => generateSparklinePath(), [ranking.agentId]);
 
   const getRankBadgeClass = () => {
     if (rank === 1) return 'rank-badge-1';
@@ -138,7 +140,7 @@ export function AgentCard({ ranking, isNew = false }: AgentCardProps) {
       <div className="absolute bottom-0 left-0 right-0 h-16 opacity-10 pointer-events-none">
         <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
           <path
-            d={generateSparklinePath()}
+            d={sparklinePath}
             fill="none"
             stroke={pnl >= 0 ? '#10B981' : '#F43F5E'}
             strokeWidth="2"

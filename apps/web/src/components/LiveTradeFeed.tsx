@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, TrendingUp, TrendingDown } from 'lucide-react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { formatUsd, formatTimeAgo } from '../lib/formatters';
@@ -21,7 +21,6 @@ interface LiveTradeFeedProps {
 
 export function LiveTradeFeed({ maxItems = 7 }: LiveTradeFeedProps) {
   const [trades, setTrades] = useState<LiveTrade[]>([]);
-  const seededRef = useRef(false);
 
   const mapRecentTrades = (data: Awaited<ReturnType<typeof api.getRecentTrades>>['data']): LiveTrade[] =>
     (data ?? []).map((t) => ({
@@ -37,12 +36,13 @@ export function LiveTradeFeed({ maxItems = 7 }: LiveTradeFeedProps) {
 
   // Seed with recent trades from REST endpoint on mount
   useEffect(() => {
-    if (seededRef.current) return;
-    seededRef.current = true;
+    let cancelled = false;
     api.getRecentTrades(maxItems).then((res) => {
+      if (cancelled) return;
       const seed = mapRecentTrades(res.data);
       if (seed.length > 0) setTrades(seed);
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, [maxItems]);
 
   // Periodic REST polling fallback (every 15s) so feed never goes stale

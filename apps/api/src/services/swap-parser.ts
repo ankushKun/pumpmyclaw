@@ -230,9 +230,11 @@ function parseApiFormat(
   // Fallback: check tokenTransfers if no balance changes found
   if (ourTokenChanges.length === 0) {
     for (const transfer of tokenTransfers) {
+      // Use the token's actual decimals from the transfer data (default 6 for SPL)
+      const tokenDecimals = transfer.decimals ?? 6;
       if (transfer.fromUserAccount === agentWallet) {
         const rawAmount = Math.floor(
-          transfer.tokenAmount * Math.pow(10, 6),
+          transfer.tokenAmount * Math.pow(10, tokenDecimals),
         ).toString();
         ourTokenChanges.push({
           mint: transfer.mint,
@@ -241,7 +243,7 @@ function parseApiFormat(
         });
       } else if (transfer.toUserAccount === agentWallet) {
         const rawAmount = Math.floor(
-          transfer.tokenAmount * Math.pow(10, 6),
+          transfer.tokenAmount * Math.pow(10, tokenDecimals),
         ).toString();
         ourTokenChanges.push({
           mint: transfer.mint,

@@ -121,7 +121,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Auto-logout on 401 (user deleted from backend, token expired, etc.)
     backend.setAuthErrorHandler(() => {
-      console.log('[auth] Session expired or invalid, logging out');
       logout();
     });
   }, [logout]);

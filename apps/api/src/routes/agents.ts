@@ -3,12 +3,14 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq, desc, and, or } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
+import { Redis } from '@upstash/redis/cloudflare';
 import { agents, agentContext, agentWallets } from '../db/schema';
 import { apiKeyAuth } from '../middleware/auth';
 import { HeliusClient } from '../services/helius-client';
 import { ingestTradesForAgent, ingestTradesForWallet } from '../services/trade-ingester';
 import { recalculateRankings } from '../cron/ranking-calculator';
 import { createProviderRegistry } from '../services/blockchain/provider-registry';
+import type { Chain } from '../services/blockchain/types';
 import type { HonoEnv } from '../types/hono';
 
 export const agentRoutes = new Hono<HonoEnv>();
@@ -30,7 +32,7 @@ const multiWalletRegisterSchema = z.object({
   wallets: z.array(z.object({
     chain: z.enum(['solana', 'monad']),
     walletAddress: z.string().min(10).max(100),
-    tokenAddress: z.string().optional(),
+    tokenAddress: z.string().min(10).max(100).optional(),
   })).min(1).max(10),
 });
 
@@ -48,13 +50,20 @@ agentRoutes.post(
     const db = c.get('db');
     const registry = createProviderRegistry(c.env);
 
-    // Validate wallet addresses per chain
+    // Validate and normalize wallet addresses per chain
     for (const wallet of body.wallets) {
       if (!registry.validateAddress(wallet.chain, wallet.walletAddress)) {
         return c.json({
           success: false,
           error: `Invalid ${wallet.chain} address: ${wallet.walletAddress}`,
         }, 400);
+      }
+      // Normalize EVM addresses to lowercase for consistent matching (webhook case sensitivity fix)
+      if (wallet.chain === 'monad') {
+        wallet.walletAddress = wallet.walletAddress.toLowerCase();
+        if (wallet.tokenAddress) {
+          wallet.tokenAddress = wallet.tokenAddress.toLowerCase();
+        }
       }
     }
 
@@ -82,6 +91,9 @@ agentRoutes.post(
     // Create agent
     const rawApiKey = `pmc_${crypto.randomUUID().replace(/-/g, '')}`;
     const apiKeyHash = await bcrypt.hash(rawApiKey, 10);
+    // SHA-256 prefix for O(1) auth lookup
+    const apiKeyPrefixBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawApiKey));
+    const apiKeyPrefix = Array.from(new Uint8Array(apiKeyPrefixBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
 
     // For backward compatibility, set walletAddress/tokenMintAddress to first wallet
     // (these fields are deprecated but still NOT NULL in the schema)
@@ -92,6 +104,7 @@ agentRoutes.post(
       bio: body.bio ?? null,
       avatarUrl: body.avatarUrl ?? null,
       apiKeyHash,
+      apiKeyPrefix,
       walletAddress: firstWallet.walletAddress, // For backward compatibility
       tokenMintAddress: firstWallet.tokenAddress ?? null,
     }).returning({ id: agents.id });
@@ -114,10 +127,11 @@ agentRoutes.post(
       (async () => {
         for (const wallet of walletRecords) {
           try {
-            const provider = registry.get(wallet.chain);
+            const walletChain = wallet.chain as Chain;
+            const provider = registry.get(walletChain);
 
             // Register webhook
-            const webhookSecret = wallet.chain === 'solana'
+            const webhookSecret = walletChain === 'solana'
               ? c.env.HELIUS_WEBHOOK_SECRET
               : c.env.ALCHEMY_WEBHOOK_SECRET;
 
@@ -127,7 +141,7 @@ agentRoutes.post(
             const result = await ingestTradesForWallet(db, provider, c.env, {
               id: wallet.id,
               agentId: newAgent.id,
-              chain: wallet.chain,
+              chain: walletChain,
               walletAddress: wallet.walletAddress,
               tokenAddress: wallet.tokenAddress,
               agentName: body.name,
@@ -183,6 +197,9 @@ agentRoutes.post(
 
     const rawApiKey = `pmc_${crypto.randomUUID().replace(/-/g, '')}`;
     const apiKeyHash = await bcrypt.hash(rawApiKey, 10);
+    // SHA-256 prefix for O(1) auth lookup
+    const apiKeyPrefixBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawApiKey));
+    const apiKeyPrefix = Array.from(new Uint8Array(apiKeyPrefixBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
 
     const [newAgent] = await db.insert(agents).values({
       name: body.name,
@@ -191,6 +208,7 @@ agentRoutes.post(
       walletAddress: body.walletAddress,
       tokenMintAddress: body.tokenMintAddress ?? null,
       apiKeyHash,
+      apiKeyPrefix,
     }).returning({ id: agents.id });
 
     // Register wallet with Helius webhook
@@ -282,11 +300,12 @@ agentRoutes.post(
 
     // Sync each wallet
     for (const wallet of wallets) {
-      const provider = registry.get(wallet.chain);
+      const walletChain = wallet.chain as Chain;
+      const provider = registry.get(walletChain);
       const result = await ingestTradesForWallet(db, provider, c.env, {
         id: wallet.id,
         agentId: agentId,
-        chain: wallet.chain,
+        chain: walletChain,
         walletAddress: wallet.walletAddress,
         tokenAddress: wallet.tokenAddress,
         agentName: agent[0].name,
@@ -315,10 +334,22 @@ agentRoutes.post(
   },
 );
 
-// POST /api/agents/:id/resync — public resync trigger (rate-limited by CF)
+// POST /api/agents/:id/resync — public resync trigger (rate-limited via Redis)
 agentRoutes.post('/:id/resync', async (c) => {
   const agentId = c.req.param('id');
   const db = c.get('db');
+
+  // Rate limit: 1 resync per agent per 5 minutes
+  const redis = new Redis({
+    url: c.env.UPSTASH_REDIS_REST_URL,
+    token: c.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+  const rateLimitKey = `resync_rate:${agentId}`;
+  const existing = await redis.get(rateLimitKey);
+  if (existing) {
+    return c.json({ success: false, error: 'Rate limited — try again in 5 minutes' }, 429);
+  }
+  await redis.set(rateLimitKey, '1', { ex: 300 });
 
   // Get agent info
   const agent = await db.select({
@@ -348,11 +379,12 @@ agentRoutes.post('/:id/resync', async (c) => {
 
   // Sync each wallet
   for (const wallet of wallets) {
-    const provider = registry.get(wallet.chain);
+    const walletChain = wallet.chain as Chain;
+    const provider = registry.get(walletChain);
     const result = await ingestTradesForWallet(db, provider, c.env, {
       id: wallet.id,
       agentId: agentId,
-      chain: wallet.chain,
+      chain: walletChain,
       walletAddress: wallet.walletAddress,
       tokenAddress: wallet.tokenAddress,
       agentName: agent[0].name,

@@ -7,6 +7,7 @@ import { useAuth } from '../lib/auth';
 import { AgentCard } from '../components/AgentCard';
 import { LiveTradeFeed } from '../components/LiveTradeFeed';
 import { AgentCardSkeleton } from '../components/Skeleton';
+import { useRelativeTime } from '../hooks/useRelativeTime';
 import { formatUsd, formatNumber, formatCompactUsd, getAgentAvatar } from '../lib/formatters';
 import normalDumbImg from '../assets/normal-dumb.png';
 import aiDumbImg from '../assets/ai-dumb.jpeg';
@@ -98,21 +99,6 @@ function TelegramLoginWidgetHome({ botName, onAuth }: { botName: string; onAuth:
       />
     </div>
   );
-}
-
-function useRelativeTime(timestamp: Date | null) {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!timestamp) return;
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [timestamp]);
-  if (!timestamp) return '';
-  const seconds = Math.floor((Date.now() - timestamp.getTime()) / 1000);
-  if (seconds < 5) return 'just now';
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ago`;
 }
 
 export function Home() {
@@ -208,7 +194,7 @@ export function Home() {
     });
   }, [data, newAgentIds, filter]);
 
-  const topAgent = data.length > 0 ? data[0] : null;
+  const topAgent = data.find(a => a.rank === 1) ?? (sortedData.length > 0 ? sortedData[0] : null);
 
   return (
     <div className="min-h-[calc(100vh-4rem)]">
@@ -716,7 +702,7 @@ function EarlyAccessPricing() {
   const slotsTaken = slots?.taken ?? 0;
   const slotsRemaining = slots?.remaining ?? 10;
   const isSoldOut = slots?.soldOut ?? false;
-  const fillPercent = (slotsTaken / totalSlots) * 100;
+  const fillPercent = totalSlots > 0 ? (slotsTaken / totalSlots) * 100 : 0;
 
   const features = [
     'Your own managed OpenClaw instance — configured for Solana + Monad',

@@ -10,3 +10,10 @@ app 3
 .DS_Store
 bun.lock
 errorchat.txt
+
+# SQL database files (except migrations in drizzle/)
+*.db
+*.sqlite
+*.sql
+!apps/api/drizzle/**/*.sql
+!apps/api/scripts/**/*.sql

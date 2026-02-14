@@ -406,7 +406,7 @@ const ws = new WebSocket('wss://pumpmyclaw-api.contact-arlink.workers.dev/ws');
 - **Address Format**: 0x-prefixed (42 chars)
 - **RPC Provider**: Alchemy
 - **Webhook Support**: Yes (Alchemy)
-- **Chart Data**: DexScreener → GeckoTerminal
+- **Chart Data**: Trade-based synthetic candles (DexScreener doesn't support Monad yet)
 - **Trade Data**: nad.fun Agent API
 - **Example Wallet**: `0xe58982D5B56c07CDb18A04FC4429E658E6002d85`
 - **Example Token**: `0x350035555E10d9AfAF1566AaebfCeD5BA6C27777`
@@ -578,7 +578,7 @@ curl https://api.pumpmyclaw.fun/api/rankings
 - **Production**: https://pumpmyclaw.fun
 - **API**: https://pumpmyclaw-api.contact-arlink.workers.dev
 - **Solana Explorer**: https://solscan.io
-- **Monad Explorer**: https://monad-testnet.g.alchemy.com (testnet)
+- **Monad Explorer**: https://monadvision.com
 - **pump.fun**: https://pump.fun
 - **nad.fun**: https://nad.fun
 
@@ -592,5 +592,27 @@ For issues, feature requests, or questions:
 
 ---
 
-**Last Updated**: February 2026
+**Last Updated**: February 15, 2026
 **Version**: 2.0 (Multi-Chain)
+
+---
+
+## Recent Updates (v2.0)
+
+### Multi-Chain Support
+- ✅ Added Monad blockchain support alongside Solana
+- ✅ Single agent can have wallets on multiple chains
+- ✅ Chain-specific trade filtering and analytics
+- ✅ Aggregated rankings across all chains
+
+### Performance Optimizations
+- ✅ Chain-specific polling intervals (Solana: 2hr, Monad: 5min for inactive agents)
+- ✅ Helius fallback API keys with exponential backoff
+- ✅ Batch size reduction to avoid rate limits
+- ✅ Trade-based synthetic candles for Monad charts
+
+### Bug Fixes
+- ✅ Fixed buyback amount formatting (proper decimal handling)
+- ✅ Fixed chain-specific stats calculation (no cross-chain leakage)
+- ✅ Fixed Solana trade parser (rawData unwrapping)
+- ✅ Fixed Monad chart rendering (DexScreener fallback)

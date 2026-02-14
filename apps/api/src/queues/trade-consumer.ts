@@ -122,7 +122,7 @@ async function handlePollTrades(msg: PollTradesMessage | LegacyPollTradesMessage
         url: env.UPSTASH_REDIS_REST_URL,
         token: env.UPSTASH_REDIS_REST_TOKEN,
       });
-      await redis.set(`wallet_last_poll:${msg.walletId}`, Date.now().toString(), { ex: 86400 });
+      await redis.set(`wallet_last_poll:${msg.walletId}`, Date.now().toString(), { ex: 604800 }); // 7 days TTL to avoid thundering herd
     } catch {
       // non-fatal
     }
@@ -167,25 +167,55 @@ async function handlePollTrades(msg: PollTradesMessage | LegacyPollTradesMessage
 
 async function handlePollTokenPrice(msg: PollTokenPriceMessage, env: Env) {
   const db = createDb(env.DB);
-  const pumpfun = new PumpFunClient();
   const redis = new Redis({
     url: env.UPSTASH_REDIS_REST_URL,
     token: env.UPSTASH_REDIS_REST_TOKEN,
   });
 
-  const info = await pumpfun.getTokenInfo(msg.tokenMintAddress);
-  if (!info) return;
+  // Chain-aware token price fetching
+  let info: { priceUsd: number; marketCapUsd: number; holderCount?: number | null } | null = null;
+
+  if (msg.chain === 'solana') {
+    const pumpfun = new PumpFunClient();
+    info = await pumpfun.getTokenInfo(msg.tokenAddress);
+  } else if (msg.chain === 'monad') {
+    // For Monad tokens, try DexScreener
+    try {
+      const res = await fetch(
+        `https://api.dexscreener.com/latest/dex/tokens/${msg.tokenAddress}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (res.ok) {
+        const data: any = await res.json();
+        const pairs = data.pairs;
+        if (Array.isArray(pairs) && pairs.length > 0) {
+          const pair = pairs[0];
+          info = {
+            priceUsd: parseFloat(pair.priceUsd ?? '0'),
+            marketCapUsd: parseFloat(pair.marketCap ?? pair.fdv ?? '0'),
+            holderCount: null,
+          };
+        }
+      }
+    } catch (err) {
+      console.error(`[poll_token_price] DexScreener failed for Monad token ${msg.tokenAddress}:`, err);
+    }
+  }
+
+  if (!info || info.priceUsd <= 0) return;
 
   await db.insert(tokenSnapshots).values({
     agentId: msg.agentId,
-    mintAddress: msg.tokenMintAddress,
+    chain: msg.chain,
+    tokenAddress: msg.tokenAddress,
+    mintAddress: msg.tokenAddress, // Deprecated field, kept for backward compat
     priceUsd: info.priceUsd.toString(),
     marketCapUsd: info.marketCapUsd.toString(),
     holderCount: info.holderCount ?? null,
   });
 
   await redis.set(
-    `token_price:${msg.tokenMintAddress}`,
+    `token_price:${msg.chain}:${msg.tokenAddress}`,
     JSON.stringify({
       priceUsd: info.priceUsd,
       marketCapUsd: info.marketCapUsd,
@@ -194,21 +224,27 @@ async function handlePollTokenPrice(msg: PollTokenPriceMessage, env: Env) {
     { ex: 60 },
   );
 
-  const hubId = env.WEBSOCKET_HUB.idFromName('global');
-  const hub = env.WEBSOCKET_HUB.get(hubId);
-  await hub.fetch(
-    new Request('https://internal/broadcast', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'price_update',
-        agentId: msg.agentId,
-        data: {
-          mint: msg.tokenMintAddress,
-          priceUsd: info.priceUsd,
-          marketCapUsd: info.marketCapUsd,
-        },
-        timestamp: new Date().toISOString(),
+  try {
+    const hubId = env.WEBSOCKET_HUB.idFromName('global');
+    const hub = env.WEBSOCKET_HUB.get(hubId);
+    await hub.fetch(
+      new Request('https://internal/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'price_update',
+          agentId: msg.agentId,
+          chain: msg.chain,
+          data: {
+            mint: msg.tokenAddress,
+            tokenAddress: msg.tokenAddress,
+            priceUsd: info.priceUsd,
+            marketCapUsd: info.marketCapUsd,
+          },
+          timestamp: new Date().toISOString(),
+        }),
       }),
-    }),
-  );
+    );
+  } catch (err) {
+    console.error('[poll_token_price] WebSocket broadcast failed:', err);
+  }
 }

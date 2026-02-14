@@ -12,6 +12,7 @@ export interface Trade {
   solPriceUsd: string;
   tradeValueUsd: string;
   isBuyback: boolean;
+  chain: 'solana' | 'monad';
   createdAt: string;
   // Token metadata (enriched by API)
   tokenInSymbol?: string;
