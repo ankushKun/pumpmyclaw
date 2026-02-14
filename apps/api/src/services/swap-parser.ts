@@ -65,18 +65,26 @@ export function parseSolanaSwap(
   agentWallet: string,
   agentTokenMint: string,
 ): ParsedSwap | null {
-  // Skip failed transactions
-  if (tx.transactionError) return null;
+  // Unwrap rawData if this is a normalized BlockchainTransaction
+  const heliusTx = tx.rawData ?? tx;
 
-  const signature = tx.signature;
-  const blockTime = new Date((tx.timestamp ?? 0) * 1000);
+  // Skip failed transactions
+  if (heliusTx.transactionError) {
+    console.log(`[swap-parser] Skipping failed transaction: ${heliusTx.signature}`);
+    return null;
+  }
+
+  const signature = heliusTx.signature;
+  const blockTime = new Date((heliusTx.timestamp ?? 0) * 1000);
   const platform =
-    tx.events?.swap?.innerSwaps?.[0]?.programInfo?.source ??
-    tx.source ??
+    heliusTx.events?.swap?.innerSwaps?.[0]?.programInfo?.source ??
+    heliusTx.source ??
     'UNKNOWN';
 
+  console.log(`[swap-parser] Parsing tx ${signature?.slice(0, 8)}... platform: ${platform}, hasEvents: ${!!heliusTx.events}, hasSwap: ${!!heliusTx.events?.swap}, hasAccountData: ${!!heliusTx.accountData}`);
+
   // Try webhook format first (events.swap populated by Helius webhooks)
-  const swap = tx.events?.swap;
+  const swap = heliusTx.events?.swap;
   if (
     swap &&
     (swap.nativeInput ||
@@ -96,7 +104,7 @@ export function parseSolanaSwap(
 
   // Fallback: parse from accountData + tokenTransfers (API format)
   return parseApiFormat(
-    tx,
+    heliusTx,
     signature,
     blockTime,
     platform,
@@ -191,9 +199,13 @@ function parseApiFormat(
   const accountData: any[] = tx.accountData ?? [];
   const tokenTransfers: any[] = tx.tokenTransfers ?? [];
 
+  console.log(`[swap-parser:API] ${signature.slice(0, 8)}... accountData: ${accountData.length} items, tokenTransfers: ${tokenTransfers.length}`);
+
   // Find our wallet's native SOL balance change
   const ourAccount = accountData.find((a: any) => a.account === agentWallet);
   const solDelta = ourAccount?.nativeBalanceChange ?? 0; // in lamports
+
+  console.log(`[swap-parser:API] solDelta: ${solDelta} lamports, ourAccount found: ${!!ourAccount}`);
 
   // Find token balance changes for our wallet
   const ourTokenChanges: Array<{
@@ -240,7 +252,12 @@ function parseApiFormat(
     }
   }
 
-  if (ourTokenChanges.length === 0 && solDelta === 0) return null;
+  console.log(`[swap-parser:API] ourTokenChanges: ${ourTokenChanges.length}, solDelta: ${solDelta}`);
+
+  if (ourTokenChanges.length === 0 && solDelta === 0) {
+    console.log(`[swap-parser:API] No balance changes detected - returning null`);
+    return null;
+  }
 
   // Determine trade direction from balance changes
   let tradeType: 'buy' | 'sell';

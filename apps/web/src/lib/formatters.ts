@@ -30,17 +30,26 @@ export function formatNumber(value: string | number): string {
   return new Intl.NumberFormat('en-US').format(num);
 }
 
-// Solana explorers
-export function explorerTxUrl(signature: string): string {
+// Multi-chain explorers
+export function explorerTxUrl(signature: string, chain: 'solana' | 'monad' = 'solana'): string {
+  if (chain === 'monad') {
+    return monadExplorerTxUrl(signature);
+  }
   return `https://orb.helius.dev/tx/${signature}`;
 }
 
-export function explorerWalletUrl(address: string): string {
+export function explorerWalletUrl(address: string, chain: 'solana' | 'monad' = 'solana'): string {
+  if (chain === 'monad') {
+    return monadExplorerWalletUrl(address);
+  }
   return `https://orbmarkets.io/address/${address}`;
 }
 
-export function explorerTokenUrl(mint: string): string {
-  return `https://dexscreener.com/solana/${mint}`;
+export function explorerTokenUrl(addressOrMint: string, chain: 'solana' | 'monad' = 'solana'): string {
+  if (chain === 'monad') {
+    return monadTokenUrl(addressOrMint);
+  }
+  return `https://dexscreener.com/solana/${addressOrMint}`;
 }
 
 // Monad explorers (support testnet toggle)
@@ -58,7 +67,7 @@ export function monadExplorerWalletUrl(address: string, testnet = false): string
 }
 
 export function monadTokenUrl(address: string): string {
-  return `https://nad.fun/token/${address}`;
+  return `https://nad.fun/tokens/${address}`;
 }
 
 /** Detect if an address is EVM (0x-prefixed, 42 chars) vs Solana (base58) */

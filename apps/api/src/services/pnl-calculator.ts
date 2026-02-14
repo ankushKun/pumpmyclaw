@@ -45,8 +45,12 @@ export async function calculateAgentPnl(
     totalVolumeUsd += value;
 
     if (trade.isBuyback) {
-      buybackTotalSol += parseFloat(trade.tokenInAmount) / 1e9;
-      buybackTotalTokens += parseFloat(trade.tokenOutAmount);
+      // Use correct decimals based on chain
+      const chain = trade.chain ?? 'solana';
+      const decimals = chain === 'monad' ? 1e18 : 1e9;
+      buybackTotalSol += parseFloat(trade.tokenInAmount) / decimals;
+      // Divide tokenOutAmount by decimals to get human-readable token count
+      buybackTotalTokens += parseFloat(trade.tokenOutAmount) / decimals;
       continue;
     }
 

@@ -13,15 +13,44 @@ export const tradeRoutes = new Hono<HonoEnv>();
 async function enrichTrades(db: any, tradeRows: any[]) {
   if (tradeRows.length === 0) return tradeRows;
   try {
-    const allMints = tradeRows.flatMap((t) => [t.tokenInMint, t.tokenOutMint]);
-    const tokenMap = await resolveTokens(db, allMints);
-    return tradeRows.map((t) => ({
-      ...t,
-      tokenInSymbol: tokenMap.get(t.tokenInMint)?.symbol ?? undefined,
-      tokenInName: tokenMap.get(t.tokenInMint)?.name ?? undefined,
-      tokenOutSymbol: tokenMap.get(t.tokenOutMint)?.symbol ?? undefined,
-      tokenOutName: tokenMap.get(t.tokenOutMint)?.name ?? undefined,
-    }));
+    // Group trades by chain and resolve tokens per chain
+    const chainGroups = new Map<string, any[]>();
+    for (const trade of tradeRows) {
+      const chain = trade.chain ?? 'solana'; // Default to solana for backward compatibility
+      if (!chainGroups.has(chain)) {
+        chainGroups.set(chain, []);
+      }
+      chainGroups.get(chain)!.push(trade);
+    }
+
+    // Resolve tokens for each chain
+    const allTokenMaps = new Map<string, any>();
+    for (const [chain, chainTrades] of chainGroups) {
+      const addresses = chainTrades.flatMap((t) => [
+        t.tokenInAddress ?? t.tokenInMint,
+        t.tokenOutAddress ?? t.tokenOutMint,
+      ]);
+      const tokenMap = await resolveTokens(db, chain as any, addresses);
+
+      // Merge into global map with chain prefix to avoid collisions
+      for (const [address, info] of tokenMap) {
+        allTokenMaps.set(address, info);
+      }
+    }
+
+    // Enrich trades with resolved metadata
+    return tradeRows.map((t) => {
+      const tokenInAddr = t.tokenInAddress ?? t.tokenInMint;
+      const tokenOutAddr = t.tokenOutAddress ?? t.tokenOutMint;
+
+      return {
+        ...t,
+        tokenInSymbol: allTokenMaps.get(tokenInAddr)?.symbol ?? undefined,
+        tokenInName: allTokenMaps.get(tokenInAddr)?.name ?? undefined,
+        tokenOutSymbol: allTokenMaps.get(tokenOutAddr)?.symbol ?? undefined,
+        tokenOutName: allTokenMaps.get(tokenOutAddr)?.name ?? undefined,
+      };
+    });
   } catch (err) {
     console.error('Token enrichment failed, returning raw trades:', err);
     return tradeRows;
@@ -38,13 +67,16 @@ tradeRoutes.get('/recent', async (c) => {
       id: trades.id,
       agentId: trades.agentId,
       agentName: agents.name,
+      chain: trades.chain,
       txSignature: trades.txSignature,
       blockTime: trades.blockTime,
       platform: trades.platform,
       tradeType: trades.tradeType,
       tokenInMint: trades.tokenInMint,
+      tokenInAddress: trades.tokenInAddress,
       tokenInAmount: trades.tokenInAmount,
       tokenOutMint: trades.tokenOutMint,
+      tokenOutAddress: trades.tokenOutAddress,
       tokenOutAmount: trades.tokenOutAmount,
       tradeValueUsd: trades.tradeValueUsd,
       isBuyback: trades.isBuyback,
@@ -65,12 +97,19 @@ tradeRoutes.get('/agent/:agentId', async (c) => {
   const page = parseInt(c.req.query('page') ?? '1');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50'), 100);
   const offset = (page - 1) * limit;
+  const chain = c.req.query('chain'); // Get optional chain filter
   const db = c.get('db');
+
+  // Build WHERE clause with optional chain filter
+  const whereConditions = [eq(trades.agentId, agentId)];
+  if (chain) {
+    whereConditions.push(eq(trades.chain, chain));
+  }
 
   const agentTrades = await db
     .select()
     .from(trades)
-    .where(eq(trades.agentId, agentId))
+    .where(and(...whereConditions))
     .orderBy(desc(trades.blockTime))
     .limit(limit)
     .offset(offset);
@@ -80,7 +119,7 @@ tradeRoutes.get('/agent/:agentId', async (c) => {
   return c.json({
     success: true,
     data: enriched,
-    meta: { page, limit },
+    meta: { page, limit, chain },
   });
 });
 

@@ -171,30 +171,52 @@ export class HeliusClient {
       throw new Error('Maximum batch size is 100 signatures');
     }
 
-    for (const key of this.apiKeys) {
-      const res = await fetch(
-        `${HELIUS_API_BASE}/v0/transactions/?api-key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transactions: signatures }),
-        },
-      );
+    // Implement exponential backoff for rate limits
+    const MAX_RETRIES = 3;
 
-      if (res.status === 429) {
-        await res.body?.cancel();
-        continue;
-      }
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      for (const key of this.apiKeys) {
+        const res = await fetch(
+          `${HELIUS_API_BASE}/v0/transactions/?api-key=${key}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactions: signatures }),
+          },
+        );
 
-      if (!res.ok) {
-        await res.body?.cancel();
-        continue;
+        if (res.status === 429) {
+          const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
+          console.warn(`[HeliusClient] Rate limited (429) on key ${key.slice(0, 8)}... for ${signatures.length} sigs (attempt ${attempt + 1}/${MAX_RETRIES}), backing off ${backoffMs}ms`);
+          await res.body?.cancel();
+
+          // Wait before trying next key/attempt
+          if (attempt < MAX_RETRIES - 1) {
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+          }
+          continue;
+        }
+
+        if (!res.ok) {
+          console.warn(`[HeliusClient] HTTP ${res.status} on key ${key.slice(0, 8)}... for ${signatures.length} sigs: ${await res.text()}`);
+          continue;
+        }
+
+        const json: any = await res.json();
+        console.log(`[HeliusClient] Successfully fetched ${signatures.length} enhanced transactions`);
+
+        // Debug: log structure of first transaction
+        if (Array.isArray(json) && json.length > 0) {
+          const first = json[0];
+          console.log(`[HeliusClient] First tx keys: ${Object.keys(first).join(', ')}`);
+          console.log(`[HeliusClient] First tx sample: ${JSON.stringify(first).slice(0, 500)}`);
+        }
+
+        return Array.isArray(json) ? json : [];
       }
-      const json: any = await res.json();
-      return Array.isArray(json) ? json : [];
     }
 
-    console.error(`getEnhancedTransactions exhausted all keys for ${signatures.length} sigs`);
+    console.error(`getEnhancedTransactions exhausted all keys for ${signatures.length} sigs after ${MAX_RETRIES} attempts`);
     return [];
   }
 }

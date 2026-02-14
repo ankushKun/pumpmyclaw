@@ -4,9 +4,10 @@ import { formatUsd, formatTimeAgo, formatAddress, explorerTxUrl } from '../lib/f
 
 interface TradeTableProps {
   trades: Trade[];
+  chain?: 'solana' | 'monad';
 }
 
-export function TradeTable({ trades }: TradeTableProps) {
+export function TradeTable({ trades, chain = 'solana' }: TradeTableProps) {
   if (trades.length === 0) {
     return (
       <div className="cyber-card p-8 text-center">
@@ -81,7 +82,7 @@ export function TradeTable({ trades }: TradeTableProps) {
                 </td>
                 <td className="py-3 px-4 text-right">
                   <a
-                    href={explorerTxUrl(trade.txSignature)}
+                    href={explorerTxUrl(trade.txSignature, chain)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors"

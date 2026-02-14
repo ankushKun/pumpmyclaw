@@ -2,6 +2,7 @@ import { eq, inArray, and } from 'drizzle-orm';
 import { tokenMetadata } from '../db/schema';
 import type { Database } from '../db/client';
 import type { Chain } from './blockchain/types';
+import { ethers } from 'ethers';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const WMON_ADDRESS = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A';
@@ -102,38 +103,51 @@ export async function resolveTokens(
   const uncached = toResolve.filter((addr) => !result.has(addr));
   if (uncached.length > 0) {
     const resolved = await Promise.allSettled(
-      uncached.map((mint) => fetchTokenInfo(mint).then((info) => ({ mint, info }))),
+      uncached.map((address) =>
+        fetchTokenInfo(chain, address).then((info) => ({ address, info }))
+      ),
     );
 
-    const toUpsert: TokenInfo[] = [];
+    const toUpsert: Array<{ chain: Chain; address: string; info: TokenInfo }> = [];
     for (const r of resolved) {
       if (r.status === 'fulfilled' && r.value.info) {
-        const { mint, info } = r.value;
-        result.set(mint, info);
-        toUpsert.push(info);
+        const { address, info } = r.value;
+        result.set(address, info);
+        toUpsert.push({ chain, address, info });
       } else {
-        const mint = r.status === 'fulfilled' ? r.value.mint : '';
-        if (mint) {
-          const shortMint = mint.slice(0, 6) + '...' + mint.slice(-4);
-          result.set(mint, { mint, name: shortMint, symbol: shortMint, decimals: 6, logoUrl: null });
+        const address = r.status === 'fulfilled' ? r.value.address : '';
+        if (address) {
+          const shortAddress = address.slice(0, 6) + '...' + address.slice(-4);
+          const decimals = chain === 'solana' ? 6 : 18;
+          result.set(address, {
+            mint: address,
+            address,
+            chain,
+            name: shortAddress,
+            symbol: shortAddress,
+            decimals,
+            logoUrl: null
+          });
         }
       }
     }
 
     // Batch upsert resolved tokens into DB cache
-    for (const info of toUpsert) {
+    for (const { chain, address, info } of toUpsert) {
       try {
         await db
           .insert(tokenMetadata)
           .values({
-            mint: info.mint,
+            chain,
+            address,
+            mint: address, // For backward compatibility
             name: info.name,
             symbol: info.symbol,
             decimals: info.decimals,
             logoUrl: info.logoUrl,
           })
           .onConflictDoUpdate({
-            target: tokenMetadata.mint,
+            target: [tokenMetadata.chain, tokenMetadata.address],
             set: {
               name: info.name,
               symbol: info.symbol,
@@ -150,7 +164,16 @@ export async function resolveTokens(
   return result;
 }
 
-async function fetchTokenInfo(mint: string): Promise<TokenInfo | null> {
+async function fetchTokenInfo(chain: Chain, address: string): Promise<TokenInfo | null> {
+  if (chain === 'solana') {
+    return fetchSolanaTokenInfo(address);
+  } else if (chain === 'monad') {
+    return fetchMonadTokenInfo(address);
+  }
+  return null;
+}
+
+async function fetchSolanaTokenInfo(mint: string): Promise<TokenInfo | null> {
   // Try Pump.fun API (works well for .pump tokens)
   try {
     const res = await fetch(`${PUMPFUN_API}/coins/${mint}?sync=true`);
@@ -159,6 +182,8 @@ async function fetchTokenInfo(mint: string): Promise<TokenInfo | null> {
       if (data.name && data.symbol) {
         return {
           mint: data.mint ?? mint,
+          address: data.mint ?? mint,
+          chain: 'solana',
           name: data.name,
           symbol: data.symbol,
           decimals: data.decimals ?? 6,
@@ -176,6 +201,8 @@ async function fetchTokenInfo(mint: string): Promise<TokenInfo | null> {
       if (data.name && data.symbol) {
         return {
           mint: data.address ?? mint,
+          address: data.address ?? mint,
+          chain: 'solana',
           name: data.name,
           symbol: data.symbol,
           decimals: data.decimals ?? 6,
@@ -196,9 +223,75 @@ async function fetchTokenInfo(mint: string): Promise<TokenInfo | null> {
         if (token && token.name && token.symbol) {
           return {
             mint: token.address ?? mint,
+            address: token.address ?? mint,
+            chain: 'solana',
             name: token.name,
             symbol: token.symbol,
             decimals: 6,
+            logoUrl: null,
+          };
+        }
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+async function fetchMonadTokenInfo(address: string): Promise<TokenInfo | null> {
+  // Try direct ERC-20 contract calls (most reliable for Monad tokens)
+  try {
+    // Use public Monad RPC endpoint
+    const rpcUrl = 'https://monad-mainnet.g.alchemy.com/v2/lmvpGNblnJ3z4dq4w1Ki6';
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+
+    // ERC-20 ABI for name, symbol, decimals
+    const erc20Abi = [
+      'function name() view returns (string)',
+      'function symbol() view returns (string)',
+      'function decimals() view returns (uint8)',
+    ];
+
+    const contract = new ethers.Contract(address, erc20Abi, provider);
+
+    // Fetch metadata in parallel
+    const [name, symbol, decimals] = await Promise.all([
+      contract.name().catch(() => null),
+      contract.symbol().catch(() => null),
+      contract.decimals().catch(() => 18),
+    ]);
+
+    if (name && symbol) {
+      return {
+        mint: address,
+        address: address,
+        chain: 'monad',
+        name,
+        symbol,
+        decimals: Number(decimals),
+        logoUrl: null,
+      };
+    }
+  } catch (err) {
+    console.error(`Failed to fetch ERC-20 metadata for ${address}:`, err);
+  }
+
+  // Fallback: Try DexScreener
+  try {
+    const res = await fetch(`${DEXSCREENER_API}/${address}`);
+    if (res.ok) {
+      const data: any = await res.json();
+      const pairs = data.pairs;
+      if (Array.isArray(pairs) && pairs.length > 0) {
+        const token = pairs[0].baseToken;
+        if (token && token.name && token.symbol) {
+          return {
+            mint: token.address ?? address,
+            address: token.address ?? address,
+            chain: 'monad',
+            name: token.name,
+            symbol: token.symbol,
+            decimals: 18, // EVM default
             logoUrl: null,
           };
         }

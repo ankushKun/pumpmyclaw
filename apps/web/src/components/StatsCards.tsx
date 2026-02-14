@@ -1,5 +1,6 @@
 import { TrendingUp, Percent, Activity, DollarSign, RotateCcw, Clock } from 'lucide-react';
 import { formatUsd, formatPercent } from '../lib/formatters';
+import type { Chain } from '../types/chain';
 
 interface StatsCardsProps {
   ranking: {
@@ -11,9 +12,11 @@ interface StatsCardsProps {
     buybackTotalSol: string;
     buybackTotalTokens?: string;
   };
+  chain?: Chain;
 }
 
-export function StatsCards({ ranking }: StatsCardsProps) {
+export function StatsCards({ ranking, chain = 'solana' }: StatsCardsProps) {
+  const baseCurrency = chain === 'monad' ? 'MON' : 'SOL';
   const stats = [
     {
       icon: <TrendingUp className="w-5 h-5" />,
@@ -45,8 +48,8 @@ export function StatsCards({ ranking }: StatsCardsProps) {
     },
     {
       icon: <RotateCcw className="w-5 h-5" />,
-      label: 'Buyback SOL',
-      value: `${parseFloat(ranking.buybackTotalSol).toFixed(2)} SOL`,
+      label: `Buyback ${baseCurrency}`,
+      value: `${parseFloat(ranking.buybackTotalSol).toFixed(2)} ${baseCurrency}`,
       change: ranking.buybackTotalTokens
         ? `${parseFloat(ranking.buybackTotalTokens).toLocaleString()} tokens`
         : '',

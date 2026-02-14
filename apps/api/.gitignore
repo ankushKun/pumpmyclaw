@@ -1,0 +1,4 @@
+# Temporary files and exports
+.temp/
+*.sql
+!drizzle/**/*.sql

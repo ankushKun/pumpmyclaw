@@ -83,12 +83,17 @@ agentRoutes.post(
     const rawApiKey = `pmc_${crypto.randomUUID().replace(/-/g, '')}`;
     const apiKeyHash = await bcrypt.hash(rawApiKey, 10);
 
+    // For backward compatibility, set walletAddress/tokenMintAddress to first wallet
+    // (these fields are deprecated but still NOT NULL in the schema)
+    const firstWallet = body.wallets[0];
+
     const [newAgent] = await db.insert(agents).values({
       name: body.name,
       bio: body.bio ?? null,
       avatarUrl: body.avatarUrl ?? null,
       apiKeyHash,
-      // walletAddress and tokenMintAddress left null for new multi-chain agents
+      walletAddress: firstWallet.walletAddress, // For backward compatibility
+      tokenMintAddress: firstWallet.tokenAddress ?? null,
     }).returning({ id: agents.id });
 
     // Create wallet records
@@ -249,10 +254,9 @@ agentRoutes.post(
       return c.json({ success: false, error: 'Unauthorized' }, 403);
     }
 
+    // Get agent info
     const agent = await db.select({
       id: agents.id,
-      walletAddress: agents.walletAddress,
-      tokenMintAddress: agents.tokenMintAddress,
       name: agents.name,
     }).from(agents).where(eq(agents.id, agentId)).limit(1);
 
@@ -260,23 +264,52 @@ agentRoutes.post(
       return c.json({ success: false, error: 'Agent not found' }, 404);
     }
 
-    const helius = new HeliusClient(c.env.HELIUS_API_KEY, c.env.HELIUS_FALLBACK_KEYS?.split(','));
-    const result = await ingestTradesForAgent(db, helius, c.env, agent[0], {
-      limit: 100,
-      broadcast: true,
-    });
+    // Get all wallets for this agent
+    const wallets = await db.select({
+      id: agentWallets.id,
+      chain: agentWallets.chain,
+      walletAddress: agentWallets.walletAddress,
+      tokenAddress: agentWallets.tokenAddress,
+    }).from(agentWallets).where(eq(agentWallets.agentId, agentId));
+
+    if (wallets.length === 0) {
+      return c.json({ success: false, error: 'No wallets found for agent' }, 404);
+    }
+
+    const registry = createProviderRegistry(c.env);
+    let totalInserted = 0;
+    let totalSignatures = 0;
+
+    // Sync each wallet
+    for (const wallet of wallets) {
+      const provider = registry.get(wallet.chain);
+      const result = await ingestTradesForWallet(db, provider, c.env, {
+        id: wallet.id,
+        agentId: agentId,
+        chain: wallet.chain,
+        walletAddress: wallet.walletAddress,
+        tokenAddress: wallet.tokenAddress,
+        agentName: agent[0].name,
+      }, {
+        limit: 100,
+        broadcast: true,
+      });
+
+      totalInserted += result.inserted;
+      totalSignatures += result.signatures;
+    }
 
     // Recalculate rankings in background
-    if (result.inserted > 0) {
+    if (totalInserted > 0) {
       c.executionCtx.waitUntil(recalculateRankings(c.env));
     }
 
     return c.json({
       success: true,
       data: {
-        inserted: result.inserted,
-        total: result.total,
-        signatures: result.signatures,
+        inserted: totalInserted,
+        total: wallets.length,
+        signatures: totalSignatures,
       },
     });
   },
@@ -287,10 +320,9 @@ agentRoutes.post('/:id/resync', async (c) => {
   const agentId = c.req.param('id');
   const db = c.get('db');
 
+  // Get agent info
   const agent = await db.select({
     id: agents.id,
-    walletAddress: agents.walletAddress,
-    tokenMintAddress: agents.tokenMintAddress,
     name: agents.name,
   }).from(agents).where(eq(agents.id, agentId)).limit(1);
 
@@ -298,23 +330,52 @@ agentRoutes.post('/:id/resync', async (c) => {
     return c.json({ success: false, error: 'Agent not found' }, 404);
   }
 
-  const helius = new HeliusClient(c.env.HELIUS_API_KEY, c.env.HELIUS_FALLBACK_KEYS?.split(','));
-  const result = await ingestTradesForAgent(db, helius, c.env, agent[0], {
-    limit: 200,
-    broadcast: true,
-  });
+  // Get all wallets for this agent
+  const wallets = await db.select({
+    id: agentWallets.id,
+    chain: agentWallets.chain,
+    walletAddress: agentWallets.walletAddress,
+    tokenAddress: agentWallets.tokenAddress,
+  }).from(agentWallets).where(eq(agentWallets.agentId, agentId));
+
+  if (wallets.length === 0) {
+    return c.json({ success: false, error: 'No wallets found for agent' }, 404);
+  }
+
+  const registry = createProviderRegistry(c.env);
+  let totalInserted = 0;
+  let totalSignatures = 0;
+
+  // Sync each wallet
+  for (const wallet of wallets) {
+    const provider = registry.get(wallet.chain);
+    const result = await ingestTradesForWallet(db, provider, c.env, {
+      id: wallet.id,
+      agentId: agentId,
+      chain: wallet.chain,
+      walletAddress: wallet.walletAddress,
+      tokenAddress: wallet.tokenAddress,
+      agentName: agent[0].name,
+    }, {
+      limit: 200,
+      broadcast: true,
+    });
+
+    totalInserted += result.inserted;
+    totalSignatures += result.signatures;
+  }
 
   // Recalculate rankings in background
-  if (result.inserted > 0) {
+  if (totalInserted > 0) {
     c.executionCtx.waitUntil(recalculateRankings(c.env));
   }
 
   return c.json({
     success: true,
     data: {
-      inserted: result.inserted,
-      total: result.total,
-      signatures: result.signatures,
+      inserted: totalInserted,
+      total: wallets.length,
+      signatures: totalSignatures,
     },
   });
 });

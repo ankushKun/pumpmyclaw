@@ -69,17 +69,27 @@ export async function ingestTradesForWallet(
   }
 
   // 2. Batch-check which signatures are already in DB (filter by chain + signature)
-  const existingTxs = await db
-    .select({ txSignature: trades.txSignature })
-    .from(trades)
-    .where(
-      and(
-        inArray(trades.txSignature, signatures),
-        eq(trades.chain, wallet.chain)
-      )
-    );
+  // SQLite has a limit on SQL variables (~999), so batch in chunks of 50
+  const existingSet = new Set<string>();
+  const BATCH_SIZE = 50;
 
-  const existingSet = new Set(existingTxs.map((t) => t.txSignature));
+  for (let i = 0; i < signatures.length; i += BATCH_SIZE) {
+    const batch = signatures.slice(i, i + BATCH_SIZE);
+    const existingTxs = await db
+      .select({ txSignature: trades.txSignature })
+      .from(trades)
+      .where(
+        and(
+          inArray(trades.txSignature, batch),
+          eq(trades.chain, wallet.chain)
+        )
+      );
+
+    for (const tx of existingTxs) {
+      existingSet.add(tx.txSignature);
+    }
+  }
+
   const newSigs = signatures.filter((s) => !existingSet.has(s));
 
   if (newSigs.length === 0) {
@@ -100,6 +110,8 @@ export async function ingestTradesForWallet(
     )
     .filter((p): p is NonNullable<typeof p> => p !== null);
 
+  console.log(`[trade-ingester] Parsed ${parsedTrades.length} trades from ${enhancedTxs.length} transactions for ${wallet.chain} wallet`);
+
   if (parsedTrades.length === 0) {
     return { inserted: 0, total: signatures.length, signatures: signatures.length };
   }
@@ -117,6 +129,9 @@ export async function ingestTradesForWallet(
 
   // Decimal conversion: Solana = 1e9 lamports, EVM = 1e18 wei
   const decimals = wallet.chain === 'solana' ? 1e9 : 1e18;
+
+  const assetSymbol = wallet.chain === 'solana' ? 'SOL' : 'MON';
+  console.log(`[trade-ingester] Attempting to insert ${parsedTrades.length} trades for ${wallet.chain}. ${assetSymbol} price: $${baseAssetPrice}`);
 
   for (const parsed of parsedTrades) {
     const baseAssetAmountDecimal = parseFloat(parsed.baseAssetAmount) / decimals;
@@ -143,9 +158,10 @@ export async function ingestTradesForWallet(
           isBuyback: parsed.isBuyback,
           rawData: enhancedTxs.find((tx: any) => tx.signature === parsed.signature) ?? null,
           // DEPRECATED: Solana-specific (for backward compatibility)
-          tokenInMint: parsed.tokenInMint,
-          tokenOutMint: parsed.tokenOutMint,
-          solPriceUsd: parsed.solAmount ? baseAssetPrice.toString() : undefined,
+          // For Monad trades, use the same value as the new fields since DB has NOT NULL constraint
+          tokenInMint: parsed.tokenInMint ?? parsed.tokenInAddress,
+          tokenOutMint: parsed.tokenOutMint ?? parsed.tokenOutAddress,
+          solPriceUsd: parsed.solAmount ? baseAssetPrice.toString() : (wallet.chain === 'monad' ? baseAssetPrice.toString() : undefined),
         })
         .onConflictDoNothing({ target: [trades.txSignature, trades.chain] })
         .returning({ id: trades.id });
@@ -191,11 +207,15 @@ export async function ingestTradesForWallet(
             // Non-fatal: broadcast failure shouldn't stop ingestion
           }
         }
+      } else {
+        console.log(`[trade-ingester] Trade already exists (duplicate): ${parsed.signature}`);
       }
-    } catch {
-      // Skip duplicate or failed inserts
+    } catch (err) {
+      console.error(`[trade-ingester] Failed to insert trade ${parsed.signature}:`, err);
     }
   }
+
+  console.log(`[trade-ingester] Successfully inserted ${inserted} trades`);
 
   // 7. Pre-cache token metadata for all new addresses
   if (allTokenAddresses.length > 0) {

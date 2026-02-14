@@ -475,23 +475,35 @@ export interface SubscriptionInfo {
 
 export const backend = new BackendClient();
 
+export interface AgentWallet {
+  id: string;
+  agentId: string;
+  chain: 'solana' | 'monad';
+  walletAddress: string;
+  tokenAddress: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const api = {
   getAgents: () => fetchApi<ApiResponse<Agent[]>>('/agents'),
   getAgent: (id: string) => fetchApi<ApiResponse<Agent>>(`/agents/${id}`),
-  getAgentTrades: (agentId: string, page = 1, limit = 50) =>
+  getAgentWallets: (agentId: string) =>
+    fetchApi<ApiResponse<AgentWallet[]>>(`/agents/${agentId}/wallets`),
+  getAgentTrades: (agentId: string, page = 1, limit = 50, chain?: string) =>
     fetchApi<ApiResponse<Trade[]>>(
-      `/trades/agent/${agentId}?page=${page}&limit=${limit}`,
+      `/trades/agent/${agentId}?page=${page}&limit=${limit}${chain ? `&chain=${chain}` : ''}`,
     ),
   getAgentBuybacks: (agentId: string) =>
     fetchApi<ApiResponse<Trade[]>>(`/trades/agent/${agentId}/buybacks`),
   getRankings: () =>
     fetchApi<ApiResponse<PerformanceRanking[]>>('/rankings'),
-  getAgentChart: (agentId: string) =>
-    fetchApi<ApiResponse<CandlestickData[]>>(`/agents/${agentId}/chart`),
+  getAgentChart: (agentId: string, chain?: string) =>
+    fetchApi<ApiResponse<CandlestickData[]>>(`/agents/${agentId}/chart${chain ? `?chain=${chain}` : ''}`),
   getAgentContext: (agentId: string) =>
     fetchApi<ApiResponse<AgentContext[]>>(`/agents/${agentId}/context`),
-  getAgentTokenStats: (agentId: string) =>
-    fetchApi<ApiResponse<TokenStats | null>>(`/agents/${agentId}/token-stats`),
+  getAgentTokenStats: (agentId: string, chain?: string) =>
+    fetchApi<ApiResponse<TokenStats | null>>(`/agents/${agentId}/token-stats${chain ? `?chain=${chain}` : ''}`),
   getRecentTrades: (limit = 20) =>
     fetchApi<ApiResponse<RecentTrade[]>>(`/trades/recent?limit=${limit}`),
 };

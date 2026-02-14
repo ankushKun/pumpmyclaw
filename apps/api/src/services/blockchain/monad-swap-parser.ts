@@ -26,6 +26,10 @@ export interface ParsedSwap {
   tokenOutAmount: string;
   baseAssetAmount: string; // MON amount in wei
   isBuyback: boolean;
+  // DEPRECATED: Solana-specific (optional for Monad)
+  tokenInMint?: string;
+  tokenOutMint?: string;
+  solAmount?: string;
 }
 
 // Nad.fun contract addresses
@@ -63,6 +67,13 @@ export function parseMonadSwap(
   agentTokenAddress: string | null
 ): ParsedSwap | null {
   try {
+    // Check if we have nad.fun API data (preferred path)
+    const nadFunSwap = tx.rawData?.nadFunSwap;
+    if (nadFunSwap) {
+      return parseNadFunApiData(nadFunSwap, agentWallet, agentTokenAddress);
+    }
+
+    // Fallback: parse blockchain logs (requires ethers.js)
     const logs = tx.logs ?? tx.rawData?.receipt?.logs ?? [];
 
     if (logs.length === 0) {
@@ -126,6 +137,89 @@ export function parseMonadSwap(
     return null;
   } catch (err) {
     console.error('Failed to parse Monad swap:', err);
+    return null;
+  }
+}
+
+/**
+ * Parse nad.fun API swap data directly (no blockchain parsing needed)
+ */
+function parseNadFunApiData(
+  nadFunSwap: any,
+  agentWallet: string,
+  agentTokenAddress: string | null
+): ParsedSwap | null {
+  try {
+    const swapInfo = nadFunSwap.swap_info;
+
+    if (!swapInfo) {
+      console.error('nad.fun swap missing swap_info:', JSON.stringify(nadFunSwap).slice(0, 200));
+      return null;
+    }
+
+    const isBuy = swapInfo.event_type === 'BUY';
+
+    // Convert MON amount from string (in wei) - nad.fun returns wei amounts as strings
+    const monAmount = swapInfo.native_amount; // Already in wei as string
+    const tokenAmount = swapInfo.token_amount; // Token amount as string
+    const tokenAddress = swapInfo.token_id;
+
+    if (!tokenAddress) {
+      console.error(`Missing token_id in swap_info for tx ${swapInfo.transaction_hash}`);
+      return null;
+    }
+
+    // Verify this swap is for the correct wallet (if account_id is present)
+    // Note: nad.fun API omits account_id when filtering by wallet, so it's not always present
+    if (swapInfo.account_id && swapInfo.account_id.toLowerCase() !== agentWallet.toLowerCase()) {
+      return null;
+    }
+
+    const signature = swapInfo.transaction_hash;
+
+    // Validate created_at (Unix timestamp in seconds)
+    if (!swapInfo.created_at || typeof swapInfo.created_at !== 'number') {
+      console.error(`Invalid created_at timestamp for tx ${signature}:`, swapInfo.created_at);
+      return null;
+    }
+
+    const blockTime = new Date(swapInfo.created_at * 1000);
+
+    if (isBuy) {
+      // BUY: MON → Token
+      return {
+        signature,
+        blockTime,
+        platform: 'nad.fun',
+        walletAddress: agentWallet,
+        tradeType: 'buy',
+        tokenInAddress: WMON_ADDRESS,
+        tokenInAmount: monAmount,
+        tokenOutAddress: tokenAddress,
+        tokenOutAmount: tokenAmount,
+        baseAssetAmount: monAmount,
+        isBuyback: agentTokenAddress
+          ? tokenAddress.toLowerCase() === agentTokenAddress.toLowerCase()
+          : false,
+      };
+    } else {
+      // SELL: Token → MON
+      return {
+        signature,
+        blockTime,
+        platform: 'nad.fun',
+        walletAddress: agentWallet,
+        tradeType: 'sell',
+        tokenInAddress: tokenAddress,
+        tokenInAmount: tokenAmount,
+        tokenOutAddress: WMON_ADDRESS,
+        tokenOutAmount: monAmount,
+        baseAssetAmount: monAmount,
+        isBuyback: false, // Selling can't be a buyback
+      };
+    }
+  } catch (err) {
+    console.error('Failed to parse nad.fun API data:', err);
     return null;
   }
 }

@@ -128,7 +128,7 @@ export function AgentCard({ ranking, isNew = false }: AgentCardProps) {
               BUYBACK
             </span>
             <span className="text-[#A8A8A8]">
-              {parseFloat(ranking.buybackTotalSol).toFixed(2)} SOL
+              {parseFloat(ranking.buybackTotalSol).toFixed(2)} Base Asset
             </span>
           </div>
         </div>

@@ -19,10 +19,14 @@ export class SolanaProvider implements BlockchainProvider {
     address: string,
     options?: { limit?: number; before?: string }
   ): Promise<string[]> {
+    console.log(`[SolanaProvider] Getting signatures for ${address}`);
     const signatures = await this.heliusClient.getSignaturesForAddress(address, options);
+    console.log(`[SolanaProvider] Helius returned ${signatures.length} signatures for ${address}`);
     // Helius returns an array of objects with { signature: string, ... }
     // Extract just the signature strings
-    return signatures.map((sig: any) => sig.signature || sig);
+    const sigStrings = signatures.map((sig: any) => sig.signature || sig);
+    console.log(`[SolanaProvider] Returning ${sigStrings.length} signature strings`);
+    return sigStrings;
   }
 
   async getEnhancedTransaction(signature: string): Promise<BlockchainTransaction> {
@@ -38,14 +42,28 @@ export class SolanaProvider implements BlockchainProvider {
   async getEnhancedTransactions(signatures: string[]): Promise<BlockchainTransaction[]> {
     if (signatures.length === 0) return [];
 
-    // Helius supports max 100 signatures per batch
+    // Fetch in smaller batches to avoid rate limits (5 sigs per batch with 500ms delay)
+    // Helius free tier is very strict on /v0/transactions endpoint
+    const BATCH_SIZE = 5;
+    const DELAY_MS = 500;
     const transactions: any[] = [];
-    for (let i = 0; i < signatures.length; i += 100) {
-      const batch = signatures.slice(i, i + 100);
+
+    console.log(`[SolanaProvider] Fetching ${signatures.length} transactions in batches of ${BATCH_SIZE}...`);
+
+    for (let i = 0; i < signatures.length; i += BATCH_SIZE) {
+      const batch = signatures.slice(i, i + BATCH_SIZE);
       const results = await this.heliusClient.getEnhancedTransactions(batch);
       transactions.push(...results);
+
+      console.log(`[SolanaProvider] Fetched batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(signatures.length / BATCH_SIZE)} (${results.length} txs)`);
+
+      // Add delay between batches to avoid hitting rate limits
+      if (i + BATCH_SIZE < signatures.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+      }
     }
 
+    console.log(`[SolanaProvider] Successfully fetched ${transactions.length}/${signatures.length} transactions`);
     return transactions.filter(Boolean).map(tx => this.normalizeTransaction(tx));
   }
 

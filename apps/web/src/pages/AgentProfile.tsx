@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, ExternalLink, TrendingUp, TrendingDown,
   MessageSquare, Target, Shield, Wallet,
 } from 'lucide-react';
-import { api, type TokenStats } from '../lib/api';
+import { api, type TokenStats, type AgentWallet } from '../lib/api';
 import { TokenChart } from '../components/TokenChart';
 import { StatsCards } from '../components/StatsCards';
 import { TradeTable } from '../components/TradeTable';
@@ -19,6 +19,8 @@ import {
   explorerTokenUrl,
   getAgentAvatar,
 } from '../lib/formatters';
+
+type Chain = 'solana' | 'monad';
 
 function formatTokenPrice(price: string | number): string {
   const p = typeof price === 'string' ? parseFloat(price) : price;
@@ -53,6 +55,7 @@ function useRelativeTime(timestamp: Date | null) {
 export function AgentProfile() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<'trades' | 'buybacks' | 'context'>('trades');
+  const [selectedChain, setSelectedChain] = useState<Chain>('solana');
 
   const { data: agent, isLoading: agentLoading } = useQuery({
     queryKey: ['agent', id],
@@ -60,18 +63,34 @@ export function AgentProfile() {
     enabled: !!id,
   });
 
+  const { data: walletsRes, isLoading: walletsLoading } = useQuery({
+    queryKey: ['agent-wallets', id],
+    queryFn: () => api.getAgentWallets(id!),
+    enabled: !!id,
+  });
+
+  const wallets = walletsRes?.data ?? [];
+  const currentWallet = wallets.find(w => w.chain === selectedChain);
+
+  // Auto-select first available chain
+  useEffect(() => {
+    if (wallets.length > 0 && !currentWallet) {
+      setSelectedChain(wallets[0].chain);
+    }
+  }, [wallets, currentWallet]);
+
   const { data: trades, isLoading: tradesLoading, dataUpdatedAt: tradesUpdatedAt, isFetching: tradesFetching } = useQuery({
-    queryKey: ['agent-trades', id],
-    queryFn: () => api.getAgentTrades(id!, 1, 100),
+    queryKey: ['agent-trades', id, selectedChain],
+    queryFn: () => api.getAgentTrades(id!, 1, 100, selectedChain),
     enabled: !!id,
     refetchInterval: 15_000,
     staleTime: 10_000,
   });
 
   const { data: chartData } = useQuery({
-    queryKey: ['agent-chart', id],
-    queryFn: () => api.getAgentChart(id!),
-    enabled: !!id,
+    queryKey: ['agent-chart', id, selectedChain],
+    queryFn: () => api.getAgentChart(id!, selectedChain),
+    enabled: !!id && !!currentWallet?.tokenAddress,
     refetchInterval: 60_000,
   });
 
@@ -88,16 +107,50 @@ export function AgentProfile() {
     refetchInterval: 30_000,
   });
 
+  // Only fetch token stats if current wallet has a token address
   const { data: tokenStatsRes } = useQuery({
-    queryKey: ['agent-token-stats', id],
-    queryFn: () => api.getAgentTokenStats(id!),
-    enabled: !!id,
+    queryKey: ['agent-token-stats', currentWallet?.tokenAddress, selectedChain],
+    queryFn: () => currentWallet?.tokenAddress ? api.getAgentTokenStats(id!, selectedChain) : Promise.resolve(null),
+    enabled: !!id && !!currentWallet?.tokenAddress,
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
 
   const lastUpdated = tradesUpdatedAt ? new Date(tradesUpdatedAt) : null;
   const relativeTime = useRelativeTime(lastUpdated);
+
+  // Derive data (must be before early returns to satisfy Rules of Hooks)
+  const a = agent?.data;
+  const agentRanking = rankings?.data?.find((r) => r.agentId === id);
+  const allTrades = trades?.data ?? [];
+  const contextList = contexts?.data ?? [];
+  const pnl = agentRanking ? parseFloat(agentRanking.totalPnlUsd) : 0;
+  const isPositive = pnl >= 0;
+  const tokenStats: TokenStats | null = tokenStatsRes?.data ?? null;
+
+  // Calculate chain-specific stats from trades (for accurate per-chain display)
+  const chainSpecificStats = useMemo(() => {
+    if (!agentRanking) return null;
+
+    const chainTrades = allTrades.filter(t => t.chain === selectedChain);
+    const buybacks = chainTrades.filter(t => t.isBuyback);
+
+    const buybackTotalSol = buybacks.reduce((sum, t) => {
+      const decimals = t.chain === 'monad' ? 1e18 : 1e9;
+      return sum + parseFloat(t.tokenInAmount) / decimals;
+    }, 0);
+
+    const buybackTotalTokens = buybacks.reduce((sum, t) => {
+      const decimals = t.chain === 'monad' ? 1e18 : 1e9;
+      return sum + parseFloat(t.tokenOutAmount) / decimals;
+    }, 0);
+
+    return {
+      ...agentRanking,
+      buybackTotalSol: buybackTotalSol.toString(),
+      buybackTotalTokens: buybackTotalTokens.toString(),
+    };
+  }, [agentRanking, allTrades, selectedChain]);
 
   if (agentLoading) {
     return (
@@ -115,7 +168,7 @@ export function AgentProfile() {
     );
   }
 
-  if (!agent?.data) {
+  if (!a) {
     return (
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
         <div className="text-center">
@@ -127,14 +180,6 @@ export function AgentProfile() {
       </div>
     );
   }
-
-  const a = agent.data;
-  const agentRanking = rankings?.data?.find((r) => r.agentId === id);
-  const allTrades = trades?.data ?? [];
-  const contextList = contexts?.data ?? [];
-  const pnl = agentRanking ? parseFloat(agentRanking.totalPnlUsd) : 0;
-  const isPositive = pnl >= 0;
-  const tokenStats: TokenStats | null = tokenStatsRes?.data ?? null;
 
   const filteredTrades = activeTab === 'buybacks'
     ? allTrades.filter((t: any) => t.isBuyback)
@@ -181,29 +226,57 @@ export function AgentProfile() {
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-3xl md:text-4xl font-black text-white mb-2 truncate">
+                  <h1 className="text-3xl md:text-4xl font-black text-white mb-3 truncate">
                     {a.name}
                   </h1>
-                  <a
-                    href={explorerWalletUrl(a.walletAddress)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors mb-4"
-                  >
-                    <span className="mono text-sm">{formatAddress(a.walletAddress)}</span>
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                  {a.tokenMintAddress && (
+
+                  {/* Chain Tabs - Only show if agent has multiple chain wallets */}
+                  {wallets.length > 1 && (
+                    <div className="flex gap-2 mb-3">
+                      {wallets.map((wallet) => (
+                        <button
+                          key={wallet.id}
+                          onClick={() => setSelectedChain(wallet.chain)}
+                          className={`
+                            px-4 py-1.5 rounded-lg text-sm font-medium transition-all
+                            ${selectedChain === wallet.chain
+                              ? 'bg-[#B6FF2E] text-black font-bold'
+                              : 'bg-white/10 text-[#A8A8A8] hover:bg-white/20 hover:text-white'
+                            }
+                          `}
+                        >
+                          {wallet.chain === 'solana' ? '◎ Solana' : '◈ Monad'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Wallet Address */}
+                  {currentWallet && (
                     <a
-                      href={explorerTokenUrl(a.tokenMintAddress)}
+                      href={explorerWalletUrl(currentWallet.walletAddress, currentWallet.chain)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-[#2ED0FF] hover:text-[#B6FF2E] transition-colors mb-2"
+                    >
+                      <span className="mono text-sm">{formatAddress(currentWallet.walletAddress)}</span>
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+
+                  {/* Token Address */}
+                  {currentWallet?.tokenAddress && (
+                    <a
+                      href={explorerTokenUrl(currentWallet.tokenAddress, currentWallet.chain)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-4 inline-flex items-center gap-2 text-[#A8A8A8] hover:text-[#2ED0FF] transition-colors"
                     >
-                      <span className="mono text-sm">Token: {formatAddress(a.tokenMintAddress)}</span>
+                      <span className="mono text-sm">Token: {formatAddress(currentWallet.tokenAddress)}</span>
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
+
                   {a.bio && (
                     <p className="text-[#A8A8A8] max-w-xl mt-2">{a.bio}</p>
                   )}
@@ -260,10 +333,14 @@ export function AgentProfile() {
                 </div>
               )}
 
-              {/* Trade on pump.fun CTA */}
-              {a.tokenMintAddress && (
+              {/* Trade on pump.fun/nad.fun CTA */}
+              {currentWallet?.tokenAddress && (
                 <a
-                  href={`https://pump.fun/coin/${a.tokenMintAddress}`}
+                  href={
+                    selectedChain === 'monad'
+                      ? `https://nad.fun/tokens/${currentWallet.tokenAddress}`
+                      : `https://pump.fun/coin/${currentWallet.tokenAddress}`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="cyber-card p-4 flex items-center justify-between hover:border-[#B6FF2E]/30 transition-colors group block"
@@ -273,7 +350,9 @@ export function AgentProfile() {
                       <TrendingUp className="w-5 h-5 text-[#B6FF2E]" />
                     </div>
                     <div>
-                      <p className="font-medium text-white">Trade on pump.fun</p>
+                      <p className="font-medium text-white">
+                        Trade on {selectedChain === 'monad' ? 'nad.fun' : 'pump.fun'}
+                      </p>
                       <p className="text-xs text-[#A8A8A8]">Buy/sell this agent&apos;s token</p>
                     </div>
                   </div>
@@ -305,10 +384,10 @@ export function AgentProfile() {
       )}
 
       {/* Stats Cards */}
-      {agentRanking && (
+      {chainSpecificStats && (
         <section className="py-8">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <StatsCards ranking={agentRanking} />
+            <StatsCards ranking={chainSpecificStats} chain={selectedChain} />
           </div>
         </section>
       )}
@@ -359,7 +438,7 @@ export function AgentProfile() {
               ))}
             </div>
           ) : (
-            <TradeTable trades={filteredTrades} />
+            <TradeTable trades={filteredTrades} chain={selectedChain} />
           )}
         </div>
       </section>

@@ -2,19 +2,12 @@
  * Monad blockchain provider implementation
  *
  * Uses Alchemy SDK for EVM blockchain interactions
- *
- * Dependencies to install:
- * - alchemy-sdk
- * - ethers (v6)
  */
 
+import { Alchemy, Network } from 'alchemy-sdk';
+import { ethers } from 'ethers';
 import { BlockchainProvider, BlockchainTransaction } from './types';
-
-// These will be installed later
-// import { Alchemy, Network, AlchemySettings } from 'alchemy-sdk';
-// For now, use type-only imports to avoid errors
-type Alchemy = any;
-type AlchemySettings = any;
+import { NadFunClient } from './nadfun-client';
 
 const NAD_FUN_BONDING_CURVE = '0xA7283d07812a02AFB7C09B60f8896bCEA3F90aCE';
 const NAD_FUN_ROUTER = '0x6F6B8F1a20703309951a5127c45B49b1CD981A22';
@@ -22,73 +15,115 @@ const NAD_FUN_ROUTER = '0x6F6B8F1a20703309951a5127c45B49b1CD981A22';
 export class MonadProvider implements BlockchainProvider {
   readonly chain = 'monad' as const;
   private alchemy: Alchemy;
+  private provider: ethers.JsonRpcProvider;
   private apiKey: string;
+  private nadFunClient: NadFunClient;
+  private swapCache: Map<string, any> = new Map(); // Cache nad.fun swap data by tx hash
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
 
-    // TODO: Initialize Alchemy SDK once installed
-    // const settings: AlchemySettings = {
-    //   apiKey,
-    //   network: 'monad-mainnet', // Custom network config needed
-    // };
-    // this.alchemy = new Alchemy(settings);
+    // Initialize Alchemy SDK with Monad Mainnet RPC
+    const alchemyUrl = `https://monad-mainnet.g.alchemy.com/v2/${apiKey}`;
 
-    console.warn('MonadProvider: Alchemy SDK not yet initialized (needs installation)');
+    this.alchemy = new Alchemy({
+      apiKey,
+      network: Network.ETH_MAINNET, // Use mainnet base
+      url: alchemyUrl,
+    });
+
+    // Create ethers provider for contract calls
+    this.provider = new ethers.JsonRpcProvider(alchemyUrl);
+
+    // Initialize nad.fun API client for trade data
+    this.nadFunClient = new NadFunClient();
   }
 
   async getSignaturesForAddress(
     address: string,
     options?: { limit?: number; before?: string }
   ): Promise<string[]> {
-    // Use Alchemy's getAssetTransfers to find transactions
-    // Filter for interactions with nad.fun contracts
+    console.log(`[MonadProvider] Getting signatures for ${address}`);
+    try {
+      // Use nad.fun Agent API to get trades for this wallet
+      // This is much simpler and more reliable than parsing logs
+      console.log(`[MonadProvider] Calling nad.fun API...`);
+      const swaps = await this.nadFunClient.getAllTradesForWallet(
+        address,
+        options?.limit ?? 100
+      );
 
-    // TODO: Implement with Alchemy SDK
-    // const transfers = await this.alchemy.core.getAssetTransfers({
-    //   fromAddress: address,
-    //   toAddress: NAD_FUN_ROUTER,
-    //   category: ['external', 'erc20', 'internal'],
-    //   maxCount: options?.limit ?? 50,
-    //   pageKey: options?.before,
-    // });
-    //
-    // // Extract unique transaction hashes
-    // const hashes = new Set<string>();
-    // for (const transfer of transfers.transfers) {
-    //   if (transfer.hash) {
-    //     hashes.add(transfer.hash);
-    //   }
-    // }
-    //
-    // return Array.from(hashes);
+      console.log(`[MonadProvider] nad.fun API returned ${swaps.length} trades for ${address}`);
 
-    console.warn(`MonadProvider.getSignaturesForAddress(${address}) - not yet implemented`);
-    return [];
+      // Cache swap data by transaction hash for later use in getEnhancedTransactions
+      for (const swap of swaps) {
+        this.swapCache.set(swap.swap_info.transaction_hash, swap);
+      }
+
+      // Extract unique transaction hashes
+      const hashes = swaps.map(swap => swap.swap_info.transaction_hash);
+      const uniqueHashes = [...new Set(hashes)].slice(0, options?.limit ?? 50);
+      console.log(`[MonadProvider] Returning ${uniqueHashes.length} unique transaction hashes`);
+      return uniqueHashes;
+    } catch (error) {
+      console.error(`[MonadProvider] getSignaturesForAddress error:`, error);
+      throw error; // Re-throw to see the actual error
+    }
   }
 
   async getEnhancedTransaction(signature: string): Promise<BlockchainTransaction> {
-    // Fetch transaction + receipt with logs
+    try {
+      // Check if we have nad.fun swap data cached for this transaction
+      const nadFunSwap = this.swapCache.get(signature);
 
-    // TODO: Implement with Alchemy SDK
-    // const [tx, receipt] = await Promise.all([
-    //   this.alchemy.core.getTransaction(signature),
-    //   this.alchemy.core.getTransactionReceipt(signature),
-    // ]);
-    //
-    // if (!tx) {
-    //   throw new Error(`Transaction not found: ${signature}`);
-    // }
-    //
-    // return {
-    //   signature,
-    //   timestamp: tx.timestamp ?? Math.floor(Date.now() / 1000),
-    //   feePayer: tx.from,
-    //   logs: receipt?.logs ?? [],
-    //   rawData: { tx, receipt },
-    // };
+      if (nadFunSwap) {
+        console.log(`[MonadProvider] Using cached nad.fun swap for ${signature.slice(0, 10)}... created_at:`, nadFunSwap.swap_info?.created_at);
 
-    throw new Error(`MonadProvider.getEnhancedTransaction(${signature}) - not yet implemented`);
+        // Use nad.fun API data directly - no need to fetch from blockchain
+        return {
+          signature,
+          timestamp: nadFunSwap.swap_info.created_at,
+          feePayer: nadFunSwap.account_info?.account_id ?? 'unknown',
+          logs: [], // No logs needed - we have the swap data
+          rawData: { nadFunSwap }, // Include nad.fun data for parser
+        };
+      }
+
+      // Fallback: fetch from blockchain if not in cache
+      // (This shouldn't happen in normal flow but provides a safety net)
+      const [tx, receipt] = await Promise.all([
+        this.provider.getTransaction(signature),
+        this.provider.getTransactionReceipt(signature),
+      ]);
+
+      if (!tx) {
+        throw new Error(`Transaction not found: ${signature}`);
+      }
+
+      // Get block to extract timestamp
+      let timestamp = Math.floor(Date.now() / 1000);
+      if (tx.blockNumber) {
+        try {
+          const block = await this.provider.getBlock(tx.blockNumber);
+          if (block) {
+            timestamp = block.timestamp;
+          }
+        } catch {
+          // If block fetch fails, use current timestamp
+        }
+      }
+
+      return {
+        signature,
+        timestamp,
+        feePayer: tx.from,
+        logs: receipt?.logs ?? [],
+        rawData: { tx, receipt },
+      };
+    } catch (error) {
+      console.error(`MonadProvider.getEnhancedTransaction(${signature}) error:`, error);
+      throw error;
+    }
   }
 
   async getEnhancedTransactions(signatures: string[]): Promise<BlockchainTransaction[]> {
@@ -105,32 +140,28 @@ export class MonadProvider implements BlockchainProvider {
   }
 
   async addWalletToWebhook(walletAddress: string, webhookSecret: string): Promise<void> {
-    // Set up Alchemy webhook for address monitoring
-    // Use Alchemy's Notify API to create webhook
+    try {
+      // Alchemy webhooks need to be configured via dashboard or Notify API
+      // For Monad (custom network), webhook setup may require manual configuration
+      // This is a placeholder that logs the request
 
-    // TODO: Implement with Alchemy Notify API
-    // const webhookUrl = 'https://api.pumpmyclaw.com/webhooks/alchemy';
-    //
-    // // Alchemy webhook creation via REST API
-    // const res = await fetch(`https://dashboard.alchemy.com/api/create-webhook`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Content-Type': 'application/json',
-    //     'X-Alchemy-Token': this.apiKey,
-    //   },
-    //   body: JSON.stringify({
-    //     network: 'MONAD_MAINNET',
-    //     webhook_type: 'ADDRESS_ACTIVITY',
-    //     webhook_url: webhookUrl,
-    //     addresses: [walletAddress, NAD_FUN_ROUTER],
-    //   }),
-    // });
-    //
-    // if (!res.ok) {
-    //   throw new Error(`Alchemy webhook creation failed: ${res.status}`);
-    // }
+      // In production, you would:
+      // 1. Use Alchemy's Notify SDK to create/update webhooks
+      // 2. Configure webhook URL: https://api.pumpmyclaw.com/webhooks/alchemy
+      // 3. Add address filters for the wallet and nad.fun contracts
 
-    console.warn(`MonadProvider.addWalletToWebhook(${walletAddress}) - not yet implemented`);
+      console.log(`MonadProvider: Webhook setup needed for wallet ${walletAddress}`);
+      console.log(`  - Configure Alchemy webhook for address activity`);
+      console.log(`  - Monitor addresses: ${walletAddress}, ${NAD_FUN_ROUTER}, ${NAD_FUN_BONDING_CURVE}`);
+      console.log(`  - Webhook URL: https://api.pumpmyclaw.com/webhooks/alchemy`);
+      console.log(`  - Secret: ${webhookSecret.slice(0, 8)}...`);
+
+      // For now, rely on cron polling for Monad trades
+      // Webhooks can be added later for real-time updates
+    } catch (error) {
+      console.error(`MonadProvider.addWalletToWebhook error:`, error);
+      // Non-fatal - cron polling will still work
+    }
   }
 
   validateAddress(address: string): boolean {

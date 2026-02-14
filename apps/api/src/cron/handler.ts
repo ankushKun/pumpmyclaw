@@ -6,12 +6,15 @@ import type { Env } from '../types/env';
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 /**
  * Cron handler — lightweight dispatcher with activity-based polling.
  *
  * Active agents (API ping within 1 hour): poll all wallets every minute.
- * Inactive agents (no ping for >1 hour): poll wallets every 2 hours only.
+ * Inactive agents (no ping for >1 hour):
+ *   - Solana wallets: poll every 2 hours (Helius credit limits)
+ *   - Monad wallets: poll every 5 minutes (nad.fun has no credit system)
  *
  * NEW: Polls per-wallet for multi-chain support
  */
@@ -67,7 +70,10 @@ export async function cronHandler(
       const lastPollStr = await redis.get<string>(lastPollKey);
       const lastPoll = lastPollStr ? parseInt(lastPollStr, 10) : 0;
 
-      if ((now - lastPoll) >= TWO_HOURS_MS) {
+      // Monad can poll more frequently since nad.fun has no credit limits
+      const pollInterval = wallet.chain === 'monad' ? FIVE_MINUTES_MS : TWO_HOURS_MS;
+
+      if ((now - lastPoll) >= pollInterval) {
         walletsToPoll.push(wallet);
       }
     }
