@@ -136,6 +136,40 @@ export interface WalletStats {
   activePositions: number;
 }
 
+// ── Monad types (from MONAD_TRADES.json via backend) ──────────────
+
+export interface MonadToken {
+  address: string;
+  totalCostMON: number;
+  buyCount: number;
+  firstBuy: string | null;
+  ageMinutes: number | null;
+}
+
+export interface MonadTransaction {
+  type: string; // "buy" | "sell"
+  chain: string;
+  token: string;
+  monAmount: number;
+  timestamp: string;
+  profitMON: number | null;
+}
+
+export interface MonadDayStats {
+  profit: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface MonadStats {
+  today: MonadDayStats;
+  week: Array<MonadDayStats & { date: string }>;
+  allTime: MonadDayStats;
+  activePositions: number;
+}
+
 export interface LiquidateResult {
   success: boolean;
   summary: {
@@ -363,6 +397,20 @@ class BackendClient {
       method: 'POST',
       body: JSON.stringify({ signature }),
     });
+  }
+
+  // ── Monad wallet data (from MONAD_TRADES.json) ───────────────
+
+  async getMonadTokens(id: number): Promise<{ tokens: MonadToken[] }> {
+    return this.request<{ tokens: MonadToken[] }>(`/api/instances/${id}/wallet/monad/tokens`);
+  }
+
+  async getMonadTransactions(id: number, limit = 50): Promise<{ transactions: MonadTransaction[]; count: number }> {
+    return this.request<{ transactions: MonadTransaction[]; count: number }>(`/api/instances/${id}/wallet/monad/transactions?limit=${limit}`);
+  }
+
+  async getMonadStats(id: number): Promise<MonadStats> {
+    return this.request<MonadStats>(`/api/instances/${id}/wallet/monad/stats`);
   }
 
   /** Liquidate: sell all tokens and transfer all SOL to user's wallet */

@@ -19,28 +19,16 @@ import {
   ArrowDownLeft,
   CircleDot,
   Send,
-  Plug,
   CreditCard,
   CalendarDays,
   Shield,
   Zap,
-  Unplug,
-  ClipboardPaste,
   AlertTriangle,
-  Flame,
   TrendingUp,
   TrendingDown,
   BarChart3,
 } from "lucide-react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useConnection } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import {
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-} from "@solana/web3.js";
+
 import { useAuth } from "../lib/auth";
 import {
   backend,
@@ -49,7 +37,9 @@ import {
   type WalletToken,
   type WalletTransaction,
   type WalletStats,
-  type LiquidateResult,
+  type MonadToken,
+  type MonadTransaction,
+  type MonadStats,
   type SubscriptionInfo,
 } from "../lib/api";
 import { MODELS, CUSTOM_MODEL_ID, getModelName } from "../lib/models";
@@ -57,6 +47,7 @@ import { ConfirmModal, AlertModal } from "../components/Modal";
 import { generatePKCE, getAuthorizeUrl, extractCodeFromUrl, type PKCEParams } from "../lib/openai-pkce";
 
 type Tab = "overview" | "logs" | "wallet" | "settings";
+type WalletChain = "solana" | "monad";
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -107,6 +98,14 @@ export function Dashboard() {
     formatted: string;
   } | null>(null);
   const [monadCopied, setMonadCopied] = useState(false);
+  const [monadTokens, setMonadTokens] = useState<MonadToken[] | null>(null);
+  const [monadTransactions, setMonadTransactions] = useState<MonadTransaction[] | null>(null);
+  const [monadStats, setMonadStats] = useState<MonadStats | null>(null);
+  const [monadTokensRefreshing, setMonadTokensRefreshing] = useState(false);
+  const [monadTxRefreshing, setMonadTxRefreshing] = useState(false);
+
+  // Wallet sub-tab for chain switching
+  const [walletChain, setWalletChain] = useState<WalletChain>("solana");
 
   // Monad explorer base URL (testnet vs mainnet)
   const monadExplorerBase = monadTestnet
@@ -137,189 +136,6 @@ export function Dashboard() {
   const [anthropicLoading, setAnthropicLoading] = useState(false);
   const [anthropicSetupToken, setAnthropicSetupToken] = useState("");
   const [showAnthropicInput, setShowAnthropicInput] = useState(false);
-
-  // Fund wallet
-  const { connection } = useConnection();
-  const {
-    publicKey: userWalletPubkey,
-    signTransaction,
-    connected: userWalletConnected,
-  } = useWallet();
-  const [fundAmount, setFundAmount] = useState("");
-  const [fundingInProgress, setFundingInProgress] = useState(false);
-  const [fundResult, setFundResult] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const [userWalletBalance, setUserWalletBalance] = useState<number | null>(
-    null
-  );
-
-  // Liquidate
-  const [liquidateModalOpen, setLiquidateModalOpen] = useState(false);
-  const [liquidating, setLiquidating] = useState(false);
-  const [liquidateResult, setLiquidateResult] = useState<LiquidateResult | null>(null);
-
-  // Fetch user's browser wallet SOL balance
-  useEffect(() => {
-    if (!userWalletPubkey || !connection) {
-      setUserWalletBalance(null);
-      return;
-    }
-    let cancelled = false;
-    const fetch = async () => {
-      try {
-        const bal = await connection.getBalance(userWalletPubkey);
-        if (!cancelled) setUserWalletBalance(bal / LAMPORTS_PER_SOL);
-      } catch {
-        if (!cancelled) setUserWalletBalance(null);
-      }
-    };
-    fetch();
-    const interval = setInterval(fetch, 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [userWalletPubkey, connection]);
-
-  const refreshBotWallet = useCallback(async () => {
-    if (!instance) return;
-    try {
-      const balance = await backend.getWalletBalance(instance.id);
-      setWalletBalance({
-        sol: balance.sol,
-        formatted: balance.formatted,
-        solPriceUsd: balance.solPriceUsd,
-        usd: balance.usd,
-      });
-    } catch {
-      /* ignore */
-    }
-  }, [instance?.id]);
-
-  const handleFundBot = async () => {
-    if (!userWalletPubkey || !walletAddress || !signTransaction) return;
-    const amount = parseFloat(fundAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setFundResult({ type: "error", message: "Enter a valid amount" });
-      return;
-    }
-    if (userWalletBalance !== null && amount > userWalletBalance) {
-      setFundResult({ type: "error", message: "Insufficient balance" });
-      return;
-    }
-
-    setFundingInProgress(true);
-    setFundResult(null);
-
-    try {
-      // 1. Get blockhash via backend (avoids browser RPC 403 errors)
-      const { blockhash } = await backend.getLatestBlockhash();
-
-      // 2. Build the transfer transaction
-      const recipientPubkey = new PublicKey(walletAddress);
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: userWalletPubkey,
-          toPubkey: recipientPubkey,
-          lamports: Math.round(amount * LAMPORTS_PER_SOL),
-        })
-      );
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = userWalletPubkey;
-
-      // 3. Sign with the user's wallet (Phantom etc.)
-      const signed = await signTransaction(transaction);
-
-      // 4. Send the signed transaction via backend proxy
-      const serialized = signed.serialize().toString("base64");
-      const { signature } = await backend.sendRawTransaction(serialized);
-
-      // 5. Confirm via backend proxy
-      const confirmation = await backend.confirmTransaction(signature);
-      if (!confirmation.confirmed) {
-        throw new Error(confirmation.error || "Transaction not confirmed");
-      }
-
-      setFundResult({
-        type: "success",
-        message: `Sent ${amount} SOL! Tx: ${signature.slice(0, 12)}...`,
-      });
-      setFundAmount("");
-
-      // Refresh balances
-      try {
-        const bal = await connection.getBalance(userWalletPubkey);
-        setUserWalletBalance(bal / LAMPORTS_PER_SOL);
-      } catch {
-        /* balance refresh is best-effort */
-      }
-      await refreshBotWallet();
-    } catch (err) {
-      console.error("Fund transfer failed:", err);
-      setFundResult({
-        type: "error",
-        message:
-          err instanceof Error ? err.message : "Transaction failed",
-      });
-    } finally {
-      setFundingInProgress(false);
-    }
-  };
-
-  const handleLiquidate = async () => {
-    if (!instance || !userWalletPubkey) return;
-    setLiquidating(true);
-    setLiquidateResult(null);
-    setLiquidateModalOpen(false);
-
-    try {
-      const result = await backend.liquidate(
-        instance.id,
-        userWalletPubkey.toBase58(),
-      );
-      setLiquidateResult(result);
-
-      // Refresh wallet data after liquidation
-      await refreshBotWallet();
-      if (instance) {
-        try {
-          const tokensRes = await backend.getWalletTokens(instance.id);
-          setWalletTokens(tokensRes.tokens);
-        } catch { /* ignore */ }
-        try {
-          const txRes = await backend.getWalletTransactions(instance.id);
-          setWalletTransactions(txRes.transactions);
-        } catch { /* ignore */ }
-      }
-      // Refresh user wallet balance too
-      if (userWalletPubkey && connection) {
-        try {
-          const bal = await connection.getBalance(userWalletPubkey);
-          setUserWalletBalance(bal / LAMPORTS_PER_SOL);
-        } catch { /* ignore */ }
-      }
-    } catch (err) {
-      setLiquidateResult({
-        success: false,
-        summary: {
-          tokensFound: 0,
-          tokensSold: 0,
-          tokensFailed: 0,
-          solTransferred: false,
-          transferSignature: null,
-        },
-        results: [{
-          step: "error",
-          success: false,
-          error: err instanceof Error ? err.message : "Liquidation failed",
-        }],
-      });
-    } finally {
-      setLiquidating(false);
-    }
-  };
 
   // Modals
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -559,6 +375,68 @@ export function Dashboard() {
     const interval = setInterval(fetchTxAndStats, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [instance?.id, walletAddress]);
+
+  // Fetch Monad tokens - medium refresh (10s)
+  useEffect(() => {
+    if (!instance || !monadAddress) return;
+    let cancelled = false;
+    let fetchInFlight = false;
+    const fetchMonadTokens = async () => {
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      setMonadTokensRefreshing(true);
+      try {
+        const res = await backend.getMonadTokens(instance.id);
+        if (!cancelled) {
+          setMonadTokens((prev) =>
+            res.tokens.length === 0 && prev && prev.length > 0 ? prev : res.tokens
+          );
+        }
+      } catch { /* keep previous */ }
+      finally {
+        fetchInFlight = false;
+        if (!cancelled) setMonadTokensRefreshing(false);
+      }
+    };
+    fetchMonadTokens();
+    const interval = setInterval(fetchMonadTokens, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [instance?.id, monadAddress]);
+
+  // Fetch Monad transactions & stats - slower refresh (12s)
+  useEffect(() => {
+    if (!instance || !monadAddress) return;
+    let cancelled = false;
+    let fetchInFlight = false;
+    const fetchMonadTxAndStats = async () => {
+      if (fetchInFlight) return;
+      fetchInFlight = true;
+      setMonadTxRefreshing(true);
+      try {
+        const [txRes, statsRes] = await Promise.allSettled([
+          backend.getMonadTransactions(instance.id, 50),
+          backend.getMonadStats(instance.id),
+        ]);
+        if (cancelled) return;
+        if (txRes.status === "fulfilled") {
+          const newTxs = txRes.value.transactions;
+          setMonadTransactions((prev) =>
+            newTxs.length === 0 && prev && prev.length > 0 ? prev : newTxs
+          );
+        }
+        if (statsRes.status === "fulfilled") {
+          setMonadStats(statsRes.value);
+        }
+      } catch { /* keep previous */ }
+      finally {
+        fetchInFlight = false;
+        if (!cancelled) setMonadTxRefreshing(false);
+      }
+    };
+    fetchMonadTxAndStats();
+    const interval = setInterval(fetchMonadTxAndStats, 12000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [instance?.id, monadAddress]);
 
   // Fetch subscription info
   useEffect(() => {
@@ -1444,68 +1322,52 @@ export function Dashboard() {
                       </div>
                     </div>
                   )}
-                  {/* Total Value (SOL + Tokens) */}
+                  {/* Total USD Value + breakdown */}
                   <div>
-                    <div className="text-xs text-[#A8A8A8] mb-1">Total Value</div>
                     {(() => {
                       const solUsd = walletBalance?.usd ?? 0;
                       const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
+                      // TODO: add MON USD price when available
                       const totalUsd = solUsd + tokensUsd;
-                      const solPrice = walletBalance?.solPriceUsd ?? 0;
-                      const totalSol = solPrice > 0 ? totalUsd / solPrice : (walletBalance?.sol ?? 0);
                       return (
                         <>
-                          <div className={`text-2xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-[#A8A8A8]"}`}>
-                            {totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : walletBalance?.formatted ?? "..."}
+                          <div className="text-xs text-[#A8A8A8] mb-1">Total Value</div>
+                          <div className={`text-2xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-white"}`}>
+                            {totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : "$0.00"}
                           </div>
-                          {totalUsd > 0 && (
-                            <div className="text-xs text-[#A8A8A8]">
-                              {totalSol.toFixed(4)} SOL
-                              {walletBalance?.solPriceUsd && (
-                                <span className="ml-1">@ ${walletBalance.solPriceUsd.toFixed(2)}</span>
-                              )}
-                            </div>
-                          )}
                         </>
                       );
                     })()}
-                  </div>
-                  {/* Breakdown */}
-                  {(walletBalance || walletTokens || monadBalance) && (
-                    <div className="text-xs text-[#A8A8A8] border-t border-white/5 pt-2 space-y-1">
-                      {walletBalance && (
-                        <div className="flex justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
-                            SOL
-                          </span>
-                          <span>
-                            {walletBalance.formatted}
-                            {walletBalance.usd != null && (
-                              <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
-                            )}
-                          </span>
-                        </div>
-                      )}
-                      {monadBalance && (
-                        <div className="flex justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
-                            MON
-                          </span>
-                          <span>{monadBalance.formatted}</span>
-                        </div>
-                      )}
+                    {/* Always show SOL + MON breakdown */}
+                    <div className="text-xs text-[#A8A8A8] mt-1.5 space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                        <span>
+                          {walletBalance ? walletBalance.formatted : "0.0000 SOL"}
+                          {walletBalance?.usd != null && walletBalance.usd > 0 && (
+                            <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                        <span>
+                          {monadBalance ? monadBalance.formatted : "0.0000 MON"}
+                        </span>
+                      </div>
                       {walletTokens && walletTokens.length > 0 && (
-                        <div className="flex justify-between">
-                          <span>{walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""}</span>
-                          <span className="text-[#FBBF24]">
-                            ${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)}
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#FBBF24]" />
+                          <span>
+                            {walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""}
+                            <span className="text-[#FBBF24] ml-1">
+                              (${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)})
+                            </span>
                           </span>
                         </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-6">
@@ -1523,72 +1385,88 @@ export function Dashboard() {
                 <BarChart3 className="w-4 h-4 text-[#FF2E8C]" />
                 <h3 className="text-sm font-semibold">Trading Performance</h3>
               </div>
-              {walletStats ? (
+              {walletStats || monadStats ? (
                 <div className="space-y-3">
-                  {/* Today's P/L */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#A8A8A8]">Today P/L</span>
-                    <span className={`text-xs font-medium flex items-center gap-1 ${
-                      walletStats.today.profit > 0 ? "text-[#34d399]" :
-                      walletStats.today.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
-                    }`}>
-                      {walletStats.today.profit > 0 ? <TrendingUp className="w-3 h-3" /> :
-                       walletStats.today.profit < 0 ? <TrendingDown className="w-3 h-3" /> : null}
-                      {walletStats.today.profit > 0 ? "+" : ""}
-                      {walletStats.today.profit.toFixed(4)} SOL
-                    </span>
-                  </div>
-                  {/* Today's Trades / Win Rate */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#A8A8A8]">Today Trades</span>
-                    <span className="text-xs font-medium">
-                      {walletStats.today.trades > 0 ? (
-                        <>
-                          {walletStats.today.trades}
-                          <span className="text-[#A8A8A8] ml-1">
-                            ({walletStats.today.winRate.toFixed(0)}% win)
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-[#A8A8A8]">No trades</span>
-                      )}
-                    </span>
-                  </div>
-                  {/* Divider */}
+                  {/* Solana stats */}
+                  {walletStats && (
+                    <>
+                      <div className="text-[10px] text-[#A8A8A8] uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                        Solana (pump.fun)
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#A8A8A8]">Today P/L</span>
+                        <span className={`text-xs font-medium flex items-center gap-1 ${
+                          walletStats.today.profit > 0 ? "text-[#34d399]" :
+                          walletStats.today.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                        }`}>
+                          {walletStats.today.profit > 0 ? <TrendingUp className="w-3 h-3" /> :
+                           walletStats.today.profit < 0 ? <TrendingDown className="w-3 h-3" /> : null}
+                          {walletStats.today.profit > 0 ? "+" : ""}
+                          {walletStats.today.profit.toFixed(4)} SOL
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#A8A8A8]">All-time</span>
+                        <span className={`text-xs font-medium ${
+                          walletStats.allTime.profit > 0 ? "text-[#34d399]" :
+                          walletStats.allTime.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                        }`}>
+                          {walletStats.allTime.profit > 0 ? "+" : ""}
+                          {walletStats.allTime.profit.toFixed(4)} SOL
+                          {walletStats.allTime.trades > 0 && (
+                            <span className="text-[#A8A8A8] ml-1">
+                              ({walletStats.allTime.winRate.toFixed(0)}% win, {walletStats.allTime.trades} trades)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {/* Monad stats */}
+                  {monadStats && (walletStats ? <div className="border-t border-white/5" /> : null)}
+                  {monadStats && (
+                    <>
+                      <div className="text-[10px] text-[#A8A8A8] uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                        Monad (nad.fun){monadTestnet ? " - Testnet" : ""}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#A8A8A8]">Today P/L</span>
+                        <span className={`text-xs font-medium flex items-center gap-1 ${
+                          monadStats.today.profit > 0 ? "text-[#34d399]" :
+                          monadStats.today.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                        }`}>
+                          {monadStats.today.profit > 0 ? <TrendingUp className="w-3 h-3" /> :
+                           monadStats.today.profit < 0 ? <TrendingDown className="w-3 h-3" /> : null}
+                          {monadStats.today.profit > 0 ? "+" : ""}
+                          {monadStats.today.profit.toFixed(4)} MON
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-[#A8A8A8]">All-time</span>
+                        <span className={`text-xs font-medium ${
+                          monadStats.allTime.profit > 0 ? "text-[#34d399]" :
+                          monadStats.allTime.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                        }`}>
+                          {monadStats.allTime.profit > 0 ? "+" : ""}
+                          {monadStats.allTime.profit.toFixed(4)} MON
+                          {monadStats.allTime.trades > 0 && (
+                            <span className="text-[#A8A8A8] ml-1">
+                              ({monadStats.allTime.winRate.toFixed(0)}% win, {monadStats.allTime.trades} trades)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {/* Combined active positions */}
                   <div className="border-t border-white/5" />
-                  {/* All-time P/L */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#A8A8A8]">All-time P/L</span>
-                    <span className={`text-xs font-medium flex items-center gap-1 ${
-                      walletStats.allTime.profit > 0 ? "text-[#34d399]" :
-                      walletStats.allTime.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
-                    }`}>
-                      {walletStats.allTime.profit > 0 ? "+" : ""}
-                      {walletStats.allTime.profit.toFixed(4)} SOL
-                    </span>
-                  </div>
-                  {/* All-time Win Rate */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-[#A8A8A8]">Win Rate</span>
-                    <span className="text-xs font-medium">
-                      {walletStats.allTime.trades > 0 ? (
-                        <>
-                          <span className={walletStats.allTime.winRate >= 50 ? "text-[#34d399]" : "text-[#FF2E8C]"}>
-                            {walletStats.allTime.winRate.toFixed(1)}%
-                          </span>
-                          <span className="text-[#A8A8A8] ml-1">
-                            ({walletStats.allTime.wins}W / {walletStats.allTime.losses}L)
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-[#A8A8A8]">N/A</span>
-                      )}
-                    </span>
-                  </div>
-                  {/* Active Positions */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[#A8A8A8]">Active Positions</span>
-                    <span className="text-xs font-medium">{walletStats.activePositions}</span>
+                    <span className="text-xs font-medium">
+                      {(walletStats?.activePositions ?? 0) + (monadStats?.activePositions ?? 0)}
+                    </span>
                   </div>
                 </div>
               ) : (
@@ -1608,116 +1486,153 @@ export function Dashboard() {
               </button>
             </div>
 
-            {/* Recent Activity Card */}
+            {/* Recent Activity Card (dual-chain) */}
             <div className="cyber-card p-5">
               <div className="flex items-center gap-2 mb-4">
                 <Clock className="w-4 h-4 text-[#FBBF24]" />
                 <h3 className="text-sm font-semibold">Recent Activity</h3>
               </div>
-              {walletTransactions && walletTransactions.length > 0 ? (
-                <div className="space-y-2">
-                  {walletTransactions.slice(0, 4).map((tx, txIndex) => {
-                    const primaryToken = tx.tokenChanges?.[0];
-                    const tokenLabel = primaryToken?.symbol
-                      ? `$${primaryToken.symbol}`
-                      : null;
-                    const typeLabel = tx.type === "buy" && tokenLabel
-                      ? `Bought ${tokenLabel}`
-                      : tx.type === "sell" && tokenLabel
-                        ? `Sold ${tokenLabel}`
-                        : tx.type === "receive"
-                          ? "Received"
-                          : tx.type === "send"
-                            ? "Sent"
-                            : tx.type === "fee"
-                              ? "Fee"
-                              : tx.type;
-                    const activityContent = (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                              tx.type === "buy" || tx.type === "receive"
-                                ? "bg-[#34d399]/10"
-                                : tx.type === "sell" || tx.type === "send"
-                                  ? "bg-[#FF2E8C]/10"
-                                  : "bg-white/5"
-                            }`}
-                          >
-                            {primaryToken?.imageUrl ? (
-                              <img src={primaryToken.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : tx.type === "buy" || tx.type === "receive" ? (
-                              <ArrowDownLeft className="w-3 h-3 text-[#34d399]" />
-                            ) : tx.type === "sell" || tx.type === "send" ? (
-                              <ArrowUpRight className="w-3 h-3 text-[#FF2E8C]" />
-                            ) : (
-                              <RefreshCw className="w-3 h-3 text-[#A8A8A8]" />
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-xs font-medium">{typeLabel}</span>
-                            {tx.solChange && (
-                              <>
-                                <span
-                                  className={`text-xs ml-2 ${
-                                    parseFloat(tx.solChange) > 0
-                                      ? "text-[#34d399]"
-                                      : "text-[#FF2E8C]"
-                                  }`}
-                                >
-                                  {parseFloat(tx.solChange) > 0 ? "+" : ""}
-                                  {parseFloat(tx.solChange).toFixed(4)} SOL
+              {(() => {
+                // Merge Solana + Monad trades into a unified list sorted by time desc
+                type UnifiedTx = {
+                  chain: "solana" | "monad";
+                  type: string;
+                  timestamp: number; // ms
+                  label: string;
+                  amount: string;
+                  amountClass: string;
+                  icon: "buy" | "sell" | "receive" | "send" | "other";
+                  imageUrl?: string | null;
+                  explorerUrl?: string | null;
+                  key: string;
+                };
+                const unified: UnifiedTx[] = [];
+
+                // Solana transactions
+                if (walletTransactions) {
+                  for (const tx of walletTransactions.slice(0, 6)) {
+                    const pt = tx.tokenChanges?.[0];
+                    const tokenLabel = pt?.symbol ? `$${pt.symbol}` : null;
+                    const typeLabel = tx.type === "buy" && tokenLabel ? `Bought ${tokenLabel}`
+                      : tx.type === "sell" && tokenLabel ? `Sold ${tokenLabel}`
+                      : tx.type === "receive" ? "Received"
+                      : tx.type === "send" ? "Sent"
+                      : tx.type === "fee" ? "Fee" : tx.type;
+                    const solAmt = tx.solChange ? parseFloat(tx.solChange) : 0;
+                    unified.push({
+                      chain: "solana",
+                      type: tx.type,
+                      timestamp: tx.blockTime ? tx.blockTime * 1000 : 0,
+                      label: typeLabel,
+                      amount: tx.solChange ? `${solAmt > 0 ? "+" : ""}${solAmt.toFixed(4)} SOL` : "",
+                      amountClass: solAmt > 0 ? "text-[#34d399]" : solAmt < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]",
+                      icon: (tx.type === "buy" || tx.type === "receive") ? "buy" : (tx.type === "sell" || tx.type === "send") ? "sell" : "other",
+                      imageUrl: pt?.imageUrl,
+                      explorerUrl: tx.signature ? `https://orb.helius.dev/tx/${tx.signature}` : null,
+                      key: tx.signature || `sol-${tx.blockTime}`,
+                    });
+                  }
+                }
+
+                // Monad transactions
+                if (monadTransactions) {
+                  for (const tx of monadTransactions.slice(0, 6)) {
+                    const tokenShort = tx.token ? `${tx.token.slice(0, 6)}...` : "token";
+                    const typeLabel = tx.type === "buy" ? `Bought ${tokenShort}`
+                      : tx.type === "sell" ? `Sold ${tokenShort}` : tx.type;
+                    unified.push({
+                      chain: "monad",
+                      type: tx.type,
+                      timestamp: tx.timestamp ? new Date(tx.timestamp).getTime() : 0,
+                      label: typeLabel,
+                      amount: `${tx.type === "sell" ? "+" : "-"}${tx.monAmount.toFixed(4)} MON`,
+                      amountClass: tx.type === "sell" ? "text-[#34d399]" : "text-[#FF2E8C]",
+                      icon: tx.type === "buy" ? "buy" : "sell",
+                      explorerUrl: null,
+                      key: `mon-${tx.timestamp}-${tx.token}`,
+                    });
+                  }
+                }
+
+                // Sort by timestamp desc, take first 5
+                unified.sort((a, b) => b.timestamp - a.timestamp);
+                const display = unified.slice(0, 5);
+
+                if (display.length === 0) {
+                  return (
+                    <div className="text-center py-6">
+                      <Clock className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                      <p className="text-[#A8A8A8] text-xs">
+                        No activity yet. Transactions will appear here.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {display.map((item) => {
+                      const content = (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                              item.icon === "buy" ? "bg-[#34d399]/10" : item.icon === "sell" ? "bg-[#FF2E8C]/10" : "bg-white/5"
+                            }`}>
+                              {item.imageUrl ? (
+                                <img src={item.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                              ) : item.icon === "buy" ? (
+                                <ArrowDownLeft className="w-3 h-3 text-[#34d399]" />
+                              ) : item.icon === "sell" ? (
+                                <ArrowUpRight className="w-3 h-3 text-[#FF2E8C]" />
+                              ) : (
+                                <RefreshCw className="w-3 h-3 text-[#A8A8A8]" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${item.chain === "solana" ? "bg-[#9945FF]" : "bg-[#836EF9]"}`} />
+                                <span className="text-xs font-medium">{item.label}</span>
+                              </div>
+                              {item.amount && (
+                                <span className={`text-xs ml-3 ${item.amountClass}`}>
+                                  {item.amount}
                                 </span>
-                                {walletBalance?.solPriceUsd && (tx.type === "buy" || tx.type === "sell") && (
-                                  <span className="text-[10px] text-[#A8A8A8] ml-1">
-                                    (${(Math.abs(parseFloat(tx.solChange)) * walletBalance.solPriceUsd).toFixed(2)})
-                                  </span>
-                                )}
-                              </>
-                            )}
+                              )}
+                            </div>
                           </div>
+                          <span className="text-[10px] text-[#A8A8A8]">
+                            {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : ""}
+                          </span>
+                        </>
+                      );
+                      return item.explorerUrl ? (
+                        <a
+                          key={item.key}
+                          href={item.explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between py-2 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors rounded-md px-1 -mx-1"
+                        >
+                          {content}
+                        </a>
+                      ) : (
+                        <div
+                          key={item.key}
+                          className="flex items-center justify-between py-2 border-b border-white/5 last:border-0"
+                        >
+                          {content}
                         </div>
-                        <span className="text-[10px] text-[#A8A8A8]">
-                          {tx.blockTime
-                            ? new Date(tx.blockTime * 1000).toLocaleDateString()
-                            : ""}
-                        </span>
-                      </>
-                    );
-                    return tx.signature ? (
-                      <a
-                        key={tx.signature}
-                        href={`https://orb.helius.dev/tx/${tx.signature}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between py-2 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors rounded-md px-1 -mx-1"
-                      >
-                        {activityContent}
-                      </a>
-                    ) : (
-                      <div
-                        key={`recent-${txIndex}`}
-                        className="flex items-center justify-between py-2 border-b border-white/5 last:border-0"
-                      >
-                        {activityContent}
-                      </div>
-                    );
-                  })}
-                  <button
-                    onClick={() => setActiveTab("wallet")}
-                    className="text-xs text-[#2ED0FF] hover:underline mt-1"
-                  >
-                    View all transactions
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <Clock className="w-8 h-8 text-white/10 mx-auto mb-2" />
-                  <p className="text-[#A8A8A8] text-xs">
-                    No activity yet. Transactions will appear here.
-                  </p>
-                </div>
-              )}
+                      );
+                    })}
+                    <button
+                      onClick={() => setActiveTab("wallet")}
+                      className="text-xs text-[#2ED0FF] hover:underline mt-1"
+                    >
+                      View all transactions
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1866,7 +1781,7 @@ export function Dashboard() {
                           </div>
                         </>
                       )}
-                      {/* Total Portfolio Value */}
+                      {/* Total Portfolio Value (USD) */}
                       <div className="flex items-center gap-2 text-xs text-[#A8A8A8] mb-1 mt-2">
                         <span>Total Portfolio Value</span>
                         {balanceRefreshing && walletBalance !== null && (
@@ -1877,55 +1792,36 @@ export function Dashboard() {
                         const solUsd = walletBalance?.usd ?? 0;
                         const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
                         const totalUsd = solUsd + tokensUsd;
-                        const solPrice = walletBalance?.solPriceUsd ?? 0;
-                        const totalSol = solPrice > 0 ? totalUsd / solPrice : (walletBalance?.sol ?? 0);
                         return (
-                          <div className="flex items-baseline gap-3 flex-wrap">
-                            <div className={`text-3xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-[#A8A8A8]"}`}>
-                              {totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : (
-                                walletBalance ? walletBalance.formatted : (
-                                  <span className="flex items-center gap-2">
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                  </span>
-                                )
-                              )}
-                            </div>
-                            {totalUsd > 0 && (
-                              <div className="text-sm text-[#A8A8A8]">
-                                ({totalSol.toFixed(4)} SOL)
-                              </div>
+                          <div className={`text-3xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-white"}`}>
+                            {walletBalance === null && monadBalance === null ? (
+                              <Loader2 className="w-5 h-5 animate-spin text-[#A8A8A8]" />
+                            ) : (
+                              totalUsd > 0 ? `$${totalUsd.toFixed(2)}` : "$0.00"
                             )}
                           </div>
                         );
                       })()}
-                      {/* Breakdown row */}
+                      {/* Always show SOL + MON breakdown */}
                       <div className="flex items-center gap-4 mt-2 text-xs text-[#A8A8A8] flex-wrap">
-                        {walletBalance && (
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
-                            SOL: {walletBalance.formatted}
-                            {walletBalance.usd != null && (
-                              <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
-                            )}
-                          </span>
-                        )}
-                        {monadBalance && (
-                          <span className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
-                            MON: {monadBalance.formatted}
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                          {walletBalance ? walletBalance.formatted : "0.0000 SOL"}
+                          {walletBalance?.usd != null && walletBalance.usd > 0 && (
+                            <span className="text-[#34d399] ml-1">(${walletBalance.usd.toFixed(2)})</span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                          {monadBalance ? monadBalance.formatted : "0.0000 MON"}
+                        </span>
                         {walletTokens && walletTokens.length > 0 && (
-                          <span>
-                            Tokens: {walletTokens.length}
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#FBBF24]" />
+                            {walletTokens.length} token{walletTokens.length !== 1 ? "s" : ""}
                             <span className="text-[#FBBF24] ml-1">
                               (${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)})
                             </span>
-                          </span>
-                        )}
-                        {walletBalance?.solPriceUsd && (
-                          <span className="text-[#A8A8A8]/60">
-                            SOL @ ${walletBalance.solPriceUsd.toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -1959,478 +1855,446 @@ export function Dashboard() {
                   </div>
                 </div>
 
-                {/* Fund Bot Wallet */}
-                <div className="cyber-card p-5 md:col-span-3">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Plug className="w-4 h-4 text-[#B6FF2E]" />
-                    <h3 className="text-sm font-semibold">Fund Bot Wallet</h3>
-                  </div>
-
-                  {!userWalletConnected ? (
-                    <div className="flex flex-col sm:flex-row items-center gap-4 py-3">
-                      <p className="text-sm text-[#A8A8A8]">
-                        Connect your wallet to send SOL to your bot
-                      </p>
-                      <WalletMultiButton
-                        style={{
-                          background: "rgba(182, 255, 46, 0.1)",
-                          border: "1px solid rgba(182, 255, 46, 0.3)",
-                          borderRadius: "9999px",
-                          fontSize: "14px",
-                          height: "40px",
-                          lineHeight: "40px",
-                          padding: "0 20px",
-                          color: "#B6FF2E",
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Connected wallet info */}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-white/5">
-                        <div>
-                          <div className="text-xs text-[#A8A8A8] mb-1">
-                            Your Wallet
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="mono text-xs">
-                              {userWalletPubkey?.toBase58().slice(0, 8)}...
-                              {userWalletPubkey?.toBase58().slice(-6)}
-                            </span>
-                            <span className="text-xs text-[#34d399] font-medium">
-                              {userWalletBalance !== null
-                                ? `${userWalletBalance.toFixed(4)} SOL`
-                                : "..."}
-                            </span>
-                          </div>
-                        </div>
-                        <WalletMultiButton
-                          style={{
-                            background: "rgba(255, 255, 255, 0.05)",
-                            border: "1px solid rgba(255, 255, 255, 0.1)",
-                            borderRadius: "9999px",
-                            fontSize: "12px",
-                            height: "32px",
-                            lineHeight: "32px",
-                            padding: "0 14px",
-                            color: "#A8A8A8",
-                          }}
-                        />
-                      </div>
-
-                      {/* Transfer form */}
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <div className="flex-1">
-                          <label className="text-xs text-[#A8A8A8] mb-1.5 block">
-                            Amount (SOL)
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="0.001"
-                              min="0"
-                              placeholder="0.00"
-                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mono focus:outline-none focus:border-[#B6FF2E]/50 transition-colors pr-16"
-                              value={fundAmount}
-                              onChange={(e) => {
-                                setFundAmount(e.target.value);
-                                setFundResult(null);
-                              }}
-                              disabled={fundingInProgress}
-                            />
-                            {userWalletBalance !== null && (
-                              <button
-                                onClick={() => {
-                                  // Leave ~0.005 SOL for fee
-                                  const max = Math.max(
-                                    0,
-                                    userWalletBalance - 0.005
-                                  );
-                                  setFundAmount(max.toFixed(4));
-                                  setFundResult(null);
-                                }}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#B6FF2E] hover:text-[#B6FF2E]/80 transition-colors uppercase font-semibold"
-                              >
-                                Max
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            onClick={handleFundBot}
-                            disabled={
-                              fundingInProgress ||
-                              !fundAmount ||
-                              parseFloat(fundAmount) <= 0
-                            }
-                            className="btn-primary text-sm py-2.5 px-6 whitespace-nowrap"
-                          >
-                            {fundingInProgress ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                Sending...
-                              </>
-                            ) : (
-                              <>
-                                <Send className="w-3.5 h-3.5" />
-                                Send SOL to Bot
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Result feedback */}
-                      {fundResult && (
-                        <div
-                          className={`rounded-lg px-3 py-2 text-xs ${
-                            fundResult.type === "success"
-                              ? "bg-[#34d399]/10 border border-[#34d399]/20 text-[#34d399]"
-                              : "bg-[#FF2E8C]/10 border border-[#FF2E8C]/20 text-[#FF2E8C]"
-                          }`}
-                        >
-                          {fundResult.message}
-                        </div>
-                      )}
-                    </div>
+                {/* ── Chain sub-tabs ──────────────────────────────────── */}
+                <div className="md:col-span-3 flex gap-2">
+                  {walletAddress && (
+                    <button
+                      onClick={() => setWalletChain("solana")}
+                      className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-full transition-all ${
+                        walletChain === "solana"
+                          ? "bg-[#9945FF]/20 border border-[#9945FF]/40 text-white"
+                          : "bg-white/5 border border-white/10 text-[#A8A8A8] hover:text-white"
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#9945FF]" />
+                      Solana
+                      {walletBalance && <span className="text-[10px] ml-1 opacity-70">{walletBalance.formatted}</span>}
+                    </button>
+                  )}
+                  {monadAddress && (
+                    <button
+                      onClick={() => setWalletChain("monad")}
+                      className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-full transition-all ${
+                        walletChain === "monad"
+                          ? "bg-[#836EF9]/20 border border-[#836EF9]/40 text-white"
+                          : "bg-white/5 border border-white/10 text-[#A8A8A8] hover:text-white"
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#836EF9]" />
+                      Monad{monadTestnet ? " (Testnet)" : ""}
+                      {monadBalance && <span className="text-[10px] ml-1 opacity-70">{monadBalance.formatted}</span>}
+                    </button>
                   )}
                 </div>
 
-                {/* Liquidate & Withdraw */}
-                <div className="cyber-card p-5 md:col-span-3 border border-[#FF2E8C]/20">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Flame className="w-4 h-4 text-[#FF2E8C]" />
-                    <h3 className="text-sm font-semibold">Liquidate & Withdraw</h3>
-                  </div>
-
-                  <p className="text-xs text-[#A8A8A8] mb-4">
-                    Sell all token holdings for SOL, then transfer all SOL from the bot wallet to your connected wallet.
-                    This action cannot be undone.
-                  </p>
-
-                  {!userWalletConnected ? (
-                    <div className="flex flex-col sm:flex-row items-center gap-4 py-3">
-                      <p className="text-sm text-[#A8A8A8]">
-                        Connect your wallet to receive funds
-                      </p>
-                      <WalletMultiButton
-                        style={{
-                          background: "rgba(255, 46, 140, 0.1)",
-                          border: "1px solid rgba(255, 46, 140, 0.3)",
-                          borderRadius: "9999px",
-                          fontSize: "14px",
-                          height: "40px",
-                          lineHeight: "40px",
-                          padding: "0 20px",
-                          color: "#FF2E8C",
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                        <div className="flex-1">
-                          <div className="text-xs text-[#A8A8A8] mb-1">Destination</div>
-                          <div className="mono text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 truncate">
-                            {userWalletPubkey?.toBase58()}
-                          </div>
-                        </div>
-                        <div className="flex items-end">
-                          <button
-                            onClick={() => setLiquidateModalOpen(true)}
-                            disabled={liquidating}
-                            className="text-sm py-2.5 px-6 whitespace-nowrap rounded-full font-medium transition-all bg-[#FF2E8C]/10 border border-[#FF2E8C]/30 text-[#FF2E8C] hover:bg-[#FF2E8C]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                          >
-                            {liquidating ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                Liquidating...
-                              </>
-                            ) : (
-                              <>
-                                <Flame className="w-3.5 h-3.5" />
-                                Liquidate All & Withdraw
-                              </>
+                {/* ════════════════════════════════════════════════════ */}
+                {/*  SOLANA CHAIN VIEW                                  */}
+                {/* ════════════════════════════════════════════════════ */}
+                {walletChain === "solana" && walletAddress && (
+                  <>
+                    {/* Solana Tokens */}
+                    <div className="cyber-card p-5 md:col-span-1">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold">
+                            Token Holdings
+                            {walletTokens && (
+                              <span className="text-[#A8A8A8] font-normal ml-1">
+                                ({walletTokens.length})
+                              </span>
                             )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Liquidation result */}
-                      {liquidateResult && (
-                        <div className={`rounded-lg px-4 py-3 text-xs space-y-2 ${
-                          liquidateResult.success
-                            ? "bg-[#34d399]/10 border border-[#34d399]/20"
-                            : "bg-[#FF2E8C]/10 border border-[#FF2E8C]/20"
-                        }`}>
-                          <div className={`font-semibold ${liquidateResult.success ? "text-[#34d399]" : "text-[#FF2E8C]"}`}>
-                            {liquidateResult.success ? "Liquidation complete" : "Liquidation finished with errors"}
-                          </div>
-                          {liquidateResult.summary.tokensFound > 0 && (
-                            <div className="text-[#A8A8A8]">
-                              Tokens: {liquidateResult.summary.tokensSold} sold
-                              {liquidateResult.summary.tokensFailed > 0 && (
-                                <span className="text-[#FF2E8C]"> / {liquidateResult.summary.tokensFailed} failed</span>
-                              )}
-                            </div>
+                          </h3>
+                          {tokensRefreshing && walletTokens !== null && (
+                            <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
                           )}
-                          {liquidateResult.summary.solTransferred && liquidateResult.summary.transferSignature && (
-                            <div>
-                              <span className="text-[#34d399]">SOL transferred</span>
-                              {" "}
-                              <a
-                                href={`https://orb.helius.dev/tx/${liquidateResult.summary.transferSignature}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[#2ED0FF] hover:underline mono"
-                              >
-                                {liquidateResult.summary.transferSignature.slice(0, 12)}...
-                              </a>
-                            </div>
-                          )}
-                          {/* Show individual sell results if any failed */}
-                          {liquidateResult.results.filter(r => !r.success).map((r, i) => (
-                            <div key={i} className="text-[#FF2E8C]">
-                              {r.step === "sell" ? `Failed to sell ${r.symbol || r.mint?.slice(0, 8)}` : r.step}: {r.error}
-                            </div>
-                          ))}
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Tokens */}
-                <div className="cyber-card p-5 md:col-span-1">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold">
-                        Token Holdings
-                        {walletTokens && (
-                          <span className="text-[#A8A8A8] font-normal ml-1">
-                            ({walletTokens.length})
+                        {walletTokens && walletTokens.some(t => t.valueUsd) && (
+                          <span className="text-xs font-medium text-[#FBBF24]">
+                            ${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)}
                           </span>
                         )}
-                      </h3>
-                      {tokensRefreshing && walletTokens !== null && (
-                        <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
-                      )}
-                    </div>
-                    {walletTokens && walletTokens.some(t => t.valueUsd) && (
-                      <span className="text-xs font-medium text-[#FBBF24]">
-                        ${walletTokens.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0).toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                  {walletTokens === null ? (
-                    <div className="flex items-center justify-center py-6 gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
-                      <span className="text-[#A8A8A8] text-xs">Loading tokens...</span>
-                    </div>
-                  ) : walletTokens.length > 0 ? (
-                    <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
-                      {walletTokens.map((token) => (
-                        <a
-                          key={token.mint}
-                          href={token.dexUrl || `https://dexscreener.com/solana/${token.mint}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-3 py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
-                        >
-                          {/* Token icon */}
-                          <div className="w-8 h-8 rounded-full bg-white/5 flex-shrink-0 overflow-hidden">
-                            {token.imageUrl ? (
-                              <img src={token.imageUrl} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-[#A8A8A8]">
-                                {(token.symbol || token.mint.slice(0, 2)).slice(0, 2).toUpperCase()}
-                              </div>
-                            )}
-                          </div>
-                          {/* Token info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-semibold truncate">
-                                {token.symbol || token.mint.slice(0, 6) + "..."}
-                              </span>
-                              {token.name && (
-                                <span className="text-[10px] text-[#A8A8A8] truncate hidden sm:inline">
-                                  {token.name}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-[#A8A8A8]">
-                              {parseFloat(token.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })} tokens
-                            </div>
-                          </div>
-                          {/* Price + P/L */}
-                          <div className="text-right flex-shrink-0">
-                            {token.valueUsd != null ? (
-                              <div className="text-xs font-medium">${token.valueUsd.toFixed(token.valueUsd < 0.01 ? 6 : 2)}</div>
-                            ) : (
-                              <div className="text-xs text-[#A8A8A8]">--</div>
-                            )}
-                            {token.pnlPercent != null ? (
-                              <div className={`text-[10px] font-medium ${token.pnlPercent >= 0 ? "text-[#34d399]" : "text-[#FF2E8C]"}`}>
-                                {token.pnlPercent >= 0 ? "+" : ""}{token.pnlPercent.toFixed(1)}% P/L
-                              </div>
-                            ) : token.priceUsd != null ? (
-                              <div className="text-[10px] text-[#A8A8A8]">
-                                ${token.priceUsd < 0.0001 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(token.priceUsd < 0.01 ? 6 : 4)}
-                              </div>
-                            ) : null}
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[#A8A8A8] text-xs py-4 text-center">
-                      No tokens held
-                    </p>
-                  )}
-                </div>
-
-                {/* Transactions */}
-                <div className="cyber-card p-5 md:col-span-2">
-                  <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-sm font-semibold">
-                      Transaction History
-                      {walletTransactions && (
-                        <span className="text-[#A8A8A8] font-normal ml-1">
-                          ({walletTransactions.length})
-                        </span>
-                      )}
-                    </h3>
-                    {txRefreshing && walletTransactions !== null && (
-                      <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
-                    )}
-                  </div>
-                  {walletTransactions === null ? (
-                    <div className="flex items-center justify-center py-6 gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
-                      <span className="text-[#A8A8A8] text-xs">Loading transactions...</span>
-                    </div>
-                  ) : walletTransactions.length > 0 ? (
-                    <div className="space-y-1 max-h-[400px] overflow-y-auto">
-                      {walletTransactions.map((tx, txIndex) => {
-                        // Get the primary token involved in this transaction
-                        const primaryToken = tx.tokenChanges?.[0];
-                        const tokenLabel = primaryToken?.symbol
-                          ? `$${primaryToken.symbol}`
-                          : primaryToken?.name
-                            ? primaryToken.name
-                            : null;
-                        const typeLabel = tx.type === "buy" && tokenLabel
-                          ? `Bought ${tokenLabel}`
-                          : tx.type === "sell" && tokenLabel
-                            ? `Sold ${tokenLabel}`
-                            : tx.type === "receive"
-                              ? "Received"
-                              : tx.type === "send"
-                                ? "Sent"
-                                : tx.type === "fee"
-                                  ? "Fee"
-                                  : tx.type === "swap"
-                                    ? "Swap"
-                                    : tx.type;
-
-                        return (
-                          <div
-                            key={tx.signature || `tx-${txIndex}`}
-                            className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div
-                                className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                  tx.type === "buy" || tx.type === "receive"
-                                    ? "bg-[#34d399]/10"
-                                    : tx.type === "sell" || tx.type === "send"
-                                      ? "bg-[#FF2E8C]/10"
-                                      : "bg-white/5"
-                                }`}
-                              >
-                                {primaryToken?.imageUrl ? (
-                                  <img src={primaryToken.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
-                                ) : tx.type === "buy" || tx.type === "receive" ? (
-                                  <ArrowDownLeft className="w-3.5 h-3.5 text-[#34d399]" />
-                                ) : tx.type === "sell" || tx.type === "send" ? (
-                                  <ArrowUpRight className="w-3.5 h-3.5 text-[#FF2E8C]" />
+                      </div>
+                      {walletTokens === null ? (
+                        <div className="flex items-center justify-center py-6 gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+                          <span className="text-[#A8A8A8] text-xs">Loading tokens...</span>
+                        </div>
+                      ) : walletTokens.length > 0 ? (
+                        <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                          {walletTokens.map((token) => (
+                            <a
+                              key={token.mint}
+                              href={token.dexUrl || `https://dexscreener.com/solana/${token.mint}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
+                            >
+                              <div className="w-8 h-8 rounded-full bg-white/5 flex-shrink-0 overflow-hidden">
+                                {token.imageUrl ? (
+                                  <img src={token.imageUrl} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                  <RefreshCw className="w-3.5 h-3.5 text-[#A8A8A8]" />
-                                )}
-                              </div>
-                              <div>
-                                <div className="text-xs font-medium">
-                                  {typeLabel}
-                                </div>
-                                {tx.signature ? (
-                                  <a
-                                    href={`https://orb.helius.dev/tx/${tx.signature}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[10px] text-[#A8A8A8] hover:text-[#2ED0FF] mono"
-                                  >
-                                    {tx.signature.slice(0, 12)}...
-                                  </a>
-                                ) : (
-                                  <span className="text-[10px] text-[#A8A8A8] mono">
-                                    {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleTimeString() : ""}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              {tx.solChange && (
-                                <>
-                                  <div
-                                    className={`text-xs font-medium ${
-                                      parseFloat(tx.solChange) > 0
-                                        ? "text-[#34d399]"
-                                        : "text-[#FF2E8C]"
-                                    }`}
-                                  >
-                                    {parseFloat(tx.solChange) > 0 ? "+" : ""}
-                                    {parseFloat(tx.solChange).toFixed(4)} SOL
+                                  <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-[#A8A8A8]">
+                                    {(token.symbol || token.mint.slice(0, 2)).slice(0, 2).toUpperCase()}
                                   </div>
-                                  {/* USD value for buys/sells */}
-                                  {walletBalance?.solPriceUsd && (tx.type === "buy" || tx.type === "sell") && (
-                                    <div className="text-[10px] text-[#A8A8A8]">
-                                      ${(Math.abs(parseFloat(tx.solChange)) * walletBalance.solPriceUsd).toFixed(2)}
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              {tx.type === "sell" && tx.profitSOL != null && (
-                                <div className={`text-[10px] font-medium ${
-                                  tx.profitSOL > 0 ? "text-[#34d399]" : tx.profitSOL < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
-                                }`}>
-                                  P/L: {tx.profitSOL > 0 ? "+" : ""}{tx.profitSOL.toFixed(4)} SOL
-                                  {walletBalance?.solPriceUsd && (
-                                    <span className="ml-1">
-                                      (${(tx.profitSOL * walletBalance.solPriceUsd).toFixed(2)})
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold truncate">
+                                    {token.symbol || token.mint.slice(0, 6) + "..."}
+                                  </span>
+                                  {token.name && (
+                                    <span className="text-[10px] text-[#A8A8A8] truncate hidden sm:inline">
+                                      {token.name}
                                     </span>
                                   )}
                                 </div>
-                              )}
-                              <div className="text-[10px] text-[#A8A8A8]">
-                                {tx.blockTime
-                                  ? new Date(
-                                      tx.blockTime * 1000
-                                    ).toLocaleString()
-                                  : "Pending"}
+                                <div className="text-[10px] text-[#A8A8A8]">
+                                  {parseFloat(token.balance).toLocaleString(undefined, { maximumFractionDigits: 2 })} tokens
+                                </div>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                {token.valueUsd != null ? (
+                                  <div className="text-xs font-medium">${token.valueUsd.toFixed(token.valueUsd < 0.01 ? 6 : 2)}</div>
+                                ) : (
+                                  <div className="text-xs text-[#A8A8A8]">--</div>
+                                )}
+                                {token.pnlPercent != null ? (
+                                  <div className={`text-[10px] font-medium ${token.pnlPercent >= 0 ? "text-[#34d399]" : "text-[#FF2E8C]"}`}>
+                                    {token.pnlPercent >= 0 ? "+" : ""}{token.pnlPercent.toFixed(1)}% P/L
+                                  </div>
+                                ) : token.priceUsd != null ? (
+                                  <div className="text-[10px] text-[#A8A8A8]">
+                                    ${token.priceUsd < 0.0001 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(token.priceUsd < 0.01 ? 6 : 4)}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[#A8A8A8] text-xs py-4 text-center">
+                          No tokens held
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Solana Transactions */}
+                    <div className="cyber-card p-5 md:col-span-2">
+                      <div className="flex items-center gap-2 mb-3">
+                        <h3 className="text-sm font-semibold">
+                          Transaction History
+                          {walletTransactions && (
+                            <span className="text-[#A8A8A8] font-normal ml-1">
+                              ({walletTransactions.length})
+                            </span>
+                          )}
+                        </h3>
+                        {txRefreshing && walletTransactions !== null && (
+                          <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
+                        )}
+                      </div>
+                      {walletTransactions === null ? (
+                        <div className="flex items-center justify-center py-6 gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+                          <span className="text-[#A8A8A8] text-xs">Loading transactions...</span>
+                        </div>
+                      ) : walletTransactions.length > 0 ? (
+                        <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                          {walletTransactions.map((tx, txIndex) => {
+                            const primaryToken = tx.tokenChanges?.[0];
+                            const tokenLabel = primaryToken?.symbol
+                              ? `$${primaryToken.symbol}`
+                              : primaryToken?.name ? primaryToken.name : null;
+                            const typeLabel = tx.type === "buy" && tokenLabel ? `Bought ${tokenLabel}`
+                              : tx.type === "sell" && tokenLabel ? `Sold ${tokenLabel}`
+                              : tx.type === "receive" ? "Received"
+                              : tx.type === "send" ? "Sent"
+                              : tx.type === "fee" ? "Fee"
+                              : tx.type === "swap" ? "Swap" : tx.type;
+
+                            return (
+                              <div
+                                key={tx.signature || `tx-${txIndex}`}
+                                className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                    tx.type === "buy" || tx.type === "receive" ? "bg-[#34d399]/10"
+                                    : tx.type === "sell" || tx.type === "send" ? "bg-[#FF2E8C]/10" : "bg-white/5"
+                                  }`}>
+                                    {primaryToken?.imageUrl ? (
+                                      <img src={primaryToken.imageUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                                    ) : tx.type === "buy" || tx.type === "receive" ? (
+                                      <ArrowDownLeft className="w-3.5 h-3.5 text-[#34d399]" />
+                                    ) : tx.type === "sell" || tx.type === "send" ? (
+                                      <ArrowUpRight className="w-3.5 h-3.5 text-[#FF2E8C]" />
+                                    ) : (
+                                      <RefreshCw className="w-3.5 h-3.5 text-[#A8A8A8]" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="text-xs font-medium">{typeLabel}</div>
+                                    {tx.signature ? (
+                                      <a
+                                        href={`https://orb.helius.dev/tx/${tx.signature}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[10px] text-[#A8A8A8] hover:text-[#2ED0FF] mono"
+                                      >
+                                        {tx.signature.slice(0, 12)}...
+                                      </a>
+                                    ) : (
+                                      <span className="text-[10px] text-[#A8A8A8] mono">
+                                        {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleTimeString() : ""}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  {tx.solChange && (
+                                    <>
+                                      <div className={`text-xs font-medium ${
+                                        parseFloat(tx.solChange) > 0 ? "text-[#34d399]" : "text-[#FF2E8C]"
+                                      }`}>
+                                        {parseFloat(tx.solChange) > 0 ? "+" : ""}
+                                        {parseFloat(tx.solChange).toFixed(4)} SOL
+                                      </div>
+                                      {walletBalance?.solPriceUsd && (tx.type === "buy" || tx.type === "sell") && (
+                                        <div className="text-[10px] text-[#A8A8A8]">
+                                          ${(Math.abs(parseFloat(tx.solChange)) * walletBalance.solPriceUsd).toFixed(2)}
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                  {tx.type === "sell" && tx.profitSOL != null && (
+                                    <div className={`text-[10px] font-medium ${
+                                      tx.profitSOL > 0 ? "text-[#34d399]" : tx.profitSOL < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                                    }`}>
+                                      P/L: {tx.profitSOL > 0 ? "+" : ""}{tx.profitSOL.toFixed(4)} SOL
+                                      {walletBalance?.solPriceUsd && (
+                                        <span className="ml-1">(${(tx.profitSOL * walletBalance.solPriceUsd).toFixed(2)})</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="text-[10px] text-[#A8A8A8]">
+                                    {tx.blockTime ? new Date(tx.blockTime * 1000).toLocaleString() : "Pending"}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[#A8A8A8] text-xs py-4 text-center">No transactions yet</p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* ════════════════════════════════════════════════════ */}
+                {/*  MONAD CHAIN VIEW                                   */}
+                {/* ════════════════════════════════════════════════════ */}
+                {walletChain === "monad" && monadAddress && (
+                  <>
+                    {/* Monad Token Holdings (positions) */}
+                    <div className="cyber-card p-5 md:col-span-1">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold">
+                            Token Positions
+                            {monadTokens && (
+                              <span className="text-[#A8A8A8] font-normal ml-1">
+                                ({monadTokens.length})
+                              </span>
+                            )}
+                          </h3>
+                          {monadTokensRefreshing && monadTokens !== null && (
+                            <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
+                          )}
+                        </div>
+                      </div>
+                      {monadTokens === null ? (
+                        <div className="flex items-center justify-center py-6 gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+                          <span className="text-[#A8A8A8] text-xs">Loading positions...</span>
+                        </div>
+                      ) : monadTokens.length > 0 ? (
+                        <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                          {monadTokens.map((token) => (
+                            <a
+                              key={token.address}
+                              href={`https://nad.fun/token/${token.address}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
+                            >
+                              <div className="w-8 h-8 rounded-full bg-[#836EF9]/10 flex-shrink-0 flex items-center justify-center">
+                                <CircleDot className="w-4 h-4 text-[#836EF9]" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold truncate mono">
+                                  {token.address.slice(0, 6)}...{token.address.slice(-4)}
+                                </div>
+                                <div className="text-[10px] text-[#A8A8A8]">
+                                  {token.buyCount} buy{token.buyCount !== 1 ? "s" : ""}
+                                  {token.ageMinutes != null && (
+                                    <span className="ml-1">
+                                      {token.ageMinutes < 60 ? `${token.ageMinutes}m ago` :
+                                       token.ageMinutes < 1440 ? `${Math.floor(token.ageMinutes / 60)}h ago` :
+                                       `${Math.floor(token.ageMinutes / 1440)}d ago`}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right flex-shrink-0">
+                                <div className="text-xs font-medium">
+                                  {token.totalCostMON.toFixed(4)} MON
+                                </div>
+                                <div className="text-[10px] text-[#A8A8A8]">cost basis</div>
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[#A8A8A8] text-xs py-4 text-center">
+                          No active positions
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Monad Transactions */}
+                    <div className="cyber-card p-5 md:col-span-2">
+                      <div className="flex items-center gap-2 mb-3">
+                        <h3 className="text-sm font-semibold">
+                          Trade History
+                          {monadTransactions && (
+                            <span className="text-[#A8A8A8] font-normal ml-1">
+                              ({monadTransactions.length})
+                            </span>
+                          )}
+                        </h3>
+                        {monadTxRefreshing && monadTransactions !== null && (
+                          <Loader2 className="w-3 h-3 animate-spin text-[#A8A8A8]" />
+                        )}
+                      </div>
+                      {monadTransactions === null ? (
+                        <div className="flex items-center justify-center py-6 gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-[#A8A8A8]" />
+                          <span className="text-[#A8A8A8] text-xs">Loading trades...</span>
+                        </div>
+                      ) : monadTransactions.length > 0 ? (
+                        <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                          {monadTransactions.map((tx, txIndex) => (
+                            <div
+                              key={`monad-tx-${txIndex}`}
+                              className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-white/[0.03] transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                  tx.type === "buy" ? "bg-[#34d399]/10" : "bg-[#FF2E8C]/10"
+                                }`}>
+                                  {tx.type === "buy" ? (
+                                    <ArrowDownLeft className="w-3.5 h-3.5 text-[#34d399]" />
+                                  ) : (
+                                    <ArrowUpRight className="w-3.5 h-3.5 text-[#FF2E8C]" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-xs font-medium">
+                                    {tx.type === "buy" ? "Bought" : "Sold"}{" "}
+                                    <a
+                                      href={`https://nad.fun/token/${tx.token}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-[#2ED0FF] hover:underline mono"
+                                    >
+                                      {tx.token.slice(0, 6)}...{tx.token.slice(-4)}
+                                    </a>
+                                  </div>
+                                  <span className="text-[10px] text-[#A8A8A8] mono">
+                                    {tx.timestamp ? new Date(tx.timestamp).toLocaleTimeString() : ""}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className={`text-xs font-medium ${
+                                  tx.type === "sell" ? "text-[#34d399]" : "text-[#FF2E8C]"
+                                }`}>
+                                  {tx.type === "sell" ? "+" : "-"}{tx.monAmount.toFixed(4)} MON
+                                </div>
+                                {tx.type === "sell" && tx.profitMON != null && (
+                                  <div className={`text-[10px] font-medium ${
+                                    tx.profitMON > 0 ? "text-[#34d399]" : tx.profitMON < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                                  }`}>
+                                    P/L: {tx.profitMON > 0 ? "+" : ""}{tx.profitMON.toFixed(4)} MON
+                                  </div>
+                                )}
+                                <div className="text-[10px] text-[#A8A8A8]">
+                                  {tx.timestamp ? new Date(tx.timestamp).toLocaleString() : ""}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[#A8A8A8] text-xs py-4 text-center">No trades yet</p>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-[#A8A8A8] text-xs py-4 text-center">
-                      No transactions yet
-                    </p>
-                  )}
-                </div>
+
+                    {/* Monad Stats Card */}
+                    {monadStats && (monadStats.allTime.trades > 0 || monadStats.today.trades > 0) && (
+                      <div className="cyber-card p-5 md:col-span-3">
+                        <div className="flex items-center gap-2 mb-4">
+                          <BarChart3 className="w-4 h-4 text-[#836EF9]" />
+                          <h3 className="text-sm font-semibold">Monad Trading Stats</h3>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                          <div>
+                            <div className="text-[10px] text-[#A8A8A8] mb-1">Today P/L</div>
+                            <div className={`text-sm font-bold ${
+                              monadStats.today.profit > 0 ? "text-[#34d399]" :
+                              monadStats.today.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                            }`}>
+                              {monadStats.today.profit > 0 ? "+" : ""}
+                              {monadStats.today.profit.toFixed(4)} MON
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#A8A8A8] mb-1">All-time P/L</div>
+                            <div className={`text-sm font-bold ${
+                              monadStats.allTime.profit > 0 ? "text-[#34d399]" :
+                              monadStats.allTime.profit < 0 ? "text-[#FF2E8C]" : "text-[#A8A8A8]"
+                            }`}>
+                              {monadStats.allTime.profit > 0 ? "+" : ""}
+                              {monadStats.allTime.profit.toFixed(4)} MON
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#A8A8A8] mb-1">Win Rate</div>
+                            <div className={`text-sm font-bold ${
+                              monadStats.allTime.winRate >= 50 ? "text-[#34d399]" : "text-[#FF2E8C]"
+                            }`}>
+                              {monadStats.allTime.trades > 0 ? `${monadStats.allTime.winRate.toFixed(1)}%` : "N/A"}
+                            </div>
+                            {monadStats.allTime.trades > 0 && (
+                              <div className="text-[10px] text-[#A8A8A8]">
+                                {monadStats.allTime.wins}W / {monadStats.allTime.losses}L
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-[#A8A8A8] mb-1">Total Trades</div>
+                            <div className="text-sm font-bold">{monadStats.allTime.trades}</div>
+                            <div className="text-[10px] text-[#A8A8A8]">
+                              {monadStats.activePositions} active
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ) : (
               <div className="cyber-card p-10 text-center">
@@ -2832,17 +2696,6 @@ export function Dashboard() {
         message={alertModal.message}
         type={alertModal.type}
       />
-      <ConfirmModal
-        isOpen={liquidateModalOpen}
-        onClose={() => setLiquidateModalOpen(false)}
-        onConfirm={handleLiquidate}
-        title="Liquidate & Withdraw All Funds"
-        message={`This will sell ALL token holdings for SOL, then transfer ALL SOL from the bot wallet to ${userWalletPubkey ? userWalletPubkey.toBase58().slice(0, 8) + "..." + userWalletPubkey.toBase58().slice(-6) : "your wallet"}. This action cannot be undone. The bot will have zero balance after this.`}
-        confirmText="Liquidate Everything"
-        danger
-        loading={liquidating}
-      />
-
       {/* OpenAI Auth Warning Modal */}
       {showOpenaiWarning && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">

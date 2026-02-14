@@ -805,6 +805,41 @@ function readTradesJson(telegramId: string): TradesData | null {
   }
 }
 
+// --- Monad TRADES reader ---
+type MonadTradesData = {
+  trades: Array<{
+    type: string; // "buy" | "sell"
+    chain: string;
+    token: string;
+    mon: number;
+    timestamp: string;
+    profit?: number;
+  }>;
+  positions: Record<string, {
+    totalCost: number;
+    buyCount: number;
+    firstBuy: number;
+  }>;
+  daily: Record<string, {
+    profit: number;
+    trades: number;
+    wins: number;
+    losses: number;
+  }>;
+  totalProfitMON: number;
+};
+
+function readMonadTradesJson(telegramId: string): MonadTradesData | null {
+  const tradesPath = resolve(INSTANCES_DATA_DIR, `user-${telegramId}`, "workspace", "MONAD_TRADES.json");
+  try {
+    if (!existsSync(tradesPath)) return null;
+    const data = JSON.parse(readFileSync(tradesPath, "utf-8"));
+    return data as MonadTradesData;
+  } catch {
+    return null;
+  }
+}
+
 instanceRoutes.get("/:id/wallet", async (c) => {
   const userId = c.get("userId");
   const id = safeParseInt(c.req.param("id"));
@@ -1656,6 +1691,158 @@ instanceRoutes.get("/:id/wallet/stats", async (c) => {
     week,
     allTime: {
       profit: tradesData.totalProfitSOL ?? 0,
+      trades: allTimeTrades,
+      wins: allTimeWins,
+      losses: allTimeLosses,
+      winRate: allTimeWinRate,
+    },
+    activePositions,
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// ══  Monad wallet routes (tokens, transactions, stats from MONAD_TRADES.json)
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Get Monad token holdings (active positions from MONAD_TRADES.json) ──
+instanceRoutes.get("/:id/wallet/monad/tokens", async (c) => {
+  const userId = c.get("userId");
+  const id = safeParseInt(c.req.param("id"));
+  if (id === null) return c.json({ error: "Invalid instance ID" }, 400);
+
+  const instance = await db.query.instances.findFirst({
+    where: and(eq(instances.id, id), eq(instances.userId, userId)),
+  });
+  if (!instance) return c.json({ error: "Instance not found" }, 404);
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const monadTrades = readMonadTradesJson(user.telegramId);
+  if (!monadTrades || Object.keys(monadTrades.positions).length === 0) {
+    return c.json({ tokens: [] });
+  }
+
+  const tokens = Object.entries(monadTrades.positions).map(([token, pos]) => ({
+    address: token,
+    totalCostMON: pos.totalCost,
+    buyCount: pos.buyCount,
+    firstBuy: pos.firstBuy ? new Date(pos.firstBuy).toISOString() : null,
+    ageMinutes: pos.firstBuy ? Math.floor((Date.now() - pos.firstBuy) / 60000) : null,
+  }));
+
+  return c.json({ tokens });
+});
+
+// ── Get Monad transaction history (trades from MONAD_TRADES.json) ──
+instanceRoutes.get("/:id/wallet/monad/transactions", async (c) => {
+  const userId = c.get("userId");
+  const id = safeParseInt(c.req.param("id"));
+  if (id === null) return c.json({ error: "Invalid instance ID" }, 400);
+
+  const limit = Math.min(safeParseInt(c.req.query("limit") ?? "") ?? 50, 200);
+
+  const instance = await db.query.instances.findFirst({
+    where: and(eq(instances.id, id), eq(instances.userId, userId)),
+  });
+  if (!instance) return c.json({ error: "Instance not found" }, 404);
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const monadTrades = readMonadTradesJson(user.telegramId);
+  if (!monadTrades || monadTrades.trades.length === 0) {
+    return c.json({ transactions: [], count: 0 });
+  }
+
+  // Return most recent first
+  const transactions = monadTrades.trades
+    .slice()
+    .reverse()
+    .slice(0, limit)
+    .map((t) => ({
+      type: t.type,
+      chain: "monad",
+      token: t.token,
+      monAmount: t.mon,
+      timestamp: t.timestamp,
+      profitMON: t.profit ?? null,
+    }));
+
+  return c.json({ transactions, count: transactions.length });
+});
+
+// ── Get Monad trading stats (from MONAD_TRADES.json daily P/L) ──
+instanceRoutes.get("/:id/wallet/monad/stats", async (c) => {
+  const userId = c.get("userId");
+  const id = safeParseInt(c.req.param("id"));
+  if (id === null) return c.json({ error: "Invalid instance ID" }, 400);
+
+  const instance = await db.query.instances.findFirst({
+    where: and(eq(instances.id, id), eq(instances.userId, userId)),
+  });
+  if (!instance) return c.json({ error: "Instance not found" }, 404);
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) return c.json({ error: "User not found" }, 404);
+
+  const monadTrades = readMonadTradesJson(user.telegramId);
+  const emptyDay = { profit: 0, trades: 0, wins: 0, losses: 0, winRate: 0 };
+  if (!monadTrades) {
+    return c.json({
+      today: emptyDay,
+      week: [] as Array<typeof emptyDay & { date: string }>,
+      allTime: emptyDay,
+      activePositions: 0,
+    });
+  }
+
+  const todayKey = new Date().toISOString().split("T")[0];
+  const daily = monadTrades.daily ?? {};
+
+  // Today's stats
+  const todayData = daily[todayKey] ?? { profit: 0, trades: 0, wins: 0, losses: 0 };
+  const todayWinRate = todayData.trades > 0 ? (todayData.wins / todayData.trades) * 100 : 0;
+
+  // Last 7 days
+  const week: Array<{ date: string; profit: number; trades: number; wins: number; losses: number; winRate: number }> = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().split("T")[0];
+    const day = daily[key] ?? { profit: 0, trades: 0, wins: 0, losses: 0 };
+    week.push({
+      date: key,
+      profit: day.profit,
+      trades: day.trades,
+      wins: day.wins,
+      losses: day.losses,
+      winRate: day.trades > 0 ? (day.wins / day.trades) * 100 : 0,
+    });
+  }
+
+  // All-time stats
+  let allTimeWins = 0, allTimeLosses = 0, allTimeTrades = 0;
+  for (const day of Object.values(daily)) {
+    allTimeWins += day.wins;
+    allTimeLosses += day.losses;
+    allTimeTrades += day.trades;
+  }
+  const allTimeWinRate = allTimeTrades > 0 ? (allTimeWins / allTimeTrades) * 100 : 0;
+
+  const activePositions = Object.keys(monadTrades.positions ?? {}).length;
+
+  return c.json({
+    today: {
+      profit: todayData.profit,
+      trades: todayData.trades,
+      wins: todayData.wins,
+      losses: todayData.losses,
+      winRate: todayWinRate,
+    },
+    week,
+    allTime: {
+      profit: monadTrades.totalProfitMON ?? 0,
       trades: allTimeTrades,
       wins: allTimeWins,
       losses: allTimeLosses,
