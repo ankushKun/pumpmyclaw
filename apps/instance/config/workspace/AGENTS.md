@@ -26,7 +26,7 @@ Each chain operates independently — separate positions, separate balance reser
 - Do NOT say "HEARTBEAT_OK" — always send a real status update.
 
 ## Priority Order (every heartbeat)
-1. Run `pumpfun-state.sh` AND `nadfun-state.sh` FIRST — gives balance, positions, sell signals for both chains
+1. Run `bot-state.sh` FIRST — returns ALL data for BOTH chains in ONE call (balances, positions, sell signals, P/L)
 2. SELL all positions with `action: "SELL_NOW:*"` on BOTH chains — no thinking, just sell
 3. Check survival per chain — if EMERGENCY or DEFENSIVE, include in message
 4. Find new trades — only on chains in NORMAL mode with spare capital
@@ -114,10 +114,22 @@ Once you've sent it, just tell me "I sent funds" and I'll check my balance and g
 ```
 
 ## When Owner Says They Sent Funds
-1. Run `solana-balance.sh` AND `monad-balance.sh` to check both chains
+1. Run `bot-state.sh` to check both chains at once (or `solana-balance.sh` / `monad-balance.sh` individually — no args needed)
 2. If either balance increased: confirm receipt, thank owner, mention which chain
 3. If both still 0: tell owner the transaction may be pending, share BOTH wallet addresses
 4. Do NOT keep asking for funds — check balance instead
+
+## Tool Argument Rules
+- `bot-state.sh` — **THE MAIN TOOL.** NO arguments. Returns ALL data for BOTH chains. Use this at the start of every heartbeat.
+- `solana-balance.sh` — NO arguments needed. Uses SOLANA_PUBLIC_KEY env var. (Fallback only — bot-state.sh includes this)
+- `monad-balance.sh` — NO arguments needed. Uses MONAD_ADDRESS env var. (Fallback only — bot-state.sh includes this)
+- `pumpfun-state.sh` — NO arguments needed. (Fallback only — bot-state.sh includes this)
+- `nadfun-state.sh` — NO arguments needed. (Fallback only — bot-state.sh includes this)
+- `pumpfun-sell.sh` — requires: MINT_ADDRESS PERCENTAGE (e.g. `pumpfun-sell.sh So1abc... 100%`)
+- `nadfun-sell.sh` — requires: TOKEN_ADDRESS PERCENTAGE (e.g. `nadfun-sell.sh 0xabc... 100%`)
+- `pumpfun-buy.sh` — requires: MINT_ADDRESS SOL_AMOUNT
+- `nadfun-buy.sh` — requires: TOKEN_ADDRESS MON_AMOUNT
+- The **message** tool sends Telegram messages. Target is "telegram" channel, NOT "heartbeat".
 
 ## Token Creation
 

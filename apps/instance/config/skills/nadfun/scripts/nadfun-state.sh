@@ -2,7 +2,9 @@
 # Get full nad.fun bot state: MON balance + positions + mode + daily P/L
 # This is the Monad equivalent of pumpfun-state.sh
 # Usage: nadfun-state.sh
-set -e
+
+# No set -e: we handle errors explicitly to avoid silent failures
+LOG_PREFIX="[nadfun-state]"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MONAD_SCRIPTS="$SCRIPT_DIR/../../monad/scripts"
@@ -10,19 +12,37 @@ WORKSPACE="$HOME/.openclaw/workspace"
 
 MONAD_ADDR="${MONAD_ADDRESS:-}"
 if [ -z "$MONAD_ADDR" ]; then
+    echo "$LOG_PREFIX ERROR: MONAD_ADDRESS not set" >&2
     echo '{"error": "MONAD_ADDRESS not set"}'
     exit 1
 fi
 
+echo "$LOG_PREFIX Fetching state for $MONAD_ADDR" >&2
+
 # --- Step 1: Get MON balance ---
-BALANCE_JSON=$("$MONAD_SCRIPTS/monad-balance.sh" "$MONAD_ADDR" 2>/dev/null || echo '{"mon": 0}')
-MON_BALANCE=$(echo "$BALANCE_JSON" | jq -r '.mon // 0')
+# stderr goes to container logs (visible); stdout is captured as JSON
+BALANCE_JSON=$("$MONAD_SCRIPTS/monad-balance.sh" "$MONAD_ADDR") || {
+    echo "$LOG_PREFIX WARN: monad-balance.sh failed (exit $?), using fallback 0" >&2
+    BALANCE_JSON='{"mon": 0}'
+}
+# Check if monad-balance.sh returned an error object
+if echo "$BALANCE_JSON" | jq -e '.error' >/dev/null 2>&1; then
+    BALANCE_ERR=$(echo "$BALANCE_JSON" | jq -r '.error')
+    echo "$LOG_PREFIX WARN: monad-balance returned error: $BALANCE_ERR" >&2
+    MON_BALANCE="0"
+else
+    MON_BALANCE=$(echo "$BALANCE_JSON" | jq -r '.mon // 0' 2>/dev/null)
+fi
+if [ -z "$MON_BALANCE" ] || [ "$MON_BALANCE" = "null" ]; then
+    MON_BALANCE="0"
+fi
+echo "$LOG_PREFIX MON balance: $MON_BALANCE" >&2
 
 # --- Step 2: Determine mode ---
 MODE="NORMAL"
-if (( $(echo "$MON_BALANCE < 0.02" | bc -l) )); then
+if (( $(echo "$MON_BALANCE < 0.02" | bc -l 2>/dev/null || echo 0) )); then
     MODE="EMERGENCY"
-elif (( $(echo "$MON_BALANCE < 0.05" | bc -l) )); then
+elif (( $(echo "$MON_BALANCE < 0.05" | bc -l 2>/dev/null || echo 0) )); then
     MODE="DEFENSIVE"
 fi
 

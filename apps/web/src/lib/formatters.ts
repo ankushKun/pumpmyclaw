@@ -53,8 +53,8 @@ export function explorerTokenUrl(addressOrMint: string, chain: 'solana' | 'monad
 }
 
 // Monad explorers (support testnet toggle)
-const MONAD_EXPLORER_MAINNET = 'https://monadexplorer.com';
-const MONAD_EXPLORER_TESTNET = 'https://testnet.monadscan.com';
+const MONAD_EXPLORER_MAINNET = 'https://monadvision.com';
+const MONAD_EXPLORER_TESTNET = 'https://testnet.monadvision.com';
 
 export function monadExplorerTxUrl(hash: string, testnet = false): string {
   const base = testnet ? MONAD_EXPLORER_TESTNET : MONAD_EXPLORER_MAINNET;

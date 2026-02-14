@@ -3,36 +3,46 @@
 **CRITICAL: Every heartbeat MUST end with a message sent to the owner via the message tool.**
 **You MUST use the message tool to send your report to the Telegram chat. Do NOT just output text — that does nothing. You MUST call the message tool.**
 
+**MESSAGE TOOL USAGE: Send messages to the "telegram" channel. Do NOT use "heartbeat" as the target — "heartbeat" is the session name, NOT a message target. The message target is always "telegram".**
+
 I trade on TWO chains: **Solana** (pump.fun) and **Monad** (nad.fun). Each heartbeat covers both chains. I only trade on chains where I have funds.
 
 Follow these steps IN ORDER. Do not skip steps.
 
 ---
 
-## STEP 1: Read My State (Both Chains)
+## STEP 1: Get My State (ONE command — no arguments)
 
-Run BOTH commands:
+Run this single command to get ALL data for BOTH chains:
 
 ```
-pumpfun-state.sh
-nadfun-state.sh
+bot-state.sh
 ```
 
-**Solana state** returns: `sol_balance`, `mode`, `wallet_address`, `positions`, `today`, `alltime_win_rate`, `my_token`, `pmc_leaderboard`.
+This returns a JSON object with:
+- `summary` — quick overview: balances, modes, active positions, today's P/L, wallet addresses
+- `solana` — full Solana state: balance, positions with live prices/P/L/sell signals, token status, daily stats
+- `monad` — full Monad state: balance, positions with live prices/P/L/sell signals, token status, daily stats
 
-**Monad state** returns: `mon_balance`, `mode`, `wallet_address`, `positions`, `today`, `my_token`.
+**Use `summary.sol_active` and `summary.mon_active` to know which chains have funds.**
 
-Determine which chains are **active** (have funds above EMERGENCY threshold):
-- Solana active if `sol_balance` >= 0.005
-- Monad active if `mon_balance` >= 0.02
+Each position in `solana.positions` or `monad.positions` includes:
+- `symbol` — token ticker
+- `costSOL` / `totalCost` — what you paid
+- `currentValueSOL` / `currentValueMON` — what it's worth now
+- `pnlPercent` — profit/loss percentage
+- `ageMinutes` — how long you've held it
+- `action` — either "HOLD" or "SELL_NOW:reason"
 
-If a chain's state command fails, fall back to balance checks:
-- Solana: `solana-balance.sh` and `pumpfun-track.js status`
-- Monad: `monad-balance.sh` and `nadfun-track.js status`
+**If `bot-state.sh` fails**, fall back to running these individually (no arguments needed):
+- `pumpfun-state.sh` for Solana
+- `nadfun-state.sh` for Monad
 
 ---
 
 ## STEP 2: Survival Check (Per Chain)
+
+Use the `mode` from each chain's state:
 
 **For each active chain:**
 - If mode is "EMERGENCY": include in emergency message (see below). Skip that chain's trading.
@@ -144,9 +154,16 @@ If `my_token.exists` is false on Monad state and MON balance > 1.0:
 
 **You MUST send a message to the owner using the message tool. Every single heartbeat.**
 
-Build a combined report covering BOTH chains. Use token symbols from state outputs.
+Build a combined report covering BOTH chains. Use the data from Step 1.
 
-**Include both chain states in one message:**
+**FORMAT YOUR REPORT LIKE THIS:**
+
+Include these sections (skip sections that don't apply):
+
+1. **Actions taken** — what you sold/bought this heartbeat
+2. **Open positions** — for each: $SYMBOL, entry cost, current value, P/L%
+3. **Balances** — SOL: X.XXXX, MON: X.XXXX
+4. **Today's stats** — trades count, wins/losses, total P/L
 
 Examples:
 - Trades on both chains: "**SOL** Sold $DOGE (+15%), Bought $PEPE 0.003 SOL | **MON** Holding $MCAT (+8%). SOL: 0.02, MON: 0.5. Today SOL: +0.008 (3W/1L), MON: +0.1 (2W/0L)"

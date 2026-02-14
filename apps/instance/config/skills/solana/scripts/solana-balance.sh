@@ -1,6 +1,7 @@
 #!/bin/bash
 # Get SOL balance for an address
-# Usage: solana-balance.sh <address>
+# Usage: solana-balance.sh [address]
+# If no address given, uses SOLANA_PUBLIC_KEY env var
 
 set -euo pipefail
 
@@ -9,13 +10,13 @@ LOG_PREFIX="[solana-balance]"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
-if [ $# -lt 1 ]; then
-    echo "$LOG_PREFIX ERROR: missing address argument" >&2
-    echo '{"error": "Usage: solana-balance.sh <address>"}' >&2
+ADDRESS="${1:-${SOLANA_PUBLIC_KEY:-}}"
+
+if [ -z "$ADDRESS" ]; then
+    echo "$LOG_PREFIX ERROR: no address provided and SOLANA_PUBLIC_KEY not set" >&2
+    echo '{"error": "Usage: solana-balance.sh <address> or set SOLANA_PUBLIC_KEY"}' >&2
     exit 1
 fi
-
-ADDRESS="$1"
 echo "$LOG_PREFIX Checking balance for $ADDRESS" >&2
 
 # Load config

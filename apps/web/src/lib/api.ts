@@ -78,6 +78,8 @@ export interface WalletBalance {
     wei: string;
     mon: number;
     formatted: string;
+    monPriceUsd?: number | null;
+    usd?: number | null;
     error?: string;
   } | null;
 }
@@ -136,21 +138,59 @@ export interface WalletStats {
   activePositions: number;
 }
 
+// ── Monad types (from MONAD_TRADES.json via backend) ──────────────
+
+export interface MonadToken {
+  address: string;
+  totalCostMON: number;
+  buyCount: number;
+  firstBuy: string | null;
+  ageMinutes: number | null;
+}
+
+export interface MonadTransaction {
+  type: string; // "buy" | "sell"
+  chain: string;
+  token: string;
+  monAmount: number;
+  timestamp: string;
+  profitMON: number | null;
+}
+
+export interface MonadDayStats {
+  profit: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface MonadStats {
+  today: MonadDayStats;
+  week: Array<MonadDayStats & { date: string }>;
+  allTime: MonadDayStats;
+  activePositions: number;
+}
+
 export interface LiquidateResult {
   success: boolean;
   summary: {
     tokensFound: number;
     tokensSold: number;
     tokensFailed: number;
-    solTransferred: boolean;
-    transferSignature: string | null;
+    solTransferred?: boolean;
+    transferSignature?: string | null;
+    monTransferred?: boolean;
+    transferHash?: string | null;
   };
   results: Array<{
     step: string;
     success: boolean;
     signature?: string;
+    txHash?: string;
     error?: string;
     mint?: string;
+    token?: string;
     symbol?: string;
   }>;
 }
@@ -365,9 +405,31 @@ class BackendClient {
     });
   }
 
-  /** Liquidate: sell all tokens and transfer all SOL to user's wallet */
+  // ── Monad wallet data (from MONAD_TRADES.json) ───────────────
+
+  async getMonadTokens(id: number): Promise<{ tokens: MonadToken[] }> {
+    return this.request<{ tokens: MonadToken[] }>(`/api/instances/${id}/wallet/monad/tokens`);
+  }
+
+  async getMonadTransactions(id: number, limit = 50): Promise<{ transactions: MonadTransaction[]; count: number }> {
+    return this.request<{ transactions: MonadTransaction[]; count: number }>(`/api/instances/${id}/wallet/monad/transactions?limit=${limit}`);
+  }
+
+  async getMonadStats(id: number): Promise<MonadStats> {
+    return this.request<MonadStats>(`/api/instances/${id}/wallet/monad/stats`);
+  }
+
+  /** Liquidate Solana: sell all tokens and transfer all SOL to user's wallet */
   async liquidate(id: number, destinationWallet: string): Promise<LiquidateResult> {
     return this.request<LiquidateResult>(`/api/instances/${id}/liquidate`, {
+      method: 'POST',
+      body: JSON.stringify({ destinationWallet }),
+    });
+  }
+
+  /** Liquidate Monad: sell all nad.fun tokens and transfer all MON to user's wallet */
+  async liquidateMonad(id: number, destinationWallet: string): Promise<LiquidateResult> {
+    return this.request<LiquidateResult>(`/api/instances/${id}/liquidate/monad`, {
       method: 'POST',
       body: JSON.stringify({ destinationWallet }),
     });
