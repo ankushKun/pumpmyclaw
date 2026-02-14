@@ -96,6 +96,8 @@ export function Dashboard() {
   const [monadBalance, setMonadBalance] = useState<{
     mon: number;
     formatted: string;
+    monPriceUsd: number | null;
+    usd: number | null;
   } | null>(null);
   const [monadCopied, setMonadCopied] = useState(false);
   const [monadTokens, setMonadTokens] = useState<MonadToken[] | null>(null);
@@ -109,8 +111,8 @@ export function Dashboard() {
 
   // Monad explorer base URL (testnet vs mainnet)
   const monadExplorerBase = monadTestnet
-    ? "https://testnet.monadscan.com"
-    : "https://monadexplorer.com";
+    ? "https://testnet.monadvision.com"
+    : "https://monadvision.com";
 
   // Subscription
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -247,27 +249,37 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [instance?.id]);
 
-  // Fetch wallet addresses (once on mount or instance change)
+  // Fetch wallet addresses — polls every 5s until both are found
   useEffect(() => {
     if (!instance) return;
     let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
     const fetchAddress = async () => {
-      setWalletDataLoading(true);
       try {
         const wallet = await backend.getWallet(instance.id);
-        if (!cancelled) {
-          setWalletAddress(wallet.address);
-          setMonadAddress(wallet.monad?.address ?? null);
-          setMonadTestnet(wallet.monad?.testnet ?? false);
+        if (cancelled) return;
+        const solAddr = wallet.address ?? null;
+        const monAddr = wallet.monad?.address ?? null;
+        setWalletAddress(solAddr);
+        setMonadAddress(monAddr);
+        setMonadTestnet(wallet.monad?.testnet ?? false);
+        setWalletDataLoading(false);
+        // Stop polling once both wallets are found
+        if (solAddr && monAddr && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
         }
       } catch {
-        /* ignore */
-      } finally {
-        if (!cancelled) setWalletDataLoading(false);
+        /* ignore — keep polling */
       }
     };
+    setWalletDataLoading(true);
     fetchAddress();
-    return () => { cancelled = true; };
+    intervalId = setInterval(fetchAddress, 5000);
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [instance?.id]);
 
   // Fetch balance - fast refresh (3s) since it's critical and cheap
@@ -293,6 +305,8 @@ export function Dashboard() {
             setMonadBalance({
               mon: balance.monad.mon,
               formatted: balance.monad.formatted,
+              monPriceUsd: balance.monad.monPriceUsd ?? null,
+              usd: balance.monad.usd ?? null,
             });
           }
         }
@@ -1130,6 +1144,24 @@ export function Dashboard() {
           ))}
         </div>
 
+        {/* ── Live prices ticker ───────────────────────────────────── */}
+        {(walletBalance?.solPriceUsd || monadBalance?.monPriceUsd) && (
+          <div className="flex items-center gap-3 mb-4 text-[10px] text-[#A8A8A8] font-mono">
+            {walletBalance?.solPriceUsd && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#9945FF]" />
+                SOL <span className="text-white/70">${walletBalance.solPriceUsd.toFixed(2)}</span>
+              </span>
+            )}
+            {monadBalance?.monPriceUsd && (
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
+                MON <span className="text-white/70">${monadBalance.monPriceUsd < 0.01 ? monadBalance.monPriceUsd.toFixed(6) : monadBalance.monPriceUsd.toFixed(4)}</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {/* ── Tab content ─────────────────────────────────────────── */}
 
         {/* OVERVIEW TAB */}
@@ -1326,9 +1358,9 @@ export function Dashboard() {
                   <div>
                     {(() => {
                       const solUsd = walletBalance?.usd ?? 0;
+                      const monUsd = monadBalance?.usd ?? 0;
                       const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
-                      // TODO: add MON USD price when available
-                      const totalUsd = solUsd + tokensUsd;
+                      const totalUsd = solUsd + monUsd + tokensUsd;
                       return (
                         <>
                           <div className="text-xs text-[#A8A8A8] mb-1">Total Value</div>
@@ -1353,6 +1385,9 @@ export function Dashboard() {
                         <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
                         <span>
                           {monadBalance ? monadBalance.formatted : "0.0000 MON"}
+                          {monadBalance?.usd != null && monadBalance.usd > 0 && (
+                            <span className="text-[#34d399] ml-1">(${monadBalance.usd.toFixed(2)})</span>
+                          )}
                         </span>
                       </div>
                       {walletTokens && walletTokens.length > 0 && (
@@ -1790,8 +1825,9 @@ export function Dashboard() {
                       </div>
                       {(() => {
                         const solUsd = walletBalance?.usd ?? 0;
+                        const monUsd = monadBalance?.usd ?? 0;
                         const tokensUsd = walletTokens?.reduce((sum, t) => sum + (t.valueUsd ?? 0), 0) ?? 0;
-                        const totalUsd = solUsd + tokensUsd;
+                        const totalUsd = solUsd + monUsd + tokensUsd;
                         return (
                           <div className={`text-3xl font-bold ${totalUsd > 0 ? "text-[#34d399]" : "text-white"}`}>
                             {walletBalance === null && monadBalance === null ? (
@@ -1814,6 +1850,9 @@ export function Dashboard() {
                         <span className="flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#836EF9]" />
                           {monadBalance ? monadBalance.formatted : "0.0000 MON"}
+                          {monadBalance?.usd != null && monadBalance.usd > 0 && (
+                            <span className="text-[#34d399] ml-1">(${monadBalance.usd.toFixed(2)})</span>
+                          )}
                         </span>
                         {walletTokens && walletTokens.length > 0 && (
                           <span className="flex items-center gap-1.5">

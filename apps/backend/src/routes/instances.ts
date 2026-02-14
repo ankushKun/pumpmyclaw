@@ -59,6 +59,38 @@ async function fetchSolPrice(): Promise<number | null> {
   return cachedSolPrice?.usd ?? null;
 }
 
+// ── MON Price Cache ─────────────────────────────────────────────────
+// Cache MON/USD price for 60 seconds (same pattern as SOL)
+let cachedMonPrice: { usd: number; ts: number } | null = null;
+const MON_PRICE_CACHE_TTL = 60_000;
+
+async function fetchMonPrice(): Promise<number | null> {
+  const now = Date.now();
+  if (cachedMonPrice && now - cachedMonPrice.ts < MON_PRICE_CACHE_TTL) {
+    return cachedMonPrice.usd;
+  }
+
+  try {
+    const resp = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd",
+      { signal: AbortSignal.timeout(5_000) }
+    );
+    if (!resp.ok) return cachedMonPrice?.usd ?? null;
+
+    const data = await resp.json() as { monad?: { usd?: number } };
+    const price = data.monad?.usd;
+
+    if (price && price > 0) {
+      cachedMonPrice = { usd: price, ts: now };
+      return price;
+    }
+  } catch {
+    // Return cached price if fetch fails
+  }
+
+  return cachedMonPrice?.usd ?? null;
+}
+
 // ── DexScreener API helper ──────────────────────────────────────────
 // Free API, no key needed. Rate limit: 300 req/min for token endpoints.
 // GET /tokens/v1/solana/{addresses} — up to 30 comma-separated addresses
@@ -1022,12 +1054,16 @@ instanceRoutes.get("/:id/wallet/balance", async (c) => {
         const weiHex = data.result || "0x0";
         const wei = BigInt(weiHex);
         const mon = Number(wei) / 1e18;
+        const monPriceUsd = await fetchMonPrice();
+        const monUsd = monPriceUsd ? mon * monPriceUsd : null;
 
         result.monad = {
           address: monadAddress,
           wei: wei.toString(),
           mon,
           formatted: mon.toFixed(4) + " MON",
+          monPriceUsd,
+          usd: monUsd,
         };
       }
     } catch (err) {

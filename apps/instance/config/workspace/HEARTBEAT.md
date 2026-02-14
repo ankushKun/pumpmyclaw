@@ -3,6 +3,8 @@
 **CRITICAL: Every heartbeat MUST end with a message sent to the owner via the message tool.**
 **You MUST use the message tool to send your report to the Telegram chat. Do NOT just output text — that does nothing. You MUST call the message tool.**
 
+**MESSAGE TOOL USAGE: Send messages to the "telegram" channel. Do NOT use "heartbeat" as the target — "heartbeat" is the session name, NOT a message target. The message target is always "telegram".**
+
 I trade on TWO chains: **Solana** (pump.fun) and **Monad** (nad.fun). Each heartbeat covers both chains. I only trade on chains where I have funds.
 
 Follow these steps IN ORDER. Do not skip steps.
@@ -27,8 +29,10 @@ Determine which chains are **active** (have funds above EMERGENCY threshold):
 - Monad active if `mon_balance` >= 0.02
 
 If a chain's state command fails, fall back to balance checks:
-- Solana: `solana-balance.sh` and `pumpfun-track.js status`
-- Monad: `monad-balance.sh` and `nadfun-track.js status`
+- Solana: `solana-balance.sh` (no args needed — uses SOLANA_PUBLIC_KEY env) and `pumpfun-track.js status`
+- Monad: `monad-balance.sh` (no args needed — uses MONAD_ADDRESS env) and `nadfun-track.js status`
+
+**IMPORTANT: Do NOT pass arguments to balance scripts — they read their address from environment variables automatically.**
 
 ---
 

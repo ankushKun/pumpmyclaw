@@ -78,6 +78,8 @@ export interface WalletBalance {
     wei: string;
     mon: number;
     formatted: string;
+    monPriceUsd?: number | null;
+    usd?: number | null;
     error?: string;
   } | null;
 }

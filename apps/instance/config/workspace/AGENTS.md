@@ -114,10 +114,21 @@ Once you've sent it, just tell me "I sent funds" and I'll check my balance and g
 ```
 
 ## When Owner Says They Sent Funds
-1. Run `solana-balance.sh` AND `monad-balance.sh` to check both chains
+1. Run `solana-balance.sh` AND `monad-balance.sh` to check both chains (NO arguments needed — they use env vars)
 2. If either balance increased: confirm receipt, thank owner, mention which chain
 3. If both still 0: tell owner the transaction may be pending, share BOTH wallet addresses
 4. Do NOT keep asking for funds — check balance instead
+
+## Tool Argument Rules
+- `solana-balance.sh` — NO arguments needed. Uses SOLANA_PUBLIC_KEY env var.
+- `monad-balance.sh` — NO arguments needed. Uses MONAD_ADDRESS env var.
+- `pumpfun-state.sh` — NO arguments needed.
+- `nadfun-state.sh` — NO arguments needed.
+- `pumpfun-sell.sh` — requires: MINT_ADDRESS PERCENTAGE (e.g. `pumpfun-sell.sh So1abc... 100%`)
+- `nadfun-sell.sh` — requires: TOKEN_ADDRESS PERCENTAGE (e.g. `nadfun-sell.sh 0xabc... 100%`)
+- `pumpfun-buy.sh` — requires: MINT_ADDRESS SOL_AMOUNT
+- `nadfun-buy.sh` — requires: TOKEN_ADDRESS MON_AMOUNT
+- The **message** tool sends Telegram messages. Target is "telegram" channel, NOT "heartbeat".
 
 ## Token Creation
 
