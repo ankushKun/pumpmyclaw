@@ -178,15 +178,19 @@ export interface LiquidateResult {
     tokensFound: number;
     tokensSold: number;
     tokensFailed: number;
-    solTransferred: boolean;
-    transferSignature: string | null;
+    solTransferred?: boolean;
+    transferSignature?: string | null;
+    monTransferred?: boolean;
+    transferHash?: string | null;
   };
   results: Array<{
     step: string;
     success: boolean;
     signature?: string;
+    txHash?: string;
     error?: string;
     mint?: string;
+    token?: string;
     symbol?: string;
   }>;
 }
@@ -415,9 +419,17 @@ class BackendClient {
     return this.request<MonadStats>(`/api/instances/${id}/wallet/monad/stats`);
   }
 
-  /** Liquidate: sell all tokens and transfer all SOL to user's wallet */
+  /** Liquidate Solana: sell all tokens and transfer all SOL to user's wallet */
   async liquidate(id: number, destinationWallet: string): Promise<LiquidateResult> {
     return this.request<LiquidateResult>(`/api/instances/${id}/liquidate`, {
+      method: 'POST',
+      body: JSON.stringify({ destinationWallet }),
+    });
+  }
+
+  /** Liquidate Monad: sell all nad.fun tokens and transfer all MON to user's wallet */
+  async liquidateMonad(id: number, destinationWallet: string): Promise<LiquidateResult> {
+    return this.request<LiquidateResult>(`/api/instances/${id}/liquidate/monad`, {
       method: 'POST',
       body: JSON.stringify({ destinationWallet }),
     });

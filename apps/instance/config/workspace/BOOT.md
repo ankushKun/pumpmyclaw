@@ -4,9 +4,7 @@ Run these steps once on startup. **You MUST use the message tool to send message
 
 **IMPORTANT: Send exactly ONE message during boot. Do NOT send multiple messages.**
 
-1. Run BOTH state commands to check both chains:
-   - `pumpfun-state.sh` for Solana state
-   - `nadfun-state.sh` for Monad state
+1. Run `bot-state.sh` to get state for BOTH chains in one call (no arguments needed)
 2. Read MY_TOKEN.md to check token status and PumpMyClaw registration on both chains
 3. **If SOL balance > 0.01 and PMC_API_KEY is "PENDING"**: Register on PumpMyClaw NOW:
    ```bash

@@ -2395,4 +2395,408 @@ instanceRoutes.post("/:id/liquidate", async (c) => {
   });
 });
 
+// ══════════════════════════════════════════════════════════════════════
+//  MONAD LIQUIDATION — sell all nad.fun tokens + transfer all MON
+// ══════════════════════════════════════════════════════════════════════
+
+// Import viem for EVM transaction construction
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseEther,
+  formatEther,
+  encodeFunctionData,
+  type Hex,
+  type Address,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Monad chain config (matches monad-common.js)
+const MONAD_MAINNET_CONFIG = {
+  chainId: 143,
+  rpcUrl: "https://monad-mainnet.drpc.org",
+  LENS: "0x7e78A8DE94f21804F7a17F4E8BF9EC2c872187ea" as Address,
+};
+
+const MONAD_TESTNET_CONFIG = {
+  chainId: 10143,
+  rpcUrl: "https://monad-testnet.drpc.org",
+  LENS: "0xB056d79CA5257589692699a46623F901a3BB76f1" as Address,
+};
+
+function getMonadConfig() {
+  const isTestnet = process.env.MONAD_TESTNET === "true";
+  const cfg = isTestnet ? MONAD_TESTNET_CONFIG : MONAD_MAINNET_CONFIG;
+  return {
+    ...cfg,
+    isTestnet,
+    rpcUrl: process.env.MONAD_RPC_URL || cfg.rpcUrl,
+  };
+}
+
+function getMonadChain() {
+  const cfg = getMonadConfig();
+  return {
+    id: cfg.chainId,
+    name: cfg.isTestnet ? "Monad Testnet" : "Monad",
+    nativeCurrency: { name: "MON", symbol: "MON", decimals: 18 },
+    rpcUrls: { default: { http: [cfg.rpcUrl] } },
+  } as const;
+}
+
+// Minimal ABIs needed for liquidation
+const erc20BalanceOfAbi = [
+  {
+    type: "function" as const,
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view" as const,
+  },
+  {
+    type: "function" as const,
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
+    stateMutability: "nonpayable" as const,
+  },
+  {
+    type: "function" as const,
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view" as const,
+  },
+] as const;
+
+const lensGetAmountOutAbi = [
+  {
+    type: "function" as const,
+    name: "getAmountOut",
+    inputs: [
+      { name: "_token", type: "address" },
+      { name: "_amountIn", type: "uint256" },
+      { name: "_isBuy", type: "bool" },
+    ],
+    outputs: [
+      { name: "router", type: "address" },
+      { name: "amountOut", type: "uint256" },
+    ],
+    stateMutability: "view" as const,
+  },
+] as const;
+
+const routerSellAbi = [
+  {
+    type: "function" as const,
+    name: "sell",
+    inputs: [
+      {
+        name: "params",
+        type: "tuple",
+        components: [
+          { name: "amountIn", type: "uint256" },
+          { name: "amountOutMin", type: "uint256" },
+          { name: "token", type: "address" },
+          { name: "to", type: "address" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+    ],
+    outputs: [{ name: "amountOut", type: "uint256" }],
+    stateMutability: "nonpayable" as const,
+  },
+] as const;
+
+const monadLiquidateSchema = z.object({
+  destinationWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/, "Invalid EVM address"),
+});
+
+instanceRoutes.post("/:id/liquidate/monad", async (c) => {
+  const userId = c.get("userId");
+  const id = safeParseInt(c.req.param("id"));
+  if (id === null) {
+    return c.json({ error: "Invalid instance ID" }, 400);
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = monadLiquidateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid destination wallet address. Must be 0x + 40 hex chars." }, 400);
+  }
+  const { destinationWallet } = parsed.data;
+
+  const instance = await db.query.instances.findFirst({
+    where: and(eq(instances.id, id), eq(instances.userId, userId)),
+  });
+  if (!instance) {
+    return c.json({ error: "Instance not found" }, 404);
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  // Read EVM wallet
+  const evmWalletPath = resolve(
+    INSTANCES_DATA_DIR,
+    `user-${user.telegramId}`,
+    ".evm-wallet.json",
+  );
+
+  if (!existsSync(evmWalletPath)) {
+    return c.json({ error: "Monad wallet not yet created" }, 404);
+  }
+
+  let walletData: { address: string; privateKey: string };
+  try {
+    walletData = JSON.parse(readFileSync(evmWalletPath, "utf-8"));
+  } catch {
+    return c.json({ error: "Failed to read Monad wallet data" }, 500);
+  }
+
+  const monadCfg = getMonadConfig();
+  const monadChain = getMonadChain();
+
+  const account = privateKeyToAccount(walletData.privateKey as Hex);
+  const publicClient = createPublicClient({
+    chain: monadChain,
+    transport: http(monadCfg.rpcUrl),
+  });
+  const walletClient = createWalletClient({
+    account,
+    chain: monadChain,
+    transport: http(monadCfg.rpcUrl),
+  });
+
+  const results: Array<{
+    step: string;
+    success: boolean;
+    txHash?: string;
+    error?: string;
+    token?: string;
+  }> = [];
+
+  // ── Step 1: Get token positions from MONAD_TRADES.json ──────
+  const monadTradesPath = resolve(
+    INSTANCES_DATA_DIR,
+    `user-${user.telegramId}`,
+    "workspace",
+    "MONAD_TRADES.json",
+  );
+
+  const tokensToSell: string[] = [];
+  let tradesData: { trades: unknown[]; positions: Record<string, unknown>; daily: unknown; totalProfitMON: number } | null = null;
+
+  try {
+    if (existsSync(monadTradesPath)) {
+      tradesData = JSON.parse(readFileSync(monadTradesPath, "utf-8"));
+      if (tradesData?.positions) {
+        tokensToSell.push(...Object.keys(tradesData.positions));
+      }
+    }
+  } catch {
+    console.error("[monad-liquidate] Failed to read MONAD_TRADES.json");
+  }
+
+  // ── Step 2: Sell all tokens via nad.fun router ──────────────
+  for (const tokenAddr of tokensToSell) {
+    try {
+      console.log(`[monad-liquidate] Selling token ${tokenAddr}...`);
+
+      // Check balance
+      const tokenBalance = await publicClient.readContract({
+        address: tokenAddr as Address,
+        abi: erc20BalanceOfAbi,
+        functionName: "balanceOf",
+        args: [account.address],
+      });
+
+      if (tokenBalance === 0n) {
+        results.push({ step: "sell", success: true, token: tokenAddr, error: "No balance (already sold)" });
+        continue;
+      }
+
+      // Get sell quote
+      const [router, amountOut] = await publicClient.readContract({
+        address: monadCfg.LENS,
+        abi: lensGetAmountOutAbi,
+        functionName: "getAmountOut",
+        args: [tokenAddr as Address, tokenBalance, false],
+      });
+
+      if (amountOut === 0n) {
+        results.push({ step: "sell", success: false, token: tokenAddr, error: "Quote returned 0 MON" });
+        continue;
+      }
+
+      // 5% slippage for liquidation (aggressive to ensure fills)
+      const amountOutMin = (amountOut * 9500n) / 10000n;
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
+
+      // Approve router
+      const currentAllowance = await publicClient.readContract({
+        address: tokenAddr as Address,
+        abi: erc20BalanceOfAbi,
+        functionName: "allowance",
+        args: [account.address, router],
+      });
+
+      if (currentAllowance < tokenBalance) {
+        const approveHash = await walletClient.writeContract({
+          address: tokenAddr as Address,
+          abi: erc20BalanceOfAbi,
+          functionName: "approve",
+          args: [router, tokenBalance],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      }
+
+      // Build and send sell transaction
+      const sellCallData = encodeFunctionData({
+        abi: routerSellAbi,
+        functionName: "sell",
+        args: [
+          {
+            amountIn: tokenBalance,
+            amountOutMin,
+            token: tokenAddr as Address,
+            to: account.address,
+            deadline,
+          },
+        ],
+      });
+
+      const gasEstimate = await publicClient.estimateGas({
+        account: account.address,
+        to: router,
+        data: sellCallData,
+      });
+
+      const sellHash = await walletClient.sendTransaction({
+        to: router,
+        data: sellCallData,
+        gas: gasEstimate + gasEstimate / 10n,
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: sellHash });
+
+      if (receipt.status === "success") {
+        results.push({ step: "sell", success: true, token: tokenAddr, txHash: sellHash });
+        console.log(`[monad-liquidate] Sold ${tokenAddr}: ${sellHash}`);
+      } else {
+        results.push({ step: "sell", success: false, token: tokenAddr, txHash: sellHash, error: "Transaction reverted" });
+      }
+
+      // Small delay between sells
+      if (tokensToSell.indexOf(tokenAddr) < tokensToSell.length - 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    } catch (err) {
+      results.push({
+        step: "sell",
+        success: false,
+        token: tokenAddr,
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+
+  // ── Step 3: Wait for sells to settle, then transfer all MON ─
+  if (tokensToSell.length > 0) {
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+
+  try {
+    const balance = await publicClient.getBalance({ address: account.address });
+
+    // Estimate gas cost for a simple transfer (21000 gas for native transfer)
+    const gasPrice = await publicClient.getGasPrice();
+    const gasCost = 21000n * gasPrice;
+    const transferAmount = balance - gasCost;
+
+    if (transferAmount <= 0n) {
+      results.push({
+        step: "transfer",
+        success: false,
+        error: `Insufficient balance for transfer (${formatEther(balance)} MON, need >${formatEther(gasCost)} MON for gas)`,
+      });
+    } else {
+      const txHash = await walletClient.sendTransaction({
+        to: destinationWallet as Address,
+        value: transferAmount,
+        gas: 21000n,
+      });
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      if (receipt.status === "success") {
+        results.push({ step: "transfer", success: true, txHash });
+        console.log(`[monad-liquidate] Transferred ${formatEther(transferAmount)} MON to ${destinationWallet}: ${txHash}`);
+      } else {
+        results.push({ step: "transfer", success: false, txHash, error: "Transfer reverted" });
+      }
+    }
+  } catch (err) {
+    results.push({
+      step: "transfer",
+      success: false,
+      error: err instanceof Error ? err.message : "Transfer failed",
+    });
+  }
+
+  // ── Step 4: Clear MONAD_TRADES.json positions ───────────────
+  try {
+    if (tradesData) {
+      for (const tokenAddr of tokensToSell) {
+        const sellResult = results.find(
+          (r) => r.step === "sell" && r.token === tokenAddr && r.success,
+        );
+        if (sellResult) {
+          tradesData.trades = (tradesData.trades as unknown[]) || [];
+          (tradesData.trades as unknown[]).push({
+            type: "sell",
+            chain: "monad",
+            token: tokenAddr,
+            mon: 0,
+            timestamp: new Date().toISOString(),
+            note: "liquidation",
+          });
+        }
+      }
+      tradesData.positions = {};
+      writeFileSync(monadTradesPath, JSON.stringify(tradesData, null, 2));
+    }
+  } catch {
+    console.error("[monad-liquidate] Failed to update MONAD_TRADES.json");
+  }
+
+  const sellResults = results.filter((r) => r.step === "sell");
+  const transferResult = results.find((r) => r.step === "transfer");
+  const successfulSells = sellResults.filter((r) => r.success).length;
+  const failedSells = sellResults.filter((r) => !r.success && !r.error?.includes("No balance")).length;
+
+  return c.json({
+    success: (transferResult?.success ?? true) && failedSells === 0,
+    summary: {
+      tokensFound: tokensToSell.length,
+      tokensSold: successfulSells,
+      tokensFailed: failedSells,
+      monTransferred: transferResult?.success ?? false,
+      transferHash: transferResult?.txHash ?? null,
+    },
+    results,
+  });
+});
+
 export default instanceRoutes;

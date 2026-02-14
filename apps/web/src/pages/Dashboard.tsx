@@ -109,6 +109,15 @@ export function Dashboard() {
   // Wallet sub-tab for chain switching
   const [walletChain, setWalletChain] = useState<WalletChain>("solana");
 
+  // Liquidate state
+  const [liquidateSolAddress, setLiquidateSolAddress] = useState("");
+  const [liquidateMonAddress, setLiquidateMonAddress] = useState("");
+  const [liquidatingSol, setLiquidatingSol] = useState(false);
+  const [liquidatingMon, setLiquidatingMon] = useState(false);
+  const [liquidateSolResult, setLiquidateSolResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [liquidateMonResult, setLiquidateMonResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showLiquidateConfirm, setShowLiquidateConfirm] = useState<"sol" | "mon" | null>(null);
+
   // Monad explorer base URL (testnet vs mainnet)
   const monadExplorerBase = monadTestnet
     ? "https://testnet.monadvision.com"
@@ -676,6 +685,45 @@ export function Dashboard() {
       });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // ── Liquidate handlers ──────────────────────────────────────────
+  const handleLiquidateSol = async () => {
+    if (!instance || !liquidateSolAddress.trim()) return;
+    setLiquidatingSol(true);
+    setLiquidateSolResult(null);
+    try {
+      const result = await backend.liquidate(instance.id, liquidateSolAddress.trim());
+      const msg = result.success
+        ? `Liquidation complete! ${result.summary.tokensSold} token(s) sold, SOL transferred.${result.summary.transferSignature ? ` Tx: ${result.summary.transferSignature.slice(0, 12)}...` : ""}`
+        : `Liquidation partially failed. Sold ${result.summary.tokensSold}/${result.summary.tokensFound} tokens. ${result.results.filter(r => !r.success).map(r => r.error).join(", ")}`;
+      setLiquidateSolResult({ success: result.success, message: msg });
+      setShowLiquidateConfirm(null);
+    } catch (err) {
+      setLiquidateSolResult({ success: false, message: err instanceof Error ? err.message : "Liquidation failed" });
+      setShowLiquidateConfirm(null);
+    } finally {
+      setLiquidatingSol(false);
+    }
+  };
+
+  const handleLiquidateMon = async () => {
+    if (!instance || !liquidateMonAddress.trim()) return;
+    setLiquidatingMon(true);
+    setLiquidateMonResult(null);
+    try {
+      const result = await backend.liquidateMonad(instance.id, liquidateMonAddress.trim());
+      const msg = result.success
+        ? `Liquidation complete! ${result.summary.tokensSold} token(s) sold, MON transferred.${result.summary.transferHash ? ` Tx: ${result.summary.transferHash.slice(0, 12)}...` : ""}`
+        : `Liquidation partially failed. Sold ${result.summary.tokensSold}/${result.summary.tokensFound} tokens. ${result.results.filter(r => !r.success).map(r => r.error).join(", ")}`;
+      setLiquidateMonResult({ success: result.success, message: msg });
+      setShowLiquidateConfirm(null);
+    } catch (err) {
+      setLiquidateMonResult({ success: false, message: err instanceof Error ? err.message : "Liquidation failed" });
+      setShowLiquidateConfirm(null);
+    } finally {
+      setLiquidatingMon(false);
     }
   };
 
@@ -2128,6 +2176,43 @@ export function Dashboard() {
                         <p className="text-[#A8A8A8] text-xs py-4 text-center">No transactions yet</p>
                       )}
                     </div>
+
+                    {/* ── Solana Liquidate ──────────────────────────────── */}
+                    <div className="cyber-card p-5 md:col-span-3">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-4 h-4 text-[#FF2E8C]" />
+                        <h3 className="text-sm font-semibold">Liquidate Solana</h3>
+                      </div>
+                      <p className="text-[10px] text-[#A8A8A8] mb-3">
+                        Sells all token holdings and transfers all SOL to your wallet. This cannot be undone.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Your Solana wallet address"
+                          value={liquidateSolAddress}
+                          onChange={(e) => setLiquidateSolAddress(e.target.value)}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs mono placeholder:text-[#A8A8A8]/50 focus:outline-none focus:border-[#9945FF]/50"
+                        />
+                        <button
+                          onClick={() => setShowLiquidateConfirm("sol")}
+                          disabled={!liquidateSolAddress.trim() || liquidatingSol}
+                          className="btn-danger text-xs py-2 px-4 flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          {liquidatingSol ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <ArrowUpRight className="w-3.5 h-3.5" />
+                          )}
+                          {liquidatingSol ? "Liquidating..." : "Liquidate SOL"}
+                        </button>
+                      </div>
+                      {liquidateSolResult && (
+                        <div className={`mt-2 text-[10px] px-3 py-2 rounded-lg ${liquidateSolResult.success ? "bg-[#34d399]/10 text-[#34d399]" : "bg-[#FF2E8C]/10 text-[#FF2E8C]"}`}>
+                          {liquidateSolResult.message}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
 
@@ -2332,6 +2417,43 @@ export function Dashboard() {
                         </div>
                       </div>
                     )}
+
+                    {/* ── Monad Liquidate ──────────────────────────────── */}
+                    <div className="cyber-card p-5 md:col-span-3">
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-4 h-4 text-[#FF2E8C]" />
+                        <h3 className="text-sm font-semibold">Liquidate Monad</h3>
+                      </div>
+                      <p className="text-[10px] text-[#A8A8A8] mb-3">
+                        Sells all nad.fun token holdings and transfers all MON to your wallet. This cannot be undone.
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Your Monad wallet address (0x...)"
+                          value={liquidateMonAddress}
+                          onChange={(e) => setLiquidateMonAddress(e.target.value)}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs mono placeholder:text-[#A8A8A8]/50 focus:outline-none focus:border-[#836EF9]/50"
+                        />
+                        <button
+                          onClick={() => setShowLiquidateConfirm("mon")}
+                          disabled={!liquidateMonAddress.trim() || liquidatingMon}
+                          className="btn-danger text-xs py-2 px-4 flex items-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          {liquidatingMon ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <ArrowUpRight className="w-3.5 h-3.5" />
+                          )}
+                          {liquidatingMon ? "Liquidating..." : "Liquidate MON"}
+                        </button>
+                      </div>
+                      {liquidateMonResult && (
+                        <div className={`mt-2 text-[10px] px-3 py-2 rounded-lg ${liquidateMonResult.success ? "bg-[#34d399]/10 text-[#34d399]" : "bg-[#FF2E8C]/10 text-[#FF2E8C]"}`}>
+                          {liquidateMonResult.message}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -2734,6 +2856,26 @@ export function Dashboard() {
         title={alertModal.title}
         message={alertModal.message}
         type={alertModal.type}
+      />
+      <ConfirmModal
+        isOpen={showLiquidateConfirm === "sol"}
+        onClose={() => setShowLiquidateConfirm(null)}
+        onConfirm={handleLiquidateSol}
+        title="Liquidate Solana"
+        message={`This will sell ALL token holdings and transfer ALL SOL to:\n\n${liquidateSolAddress}\n\nThis cannot be undone. Are you sure?`}
+        confirmText="Liquidate SOL"
+        danger
+        loading={liquidatingSol}
+      />
+      <ConfirmModal
+        isOpen={showLiquidateConfirm === "mon"}
+        onClose={() => setShowLiquidateConfirm(null)}
+        onConfirm={handleLiquidateMon}
+        title="Liquidate Monad"
+        message={`This will sell ALL nad.fun token holdings and transfer ALL MON to:\n\n${liquidateMonAddress}\n\nThis cannot be undone. Are you sure?`}
+        confirmText="Liquidate MON"
+        danger
+        loading={liquidatingMon}
       />
       {/* OpenAI Auth Warning Modal */}
       {showOpenaiWarning && (
