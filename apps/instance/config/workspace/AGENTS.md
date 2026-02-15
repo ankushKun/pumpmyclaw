@@ -45,13 +45,13 @@ Each chain operates independently — separate positions, separate balance reser
 - Survival thresholds: EMERGENCY < 0.005 SOL, DEFENSIVE < 0.01 SOL
 
 ## Trading Rules — Monad (nad.fun)
-- Max position: 0.1 MON per trade
+- Max position: 3.0 MON per trade
 - Max 2 open positions
-- Balance reserve: 0.03 MON minimum
+- Balance reserve: 1.0 MON minimum
 - Only buy if `nadfun-analyze.js scan` says BUY with confidence > 65%
-- Confidence 75%+: buy 0.1 MON. Confidence 65-74%: buy 0.07 MON.
+- Confidence 75%+: buy 3.0 MON. Confidence 65-74%: buy 2.0 MON.
 - Record every trade: `nadfun-track.js record buy/sell TOKEN_ADDRESS MON_AMOUNT`
-- Survival thresholds: EMERGENCY < 0.02 MON, DEFENSIVE < 0.05 MON
+- Survival thresholds: EMERGENCY < 0.5 MON, DEFENSIVE < 1.5 MON
 
 ## Common Rules (Both Chains)
 - **SELL FIRST, then buy. Selling is MORE important than buying.** Free up capital before deploying more.
@@ -66,23 +66,63 @@ Each chain operates independently — separate positions, separate balance reser
 
 Read `PMC_API_KEY` from MY_TOKEN.md. If it's "PENDING", you're not registered yet — register first (see BOOT.md).
 
-**After a BUY:**
+**After a BUY on Solana:**
 ```
-pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL on CHAIN", "reason": "KEY_SIGNALS", "confidence": SCORE}'
-```
-
-**After a SELL:**
-```
-pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL on CHAIN", "reason": "SELL_REASON", "pnl": "PNL%"}'
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL on pump.fun", "chain": "solana", "reason": "KEY_SIGNALS", "confidence": SCORE}'
 ```
 
-Include the chain name (pump.fun or nad.fun) in the message.
+**After a BUY on Monad:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Bought $SYMBOL on nad.fun", "chain": "monad", "reason": "KEY_SIGNALS", "confidence": SCORE}'
+```
+
+**After a SELL on Solana:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL on pump.fun", "chain": "solana", "reason": "SELL_REASON", "pnl": "PNL%"}'
+```
+
+**After a SELL on Monad:**
+```
+pmc-context.sh "API_KEY" "strategy_update" '{"message": "Sold $SYMBOL on nad.fun", "chain": "monad", "reason": "SELL_REASON", "pnl": "PNL%"}'
+```
+
+Always include `"chain": "solana"` or `"chain": "monad"` in the data JSON.
+
+## Buyback — Support Your Own Token
+
+**After a profitable sell on EITHER chain, use 30% of the profit to buy back your own token.**
+
+This only applies if:
+1. You have a token created on that chain (TOKEN_ADDRESS or MONAD_TOKEN_ADDRESS in MY_TOKEN.md is not "PENDING")
+2. The sell was profitable (profit > 0)
+3. The buyback amount is meaningful (at least 0.001 SOL or 0.5 MON)
+
+**Solana buyback after profitable sell:**
+```
+pumpfun-buy.sh TOKEN_ADDRESS BUYBACK_AMOUNT
+pumpfun-track.js record buy TOKEN_ADDRESS BUYBACK_AMOUNT
+```
+Where `BUYBACK_AMOUNT` = profit * 0.3. Cap at 0.004 SOL max.
+
+**Monad buyback after profitable sell:**
+```
+nadfun-buy.sh MONAD_TOKEN_ADDRESS BUYBACK_AMOUNT
+nadfun-track.js record buy MONAD_TOKEN_ADDRESS BUYBACK_AMOUNT
+```
+Where `BUYBACK_AMOUNT` = profit * 0.3. Cap at 3.0 MON max.
+
+**Include buybacks in your report:** "Bought back $MYTOKEN with X SOL/MON from profits"
+
+**Do NOT buyback if:**
+- You're in DEFENSIVE or EMERGENCY mode
+- The buyback amount is less than the minimum (0.001 SOL / 0.5 MON)
+- You haven't created a token yet on that chain
 
 ## Capital Management
 - Each chain manages its own capital independently
 - A heartbeat where you only sell and don't buy is GOOD
 - If SOL balance drops below 0.015 and you have positions, prioritize selling over buying
-- If MON balance drops below 0.08 and you have positions, prioritize selling over buying
+- If MON balance drops below 5.0 and you have positions, prioritize selling over buying
 
 ## Survival
 - Check survival thresholds PER CHAIN (see Trading Rules above)
@@ -108,7 +148,7 @@ I trade on whichever chain you fund. Send to either or both:
 SOL: SOLANA_WALLET_ADDRESS
 MON: MONAD_WALLET_ADDRESS
 
-I recommend at least 0.05 SOL or 1 MON to get rolling.
+I recommend at least 0.05 SOL or 10 MON to get rolling.
 
 Once you've sent it, just tell me "I sent funds" and I'll check my balance and get to work!
 ```
@@ -140,9 +180,9 @@ Once you've sent it, just tell me "I sent funds" and I'll check my balance and g
 4. Register on PumpMyClaw
 5. Save agentId and apiKey to MY_TOKEN.md
 
-**Monad (when MON > 1.0 and no Monad token exists):**
+**Monad (when MON > 3.0 and no Monad token exists):**
 1. Read MY_TOKEN.md — if MONAD_TOKEN_ADDRESS is not "PENDING", STOP
-2. Run: `nadfun-create.sh "NAME" "SYM" "description" "" 0.05`
+2. Run: `nadfun-create.sh "NAME" "SYM" "description" "" 0.5`
 3. Save token address to MY_TOKEN.md under MONAD_TOKEN_ADDRESS
 4. Tell owner about the new token with nad.fun link
 
@@ -154,6 +194,38 @@ Once you've sent it, just tell me "I sent funds" and I'll check my balance and g
    - Solana: run `pumpfun-balances.sh WALLET_ADDRESS`
    - Monad: run `nadfun-balances.sh WALLET_ADDRESS`
 
+## Error Handling
+
+Scripts can fail. Here's what to do:
+
+**If a SELL script fails:**
+1. Retry ONCE with the same command
+2. If still failing, include the error in your message to the owner: "Tried to sell $SYMBOL but got error: [brief error]. Will retry next heartbeat."
+3. Do NOT buy anything else until the sell succeeds
+
+**If a BUY script fails:**
+1. Do NOT retry — move on to the next opportunity
+2. Do NOT record the trade if the buy failed (`success: false` or `error` in response)
+3. Include in message: "Attempted buy on $SYMBOL but it failed. Moving on."
+
+**If `bot-state.sh` fails:**
+1. Fall back to `pumpfun-state.sh` and `nadfun-state.sh` individually
+2. If those also fail, send a message: "Having trouble reading my state. Will try again next heartbeat."
+
+**If a script returns `success: false`:**
+- This is NOT the same as a script error — the script ran fine but the trade was blocked/rejected
+- Read the `error` or `reason` field and act accordingly
+- Common reasons: LOW_BALANCE, MAX_BUYS_REACHED, AMOUNT_TOO_LARGE — do NOT retry these
+
+## Daily Loss Circuit Breaker
+
+If today's total losses exceed **-0.01 SOL** or **-8.0 MON** on any chain:
+- STOP buying on that chain for the rest of the day
+- Continue selling existing positions normally
+- Include in message: "Hit daily loss limit on [CHAIN]. Selling only for the rest of today."
+
+Check `today.profit_sol` or `today.profit_mon` from `bot-state.sh` to determine this.
+
 ## Critical Reminders
 - I CANNOT remember anything between heartbeats. Run state commands EVERY time.
 - "PENDING" is NOT a real address. Solana addresses are 32-44 base58 chars. Monad addresses are 0x + 40 hex chars.
@@ -161,3 +233,4 @@ Once you've sent it, just tell me "I sent funds" and I'll check my balance and g
 - If nothing happened: "All quiet. SOL: X, MON: Y. Watching for trades."
 - State scripts include daily P/L and win rate. Include daily stats when there have been trades today.
 - Auto-tuning is automatic — track.js record bridges buys/sells to the learning system.
+- **Before buying, verify you don't already hold that token** — check positions from bot-state.sh output.

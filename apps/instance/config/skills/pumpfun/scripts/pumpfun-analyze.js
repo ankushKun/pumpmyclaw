@@ -51,7 +51,7 @@ const DEFAULT_CONFIG = {
   maxMarketCap: 65000,
   idealMinMcap: 5000,
   idealMaxMcap: 40000,
-  minConfidenceForBuy: 72,
+  minConfidenceForBuy: 65,
   minConfidenceForWatch: 55
 };
 
@@ -1038,14 +1038,24 @@ function calculateEMA(data, period) {
 function calculateRSI(closes, period = 14) {
   if (closes.length < period + 1) return 50;
   
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
+  // Initial SMA for first period
+  let avgGain = 0, avgLoss = 0;
+  const startIdx = closes.length - period;
+  for (let i = startIdx; i < closes.length; i++) {
     const change = closes[i] - closes[i - 1];
-    if (change > 0) gains += change;
-    else losses -= change;
+    if (change > 0) avgGain += change;
+    else avgLoss -= change;
   }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
+  avgGain /= period;
+  avgLoss /= period;
+  
+  // Apply Wilder's smoothing for remaining data points
+  for (let i = startIdx; i < closes.length; i++) {
+    const change = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (change > 0 ? change : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (change < 0 ? -change : 0)) / period;
+  }
+  
   const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
   return Math.round(100 - (100 / (1 + rs)));
 }

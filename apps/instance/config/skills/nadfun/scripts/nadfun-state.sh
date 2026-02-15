@@ -40,9 +40,9 @@ echo "$LOG_PREFIX MON balance: $MON_BALANCE" >&2
 
 # --- Step 2: Determine mode ---
 MODE="NORMAL"
-if (( $(echo "$MON_BALANCE < 0.02" | bc -l 2>/dev/null || echo 0) )); then
+if (( $(echo "$MON_BALANCE < 0.5" | bc -l 2>/dev/null || echo 0) )); then
     MODE="EMERGENCY"
-elif (( $(echo "$MON_BALANCE < 0.05" | bc -l 2>/dev/null || echo 0) )); then
+elif (( $(echo "$MON_BALANCE < 1.5" | bc -l 2>/dev/null || echo 0) )); then
     MODE="DEFENSIVE"
 fi
 
@@ -62,25 +62,26 @@ POSITION_TOKENS=$(echo "$POSITIONS_JSON" | jq -r '.positions[].token // empty' 2
 
 ENRICHED_POSITIONS="[]"
 if [ -n "$POSITION_TOKENS" ]; then
-    ENRICHED_POSITIONS=$(node -e "
-const path = require('path');
-const https = require('https');
-const { MONAD_CONFIG, getPublicClient, lensAbi, erc20Abi, viem } = require(path.join('$MONAD_SCRIPTS', 'monad-common.js'));
+    # Pass data via environment variable to avoid shell injection in inline Node
+    ENRICHED_POSITIONS=$(POSITIONS_DATA="$POSITIONS_JSON" MONAD_SCRIPTS_PATH="$MONAD_SCRIPTS" node -e '
+const path = require("path");
+const https = require("https");
+const { MONAD_CONFIG, getPublicClient, lensAbi, erc20Abi, curveAbi, viem } = require(path.join(process.env.MONAD_SCRIPTS_PATH, "monad-common.js"));
 
-const positions = $(echo "$POSITIONS_JSON" | jq -c '.positions');
+const positions = JSON.parse(process.env.POSITIONS_DATA || "{}").positions || [];
 const API_URL = MONAD_CONFIG.apiUrl;
-const API_KEY = process.env.NAD_API_KEY || '';
+const API_KEY = process.env.NAD_API_KEY || "";
 
 function apiGet(url) {
   return new Promise((resolve) => {
     const parsed = new URL(url, API_URL);
     const headers = {};
-    if (API_KEY) headers['X-API-Key'] = API_KEY;
+    if (API_KEY) headers["X-API-Key"] = API_KEY;
     https.get(parsed.toString(), { headers, timeout: 8000 }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-    }).on('error', () => resolve(null)).on('timeout', function() { this.destroy(); resolve(null); });
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+    }).on("error", () => resolve(null)).on("timeout", function() { this.destroy(); resolve(null); });
   });
 }
 
@@ -89,51 +90,56 @@ async function main() {
   const enriched = [];
 
   for (const pos of positions) {
-    const entry = { ...pos, action: 'HOLD' };
+    const entry = { ...pos, action: "HOLD" };
 
     try {
-      // Get token balance
       const balance = await publicClient.readContract({
-        address: pos.token, abi: erc20Abi, functionName: 'balanceOf', args: [process.env.MONAD_ADDRESS],
+        address: pos.token, abi: erc20Abi, functionName: "balanceOf", args: [process.env.MONAD_ADDRESS],
       });
       entry.tokenBalance = viem.formatEther(balance);
 
       if (balance === 0n) {
-        entry.action = 'SELL_NOW:no_balance';
+        entry.action = "SELL_NOW:no_balance";
         enriched.push(entry);
         continue;
       }
 
-      // Get sell quote for current value
       const [, monOut] = await publicClient.readContract({
-        address: MONAD_CONFIG.LENS, abi: lensAbi, functionName: 'getAmountOut', args: [pos.token, balance, false],
+        address: MONAD_CONFIG.LENS, abi: lensAbi, functionName: "getAmountOut", args: [pos.token, balance, false],
       });
       entry.currentValueMON = parseFloat(viem.formatEther(monOut));
       entry.pnlPercent = pos.totalCost > 0 ? parseFloat(((entry.currentValueMON - pos.totalCost) / pos.totalCost * 100).toFixed(1)) : 0;
 
-      // Get token info from API
-      const info = await apiGet('/agent/token/' + pos.token);
+      const info = await apiGet("/agent/token/" + pos.token);
       if (info && info.token_info) {
         entry.symbol = info.token_info.symbol;
         entry.name = info.token_info.name;
       }
 
-      // Get market data
-      const market = await apiGet('/agent/market/' + pos.token);
+      const market = await apiGet("/agent/market/" + pos.token);
       if (market && market.market_info) {
         entry.priceUsd = market.market_info.price_usd;
         entry.marketCap = market.market_info.market_cap;
       }
 
-      // Determine sell signals
-      if (entry.pnlPercent >= 15) entry.action = 'SELL_NOW:take_profit';
-      else if (entry.pnlPercent <= -10) entry.action = 'SELL_NOW:stop_loss';
-      else if (pos.ageMinutes > 10 && entry.pnlPercent < 0) entry.action = 'SELL_NOW:losing_momentum';
-      else if (pos.ageMinutes > 15) entry.action = 'SELL_NOW:stale_position';
+      // Check graduation status
+      let graduated = false;
+      try {
+        graduated = await publicClient.readContract({
+          address: MONAD_CONFIG.CURVE, abi: curveAbi, functionName: "isGraduated", args: [pos.token],
+        });
+      } catch {}
+      entry.graduated = graduated;
+
+      if (graduated) entry.action = "SELL_NOW:graduated";
+      else if (entry.pnlPercent >= 15) entry.action = "SELL_NOW:take_profit";
+      else if (entry.pnlPercent <= -10) entry.action = "SELL_NOW:stop_loss";
+      else if (pos.ageMinutes > 10 && entry.pnlPercent < 0) entry.action = "SELL_NOW:losing_momentum";
+      else if (pos.ageMinutes > 15) entry.action = "SELL_NOW:stale_position";
 
     } catch (e) {
       entry.error = e.message;
-      if (pos.ageMinutes > 5) entry.action = 'SELL_NOW:unknown_value';
+      if (pos.ageMinutes > 5) entry.action = "SELL_NOW:unknown_value";
     }
 
     enriched.push(entry);
@@ -142,37 +148,38 @@ async function main() {
   console.log(JSON.stringify(enriched));
 }
 
-main().catch(e => { console.log('[]'); });
-" 2>/dev/null || echo "[]")
+main().catch(() => { console.log("[]"); });
+' 2>/dev/null || echo "[]")
 fi
 
 # --- Step 6: Check for on-chain tokens not in position tracker ---
-ONCHAIN_HOLDINGS=$(node -e "
-const path = require('path');
-const https = require('https');
-const { MONAD_CONFIG } = require(path.join('$MONAD_SCRIPTS', 'monad-common.js'));
+ONCHAIN_HOLDINGS=$(MONAD_SCRIPTS_PATH="$MONAD_SCRIPTS" MONAD_ADDR_VAL="$MONAD_ADDR" node -e '
+const path = require("path");
+const https = require("https");
+const { MONAD_CONFIG } = require(path.join(process.env.MONAD_SCRIPTS_PATH, "monad-common.js"));
 const API_URL = MONAD_CONFIG.apiUrl;
-const API_KEY = process.env.NAD_API_KEY || '';
+const API_KEY = process.env.NAD_API_KEY || "";
 
 function apiGet(url) {
   return new Promise((resolve) => {
     const parsed = new URL(url, API_URL);
     const headers = {};
-    if (API_KEY) headers['X-API-Key'] = API_KEY;
+    if (API_KEY) headers["X-API-Key"] = API_KEY;
     https.get(parsed.toString(), { headers, timeout: 8000 }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
-    }).on('error', () => resolve(null)).on('timeout', function() { this.destroy(); resolve(null); });
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+    }).on("error", () => resolve(null)).on("timeout", function() { this.destroy(); resolve(null); });
   });
 }
 
 async function main() {
-  const result = await apiGet('/agent/holdings/$MONAD_ADDR?page=1&limit=50');
+  const addr = process.env.MONAD_ADDR_VAL;
+  const result = await apiGet("/agent/holdings/" + addr + "?page=1&limit=50");
   console.log(JSON.stringify(result && result.tokens ? result.tokens.length : 0));
 }
-main().catch(() => console.log('0'));
-" 2>/dev/null || echo "0")
+main().catch(() => console.log("0"));
+' 2>/dev/null || echo "0")
 
 # --- Step 7: Read MY_TOKEN.md for Monad token ---
 MY_MONAD_TOKEN_EXISTS="false"

@@ -1,6 +1,9 @@
 #!/bin/bash
 # Get agent's buyback trades (buying own token) from PumpMyClaw
 # Usage: pmc-buybacks.sh <agent_id>
+#
+# Returns buyback trades across all chains (Solana + Monad).
+# Each trade includes a "chain" field.
 
 set -e
 

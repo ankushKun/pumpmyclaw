@@ -361,27 +361,53 @@ function recordTrade(action, mint, solAmount, tokenAmount = null) {
     bridgeToAutoTuning('buy', mint, sol, 0);
 
   } else if (action === 'sell') {
-    // Calculate profit if we have position data
+    // Calculate profit if we have position data — support partial sells
     let profitSOL = 0;
     let costBasisSOL = 0;
     if (data.positions && data.positions[mint]) {
       const pos = data.positions[mint];
       costBasisSOL = pos.totalCostSOL || 0;
       if (costBasisSOL > 0) {
-        profitSOL = sol - costBasisSOL;
-        data.totalProfitSOL = (data.totalProfitSOL || 0) + profitSOL;
-        trade.profitSOL = profitSOL;
-        trade.costBasisSOL = costBasisSOL;  // Store for display: solReceived = profitSOL + costBasisSOL
+        if (sol >= costBasisSOL * 0.9) {
+          // Full sell (or close to it)
+          profitSOL = sol - costBasisSOL;
+          data.totalProfitSOL = (data.totalProfitSOL || 0) + profitSOL;
+          trade.profitSOL = profitSOL;
+          trade.costBasisSOL = costBasisSOL;
+          // Clear position fully
+          delete data.positions[mint];
+          // Reset buy count to allow re-entry
+          if (data.buyCountByMint && data.buyCountByMint[mint]) {
+            delete data.buyCountByMint[mint];
+            console.error(`[track] Reset buy count for ${mint} after full sell`);
+          }
+        } else {
+          // Partial sell — proportionally reduce cost basis
+          const sellRatio = costBasisSOL > 0 ? sol / costBasisSOL : 1;
+          const costPortion = costBasisSOL * Math.min(sellRatio, 1);
+          profitSOL = sol - costPortion;
+          data.totalProfitSOL = (data.totalProfitSOL || 0) + profitSOL;
+          trade.profitSOL = profitSOL;
+          trade.costBasisSOL = costPortion;
+          // Reduce remaining position
+          pos.totalCostSOL = Math.max(0, pos.totalCostSOL - costPortion);
+          if (pos.totalTokens && tokenAmount) {
+            pos.totalTokens = Math.max(0, pos.totalTokens - parseFloat(tokenAmount));
+          }
+          console.error(`[track] Partial sell for ${mint}: remaining cost ${pos.totalCostSOL.toFixed(6)} SOL`);
+        }
+      } else {
+        // No cost basis — clear position
+        delete data.positions[mint];
+        if (data.buyCountByMint && data.buyCountByMint[mint]) {
+          delete data.buyCountByMint[mint];
+        }
       }
-      // Clear position
-      delete data.positions[mint];
-    }
-    
-    // Reset buy count for this mint when position is closed
-    // This allows re-entering the token later with fresh buy limits
-    if (data.buyCountByMint && data.buyCountByMint[mint]) {
-      delete data.buyCountByMint[mint];
-      console.error(`[track] Reset buy count for ${mint} after sell`);
+    } else {
+      // No position data — clear buy count anyway
+      if (data.buyCountByMint && data.buyCountByMint[mint]) {
+        delete data.buyCountByMint[mint];
+      }
     }
 
     // Update daily P/L

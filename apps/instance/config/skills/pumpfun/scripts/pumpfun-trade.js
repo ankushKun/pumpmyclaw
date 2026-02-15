@@ -226,7 +226,45 @@ async function executeTrade(action, mint, amount, slippagePct, config) {
         ]);
     }
 
+    // Confirm transaction landed on-chain (poll for up to 60 seconds)
+    let confirmed = false;
+    let txStatus = 'unknown';
+    const confirmStart = Date.now();
+    const CONFIRM_TIMEOUT_MS = 60000;
+    while (Date.now() - confirmStart < CONFIRM_TIMEOUT_MS) {
+        try {
+            const statusResult = await rpc(rpcUrl, 'getSignatureStatuses', [[txSignature], { searchTransactionHistory: false }]);
+            const status = statusResult?.value?.[0];
+            if (status) {
+                if (status.err) {
+                    txStatus = 'failed';
+                    return {
+                        success: false,
+                        action: action,
+                        error: `Transaction confirmed but FAILED on-chain`,
+                        signature: txSignature,
+                        explorer: `https://orb.helius.dev/tx/${txSignature}`,
+                    };
+                }
+                if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
+                    confirmed = true;
+                    txStatus = status.confirmationStatus;
+                    break;
+                }
+            }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 2000));
+    }
 
+    if (!confirmed) {
+        return {
+            success: false,
+            action: action,
+            error: `Transaction sent but NOT confirmed after ${CONFIRM_TIMEOUT_MS / 1000}s. It may still land — check explorer.`,
+            signature: txSignature,
+            explorer: `https://orb.helius.dev/tx/${txSignature}`,
+        };
+    }
 
     return {
         success: true,
@@ -234,6 +272,7 @@ async function executeTrade(action, mint, amount, slippagePct, config) {
         token: { mint, name: tokenInfo.name, symbol: tokenInfo.symbol },
         amount: isBuy ? `${amount} SOL` : `${amount}${isPercentSell ? '' : ' tokens'}`,
         signature: txSignature,
+        confirmed: txStatus,
         explorer: `https://orb.helius.dev/tx/${txSignature}`,
         pumpfun: `https://pump.fun/coin/${mint}`
     };

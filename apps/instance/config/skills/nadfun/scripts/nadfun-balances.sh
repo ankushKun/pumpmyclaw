@@ -16,31 +16,33 @@ if [ -z "$ADDRESS" ]; then
     exit 1
 fi
 
-HEADERS=""
+# Build curl args array
+CURL_ARGS=(-sf --max-time 10)
 if [ -n "$NAD_API_KEY" ]; then
-    HEADERS="-H \"X-API-Key: $NAD_API_KEY\""
+    CURL_ARGS+=(-H "X-API-Key: $NAD_API_KEY")
 fi
 
-RESULT=$(eval curl -sf --max-time 10 "$API_URL/agent/holdings/$ADDRESS?page=1&limit=50" $HEADERS 2>/dev/null || echo '{}')
+RESULT=$(curl "${CURL_ARGS[@]}" "$API_URL/agent/holdings/$ADDRESS?page=1&limit=50" 2>/dev/null || echo '{}')
 
-# Format output
-node -e "
-const data = $RESULT;
+# Format output — pass data via env vars to avoid shell injection
+HOLDINGS_DATA="$RESULT" WALLET_ADDR="$ADDRESS" node -e '
+const data = JSON.parse(process.env.HOLDINGS_DATA || "{}");
+const addr = process.env.WALLET_ADDR;
 const tokens = (data.tokens || []).map(t => ({
-    token: t.token_info?.token_id || 'unknown',
-    name: t.token_info?.name || 'unknown',
-    symbol: t.token_info?.symbol || 'unknown',
-    balance: t.balance_info?.balance || '0',
-    balanceFormatted: t.balance_info?.balance_formatted || '0',
-    priceUsd: t.market_info?.price_usd || '0',
-    valueUsd: t.market_info?.value_usd || '0',
+    token: t.token_info?.token_id || "unknown",
+    name: t.token_info?.name || "unknown",
+    symbol: t.token_info?.symbol || "unknown",
+    balance: t.balance_info?.balance || "0",
+    balanceFormatted: t.balance_info?.balance_formatted || "0",
+    priceUsd: t.market_info?.price_usd || "0",
+    valueUsd: t.market_info?.value_usd || "0",
     marketCap: t.market_info?.market_cap || 0,
 }));
 
 console.log(JSON.stringify({
-    wallet: '$ADDRESS',
+    wallet: addr,
     count: tokens.length,
     total_count: data.total_count || tokens.length,
     tokens,
 }, null, 2));
-"
+'

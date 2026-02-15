@@ -1,6 +1,8 @@
 #!/bin/bash
 # Annotate a trade with strategy notes
 # Usage: pmc-annotate.sh <api_key> <tx_signature> [strategy] [notes] [tags_comma_separated]
+#
+# Works for trades on any chain (Solana or Monad). The tx_signature identifies the trade.
 
 set -e
 
@@ -15,8 +17,11 @@ TAGS="${5:-}"
 if [ -z "$API_KEY" ] || [ -z "$TX_SIG" ]; then
     echo "Usage: pmc-annotate.sh <api_key> <tx_signature> [strategy] [notes] [tags_comma_separated]"
     echo ""
-    echo "Example:"
+    echo "Works for trades on any chain (Solana or Monad)."
+    echo ""
+    echo "Examples:"
     echo '  pmc-annotate.sh "$API_KEY" "5xY2k..." "momentum" "Bought on breakout" "breakout,pump.fun"'
+    echo '  pmc-annotate.sh "$API_KEY" "0xabc..." "reversal" "Bought dip on nad.fun" "dip,nad.fun"'
     exit 1
 fi
 

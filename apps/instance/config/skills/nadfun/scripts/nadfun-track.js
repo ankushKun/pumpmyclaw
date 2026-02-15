@@ -2,32 +2,133 @@
 'use strict';
 
 // Position tracking and P/L management for nad.fun trades
+//
 // Usage:
 //   nadfun-track.js record <buy|sell> <token_address> <mon_amount>
 //   nadfun-track.js check <token_address>
 //   nadfun-track.js status
 //   nadfun-track.js daily
 //   nadfun-track.js reset
+//
+// Auto-tuning bridge:
+//   On BUY:  automatically records entry patterns via nadfun-analyze.js
+//   On SELL: automatically records outcome via nadfun-analyze.js
+//   No extra tool calls needed — the learning system is always fed.
 
 const path = require('path');
 const fs = require('fs');
+const { execSync } = require('child_process');
 
-const TRADES_FILE = path.join(process.env.HOME || '/home/openclaw', '.openclaw', 'workspace', 'MONAD_TRADES.json');
+const WORKSPACE_DIR = path.join(process.env.HOME || '/home/openclaw', '.openclaw', 'workspace');
+const TRADES_FILE = path.join(WORKSPACE_DIR, 'MONAD_TRADES.json');
+const SCRIPTS_DIR = path.dirname(__filename);
+
+// Maximum trades to keep in the active trades array.
+// Older trades are rotated to an archive file to preserve history.
+const MAX_ACTIVE_TRADES = 500;
+const ARCHIVE_FILE = path.join(WORKSPACE_DIR, 'MONAD_TRADES_ARCHIVE.json');
+
+// Safety caps (must match nadfun-trade.js and AGENTS.md)
+const MAX_BUY_MON = 5.0;
+const MAX_SELL_MON = 50.0; // generous cap for sells (multi-buy positions)
 
 function loadTrades() {
   try {
     if (fs.existsSync(TRADES_FILE)) {
-      return JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
+      const data = JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
+      // Ensure all expected fields exist
+      if (!data.trades) data.trades = [];
+      if (!data.positions) data.positions = {};
+      if (!data.daily) data.daily = {};
+      if (typeof data.totalProfitMON !== 'number') data.totalProfitMON = 0;
+      return data;
     }
   } catch {}
   return { trades: [], positions: {}, daily: {}, totalProfitMON: 0 };
 }
 
 function saveTrades(data) {
-  if (data.trades.length > 500) {
-    data.trades = data.trades.slice(-500);
+  try {
+    const dir = path.dirname(TRADES_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Rotate old trades to archive instead of discarding them
+    if (data.trades.length > MAX_ACTIVE_TRADES) {
+      const overflow = data.trades.slice(0, data.trades.length - MAX_ACTIVE_TRADES);
+      data.trades = data.trades.slice(-MAX_ACTIVE_TRADES);
+      archiveTrades(overflow);
+    }
+
+    fs.writeFileSync(TRADES_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error(`[track] Error saving trades: ${e.message}`);
   }
-  fs.writeFileSync(TRADES_FILE, JSON.stringify(data, null, 2));
+}
+
+function archiveTrades(trades) {
+  try {
+    let archive = [];
+    if (fs.existsSync(ARCHIVE_FILE)) {
+      try {
+        archive = JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8'));
+        if (!Array.isArray(archive)) archive = [];
+      } catch (_) { archive = []; }
+    }
+    archive.push(...trades);
+    // Keep archive to a reasonable size (last 5000 trades)
+    if (archive.length > 5000) {
+      archive = archive.slice(-5000);
+    }
+    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(archive, null, 2));
+  } catch (e) {
+    console.error(`[track] Archive error: ${e.message}`);
+  }
+}
+
+// ============================================================================
+// AUTO-TUNING BRIDGE
+// Calls nadfun-analyze.js to record entries/outcomes so the learning system
+// is always fed without requiring extra tool calls from the LLM.
+// ============================================================================
+function bridgeToAutoTuning(action, token, monAmount, profitMON) {
+  try {
+    const analyzeScript = path.join(SCRIPTS_DIR, 'nadfun-analyze.js');
+    if (!fs.existsSync(analyzeScript)) return;
+
+    if (action === 'buy') {
+      // Record entry: captures current patterns/signals at time of buy
+      execSync(
+        `node "${analyzeScript}" record "${token}" BUY "${monAmount}"`,
+        { encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      console.error(`[track] Auto-tuning: recorded BUY entry for ${token}`);
+    } else if (action === 'sell') {
+      // Find the most recent open trade in analyze's trades-history.json
+      // and close it with the outcome
+      const tradesHistoryFile = path.join(WORKSPACE_DIR, 'monad-trades-history.json');
+      if (!fs.existsSync(tradesHistoryFile)) return;
+
+      const tradesHistory = JSON.parse(fs.readFileSync(tradesHistoryFile, 'utf8'));
+      // Find latest open trade for this token
+      const openTrade = [...(tradesHistory.trades || [])].reverse().find(
+        t => t.token === token && !t.outcome
+      );
+
+      if (openTrade) {
+        const outcome = profitMON >= 0 ? 'win' : 'loss';
+        execSync(
+          `node "${analyzeScript}" outcome "${openTrade.id}" "${outcome}" "${monAmount}"`,
+          { encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] }
+        );
+        console.error(`[track] Auto-tuning: recorded ${outcome} for trade #${openTrade.id} (${token})`);
+      }
+    }
+  } catch (e) {
+    // Never let auto-tuning errors break trade recording
+    console.error(`[track] Auto-tuning bridge error (non-fatal): ${e.message}`);
+  }
 }
 
 function todayKey() {
@@ -42,7 +143,7 @@ function cmdRecord(args) {
 
   const type = args[0].toLowerCase();
   const token = args[1];
-  const monAmount = parseFloat(args[2]);
+  let monAmount = parseFloat(args[2]);
 
   if (type !== 'buy' && type !== 'sell') {
     console.log(JSON.stringify({ error: 'Type must be "buy" or "sell"' }));
@@ -54,8 +155,42 @@ function cmdRecord(args) {
     process.exit(1);
   }
 
+  // Safety caps — reject obviously wrong amounts
+  if (type === 'buy' && monAmount > MAX_BUY_MON) {
+    console.log(JSON.stringify({
+      error: `Buy amount ${monAmount} MON exceeds safety cap ${MAX_BUY_MON} MON`,
+      capped: true,
+    }));
+    process.exit(1);
+  }
+  if (type === 'sell' && monAmount > MAX_SELL_MON) {
+    console.log(JSON.stringify({
+      error: `Sell amount ${monAmount} MON exceeds safety cap ${MAX_SELL_MON} MON`,
+      capped: true,
+    }));
+    process.exit(1);
+  }
+
   const data = loadTrades();
   const today = todayKey();
+
+  // Duplicate protection: reject if same token+type was recorded in the last 60 seconds
+  const now = Date.now();
+  const recentDupe = data.trades.slice(-20).find(t => {
+    if (t.token !== token || t.type !== type) return false;
+    const tTime = new Date(t.timestamp).getTime();
+    return (now - tTime) < 60000;
+  });
+  if (recentDupe) {
+    console.log(JSON.stringify({
+      success: true,
+      recorded: type,
+      token,
+      duplicate: true,
+      note: 'Trade already recorded within the last 60 seconds',
+    }));
+    return;
+  }
 
   if (!data.daily[today]) {
     data.daily[today] = { profit: 0, trades: 0, wins: 0, losses: 0 };
@@ -80,6 +215,10 @@ function cmdRecord(args) {
     data.positions[token].buyCount++;
 
     saveTrades(data);
+
+    // Bridge to auto-tuning (non-blocking, errors swallowed)
+    bridgeToAutoTuning('buy', token, monAmount, 0);
+
     console.log(JSON.stringify({
       success: true,
       recorded: 'buy',
@@ -89,25 +228,49 @@ function cmdRecord(args) {
       buyCount: data.positions[token].buyCount,
     }));
   } else {
-    // Sell
+    // Sell — support partial sells (don't delete position unless fully sold)
     const pos = data.positions[token];
     let profit = 0;
     if (pos) {
-      profit = monAmount - pos.totalCost;
-      trade.profit = profit;
-      data.totalProfitMON += profit;
-      data.daily[today].profit += profit;
-      if (profit > 0) data.daily[today].wins++;
-      else data.daily[today].losses++;
-      delete data.positions[token];
+      // Estimate what fraction of the position was sold
+      // If monReceived >= totalCost, treat as full sell
+      // Otherwise, proportionally reduce the position
+      if (monAmount >= pos.totalCost * 0.9) {
+        // Full sell (or close to it)
+        profit = monAmount - pos.totalCost;
+        trade.profit = profit;
+        data.totalProfitMON += profit;
+        data.daily[today].profit += profit;
+        if (profit > 0) data.daily[today].wins++;
+        else data.daily[today].losses++;
+        delete data.positions[token];
+      } else {
+        // Partial sell — proportionally reduce cost basis
+        const sellRatio = pos.totalCost > 0 ? monAmount / pos.totalCost : 1;
+        const costPortion = pos.totalCost * Math.min(sellRatio, 1);
+        profit = monAmount - costPortion;
+        trade.profit = profit;
+        data.totalProfitMON += profit;
+        data.daily[today].profit += profit;
+        if (profit > 0) data.daily[today].wins++;
+        else data.daily[today].losses++;
+        // Reduce remaining position
+        pos.totalCost = Math.max(0, pos.totalCost - costPortion);
+        pos.buyCount = Math.max(1, pos.buyCount - 1);
+      }
     } else {
       // Unknown position - count all as profit
+      profit = monAmount;
       data.totalProfitMON += monAmount;
       data.daily[today].profit += monAmount;
       data.daily[today].wins++;
     }
 
     saveTrades(data);
+
+    // Bridge to auto-tuning (non-blocking, errors swallowed)
+    bridgeToAutoTuning('sell', token, monAmount, profit);
+
     console.log(JSON.stringify({
       success: true,
       recorded: 'sell',

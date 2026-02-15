@@ -21,80 +21,25 @@ const {
 } = require(path.join(__dirname, '..', '..', 'monad', 'scripts', 'monad-common.js'));
 
 // --- Safety caps ---
-const MAX_BUY_MON = 0.5;        // Max MON per buy
+const MAX_BUY_MON = 5.0;         // Max MON per buy (~$0.10)
 const MAX_BUYS_PER_TOKEN = 2;    // Max buys per token
-const MIN_BALANCE_MON = 0.05;    // Min balance to trade
-const RESERVE_MON = 0.03;        // Always keep this much for gas
+const MIN_BALANCE_MON = 0.5;     // Min balance to trade (~$0.01)
+const RESERVE_MON = 1.0;         // Always keep this much for gas (~$0.02)
 const DEFAULT_SLIPPAGE_BPS = 200; // 2% slippage
 const DEADLINE_SECONDS = 300;     // 5 min deadline
 
-// --- Trade ledger ---
-const TRADES_FILE = path.join(process.env.HOME || '/home/openclaw', '.openclaw', 'workspace', 'MONAD_TRADES.json');
+// --- Trade recording is handled by nadfun-track.js ---
+// nadfun-trade.js only executes trades; nadfun-track.js manages the ledger.
+// This avoids dual writes to MONAD_TRADES.json.
 
 function loadTrades() {
+  const TRADES_FILE = path.join(process.env.HOME || '/home/openclaw', '.openclaw', 'workspace', 'MONAD_TRADES.json');
   try {
     if (fs.existsSync(TRADES_FILE)) {
       return JSON.parse(fs.readFileSync(TRADES_FILE, 'utf8'));
     }
   } catch {}
   return { trades: [], positions: {}, daily: {}, totalProfitMON: 0 };
-}
-
-function saveTrades(data) {
-  // Keep last 500 trades
-  if (data.trades.length > 500) {
-    data.trades = data.trades.slice(-500);
-  }
-  fs.writeFileSync(TRADES_FILE, JSON.stringify(data, null, 2));
-}
-
-function todayKey() {
-  return new Date().toISOString().split('T')[0];
-}
-
-function recordTrade(data, type, token, monAmount, txHash) {
-  const today = todayKey();
-  if (!data.daily[today]) {
-    data.daily[today] = { profit: 0, trades: 0, wins: 0, losses: 0 };
-  }
-
-  const trade = {
-    type,
-    chain: 'monad',
-    token,
-    mon: monAmount,
-    txHash,
-    timestamp: new Date().toISOString(),
-  };
-
-  data.trades.push(trade);
-  data.daily[today].trades++;
-
-  if (type === 'buy') {
-    if (!data.positions[token]) {
-      data.positions[token] = { totalCost: 0, buyCount: 0, firstBuy: Date.now() };
-    }
-    data.positions[token].totalCost += monAmount;
-    data.positions[token].buyCount++;
-  } else if (type === 'sell') {
-    const pos = data.positions[token];
-    if (pos) {
-      const profit = monAmount - pos.totalCost;
-      trade.profit = profit;
-      data.totalProfitMON += profit;
-      data.daily[today].profit += profit;
-      if (profit > 0) data.daily[today].wins++;
-      else data.daily[today].losses++;
-      delete data.positions[token];
-    } else {
-      data.daily[today].profit += monAmount;
-      data.totalProfitMON += monAmount;
-      if (monAmount > 0) data.daily[today].wins++;
-    }
-  }
-
-  saveTrades(data);
-  return trade;
 }
 
 async function executeBuy(tokenAddress, monAmount, slippageBps) {
@@ -172,15 +117,19 @@ async function executeBuy(tokenAddress, monAmount, slippageBps) {
     chain: monadChain,
   });
 
-  // Wait for receipt
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // Wait for receipt (60s timeout to avoid hanging forever)
+  let receipt;
+  try {
+    receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  } catch (e) {
+    return { error: `Transaction sent but receipt timed out after 60s. Hash: ${hash}. It may still land.`, txHash: hash };
+  }
 
   if (receipt.status !== 'success') {
     return { error: 'Transaction reverted', txHash: hash };
   }
 
-  // Record trade
-  const trade = recordTrade(trades, 'buy', tokenAddress, monAmount, hash);
+  // Trade recording is handled by nadfun-track.js (called separately by LLM)
 
   return {
     success: true,
@@ -255,6 +204,9 @@ async function executeSell(tokenAddress, amountOrPercent, slippageBps) {
     args: [account.address, router],
   });
 
+  // Get current nonce for sequential approve+sell
+  let nonce = await publicClient.getTransactionCount({ address: account.address });
+
   if (currentAllowance < sellAmount) {
     const approveHash = await walletClient.writeContract({
       address: tokenAddress,
@@ -263,8 +215,23 @@ async function executeSell(tokenAddress, amountOrPercent, slippageBps) {
       args: [router, sellAmount],
       account,
       chain: monadChain,
+      nonce,
     });
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+    // Wait for approve receipt and verify it succeeded
+    let approveReceipt;
+    try {
+      approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash, timeout: 30_000 });
+    } catch (e) {
+      return { error: `Approve tx sent but receipt timed out. Hash: ${approveHash}. Cannot proceed with sell.`, txHash: approveHash };
+    }
+
+    if (approveReceipt.status !== 'success') {
+      return { error: `Approve transaction reverted. Cannot sell without approval.`, txHash: approveHash };
+    }
+
+    // Increment nonce for the sell transaction
+    nonce++;
   }
 
   // Build sell calldata
@@ -286,17 +253,23 @@ async function executeSell(tokenAddress, amountOrPercent, slippageBps) {
     return { error: `Gas estimation failed: ${e.message}` };
   }
 
-  // Send transaction
+  // Send sell transaction with explicit nonce to avoid collision with approve
   const hash = await walletClient.sendTransaction({
     account,
     to: router,
     data: callData,
     gas: gasEstimate + gasEstimate / 10n,
     chain: monadChain,
+    nonce,
   });
 
-  // Wait for receipt
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // Wait for receipt (60s timeout to avoid hanging forever)
+  let receipt;
+  try {
+    receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  } catch (e) {
+    return { error: `Sell transaction sent but receipt timed out after 60s. Hash: ${hash}. It may still land.`, txHash: hash };
+  }
 
   if (receipt.status !== 'success') {
     return { error: 'Transaction reverted', txHash: hash };
@@ -307,9 +280,7 @@ async function executeSell(tokenAddress, amountOrPercent, slippageBps) {
   const monReceived = monAfter - monBefore;
   const monReceivedFloat = parseFloat(viem.formatEther(monReceived > 0n ? monReceived : amountOut));
 
-  // Record trade
-  const trades = loadTrades();
-  const trade = recordTrade(trades, 'sell', tokenAddress, monReceivedFloat, hash);
+  // Trade recording is handled by nadfun-track.js (called separately by LLM)
 
   return {
     success: true,
@@ -317,7 +288,6 @@ async function executeSell(tokenAddress, amountOrPercent, slippageBps) {
     token: tokenAddress,
     tokensSold: viem.formatEther(sellAmount),
     monReceived: monReceivedFloat.toFixed(6),
-    profit: trade.profit !== undefined ? trade.profit.toFixed(6) : 'unknown',
     txHash: hash,
     router: router,
     blockNumber: Number(receipt.blockNumber),

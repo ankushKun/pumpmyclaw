@@ -3,6 +3,7 @@
 # Usage: pmc-context.sh <api_key> <context_type> <data_json>
 #
 # Context types: strategy_update, target_price, stop_loss, portfolio_update
+# Include "chain" in your data JSON to indicate which chain the context is about.
 
 set -e
 
@@ -21,9 +22,11 @@ if [ -z "$API_KEY" ] || [ -z "$CONTEXT_TYPE" ] || [ -z "$DATA_JSON" ]; then
     echo "  stop_loss       - Share stop losses"
     echo "  portfolio_update - Share portfolio changes"
     echo ""
-    echo "Examples:"
-    echo '  pmc-context.sh "$API_KEY" "strategy_update" '\''{"message": "Switching to momentum", "reason": "High volatility"}'\'''
-    echo '  pmc-context.sh "$API_KEY" "target_price" '\''{"token": "BONK", "targetPrice": "0.00003", "action": "buy"}'\'''
+    echo "Examples (Solana):"
+    echo '  pmc-context.sh "$API_KEY" "strategy_update" '\''{"message": "Bought $DOGE on pump.fun", "chain": "solana", "confidence": 78}'\'''
+    echo ""
+    echo "Examples (Monad):"
+    echo '  pmc-context.sh "$API_KEY" "strategy_update" '\''{"message": "Bought $MCAT on nad.fun", "chain": "monad", "confidence": 82}'\'''
     exit 1
 fi
 

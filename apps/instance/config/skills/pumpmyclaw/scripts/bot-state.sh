@@ -68,8 +68,8 @@ SOL_ACTIVE="false"
 MON_ACTIVE="false"
 # Solana active if balance >= 0.005
 if echo "$SOL_BAL >= 0.005" | bc -l 2>/dev/null | grep -q '^1'; then SOL_ACTIVE="true"; fi
-# Monad active if balance >= 0.02
-if echo "$MON_BAL >= 0.02" | bc -l 2>/dev/null | grep -q '^1'; then MON_ACTIVE="true"; fi
+# Monad active if balance >= 0.5
+if echo "$MON_BAL >= 0.5" | bc -l 2>/dev/null | grep -q '^1'; then MON_ACTIVE="true"; fi
 
 echo "$LOG_PREFIX SOL: ${SOL_BAL} ($SOL_MODE), MON: ${MON_BAL} ($MON_MODE)" >&2
 
@@ -90,7 +90,7 @@ jq -n \
       sol_positions: ($solana.active_positions // ($solana.positions | length? // 0)),
       mon_positions: (($monad.positions // []) | length? // 0),
       sol_today_profit: ($solana.today.profit_sol // 0),
-      mon_today_profit: ($monad.today.profit // 0),
+      mon_today_profit: ($monad.today.profit_mon // 0),
       sol_wallet: ($solana.wallet_address // "unknown"),
       mon_wallet: ($monad.wallet_address // "unknown")
     },

@@ -186,13 +186,13 @@ if [ "$ACTIVE_POSITIONS" != "0" ] && [ "$RAW_POSITIONS" != "{}" ]; then
             SELL_SIGNAL="SELL_NOW:graduated"
         elif [ "$CAN_CALC_PNL" = "true" ]; then
             # Normal P/L-based sell signals (tight exits to preserve capital)
-            if safe_cmp "$PNL_PCT >= 12"; then
+            if safe_cmp "$PNL_PCT >= 15"; then
                 SELL_SIGNAL="SELL_NOW:take_profit"
-            elif safe_cmp "$PNL_PCT <= -8"; then
+            elif safe_cmp "$PNL_PCT <= -10"; then
                 SELL_SIGNAL="SELL_NOW:stop_loss"
-            elif [ "${AGE_MIN:-0}" -gt 8 ] 2>/dev/null && safe_cmp "$PNL_PCT <= 5"; then
+            elif [ "${AGE_MIN:-0}" -gt 10 ] 2>/dev/null && safe_cmp "$PNL_PCT <= 5"; then
                 SELL_SIGNAL="SELL_NOW:stale_position"
-            elif [ "${AGE_MIN:-0}" -gt 4 ] 2>/dev/null && safe_cmp "$PNL_PCT <= -3"; then
+            elif [ "${AGE_MIN:-0}" -gt 5 ] 2>/dev/null && safe_cmp "$PNL_PCT <= -3"; then
                 SELL_SIGNAL="SELL_NOW:losing_momentum"
             fi
         else

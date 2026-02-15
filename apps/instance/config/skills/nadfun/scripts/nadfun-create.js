@@ -218,8 +218,14 @@ async function main() {
 
     console.error(`[nadfun-create] Transaction sent: ${hash}`);
 
-    // Wait for receipt
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    // Wait for receipt (90s timeout — creation may take longer)
+    let receipt;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 90_000 });
+    } catch (e) {
+      console.log(JSON.stringify({ error: `Token creation tx sent but receipt timed out after 90s. Hash: ${hash}. Check explorer.`, txHash: hash }));
+      process.exit(1);
+    }
 
     if (receipt.status !== 'success') {
       console.log(JSON.stringify({ error: 'Token creation transaction reverted', txHash: hash }));

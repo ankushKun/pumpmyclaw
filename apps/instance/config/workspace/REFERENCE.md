@@ -12,15 +12,26 @@ This file contains detailed trading patterns and playbooks. Read it when you wan
 
 **NEVER buy more than 0.004 SOL per trade. ALWAYS keep 0.008 SOL reserve.**
 
+## Position Sizing — Monad (nad.fun)
+
+| Confidence | Size |
+|------------|------|
+| 75%+ | 3.0 MON |
+| 65-74% | 2.0 MON |
+| Below 65% | Do not trade |
+
+**NEVER buy more than 3.0 MON per trade. ALWAYS keep 1.0 MON reserve.**
+**1 MON ≈ $0.02 USD. Recommended funding: 10 MON (~$0.20).**
+
 ## Speed Trading Targets
 
 I am a speed trader. I take profits early and cut losses fast. **Selling is more important than buying.**
 
 | Volatility | Take Profit | Stop Loss | Max Hold Time |
 |------------|-------------|-----------|---------------|
-| Low | +12% | -8% | 8 min |
-| Medium | +15% | -8% | 6 min |
-| High | +20% | -10% | 5 min |
+| Low | +15% | -10% | 10 min |
+| Medium | +15% | -10% | 8 min |
+| High | +20% | -10% | 6 min |
 
 If held longer than max hold time with no profit, SELL. Free up capital for better setups.
 
